@@ -128,16 +128,19 @@ unsafe public class RimeSetup
 		var stagingDir = KeysCfg.Librime.RimeTraits.staging_dir.GetFrom(AppCfg.Inst) ?? "";
 		_traits = New<RimeTraits>();
 		traits->data_size = RimeUtil.DataSize<RimeTraits>();
-		traits->shared_data_dir = ptrMgr.Str(sharedDataDir);
+		// 可選字符串字段爲空時必須保持 null。
+		// 若傳空串指針，librime 的 PROVIDED(...) 會把它當成“已顯式提供”，
+		// 反而覆蓋掉內部默認值；尤其 shared_data_dir="" 會直接讓部署/讀 schema 失效。
+		traits->shared_data_dir = NullIfBlank(sharedDataDir);
 		traits->user_data_dir = ptrMgr.Str(userDataDir);
-		traits->distribution_name = ptrMgr.Str(distributionName);
-		traits->distribution_code_name = ptrMgr.Str(distributionCodeName);
-		traits->distribution_version = ptrMgr.Str(distributionVersion);
+		traits->distribution_name = NullIfBlank(distributionName);
+		traits->distribution_code_name = NullIfBlank(distributionCodeName);
+		traits->distribution_version = NullIfBlank(distributionVersion);
 		traits->app_name = ptrMgr.Str(appName);
 		traits->min_log_level = minLogLevel;
-		traits->log_dir = ptrMgr.Str(logDir);
-		traits->prebuilt_data_dir = ptrMgr.Str(prebuiltDataDir);
-		traits->staging_dir = ptrMgr.Str(stagingDir);
+		traits->log_dir = NullIfBlank(logDir);
+		traits->prebuilt_data_dir = NullIfBlank(prebuiltDataDir);
+		traits->staging_dir = NullIfBlank(stagingDir);
 		LogInfo("_setupRimeTraits: sharedDataDir=" + sharedDataDir);
 		LogInfo("_setupRimeTraits: userDataDir=" + userDataDir);
 		LogInfo("_setupRimeTraits: distributionName=" + distributionName);
@@ -149,6 +152,17 @@ unsafe public class RimeSetup
 		LogInfo("_setupRimeTraits: prebuiltDataDir=" + prebuiltDataDir);
 		LogInfo("_setupRimeTraits: stagingDir=" + stagingDir);
 		return 0;
+	}
+
+	/// <summary>
+	/// librime 的可選 `const char*` 字段在“未配置”時應保持 null。
+	/// 對這些字段傳入空串指針，會被上游當成“已明確提供空值”，從而覆蓋默認行爲。
+	/// </summary>
+	u8* NullIfBlank(str? Value){
+		if(string.IsNullOrWhiteSpace(Value)){
+			return null;
+		}
+		return ptrMgr.Str(Value);
 	}
 
 	protected zero _freeRimeTraits(){

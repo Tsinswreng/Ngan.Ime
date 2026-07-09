@@ -4,6 +4,7 @@
 		"DllPath": "D:\\ENV\\Rime\\weasel-0.15.0\\rime.dll",
 		"RimeTraits": {
 			"user_data_dir": "D:\\Program Files\\Rime\\User_Data",
+			"distribution_code_name": "Tsinswreng.Avalime.Windows",
 			"app_name": "Avalime.Windows"
 		}
 	},

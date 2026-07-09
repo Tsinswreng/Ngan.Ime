@@ -1,4 +1,5 @@
 using Avalime.Core.Keys;
+using Avalime.Core.Infra;
 using Avalime.ViewModels;
 using Avalonia.Media;
 using System.ComponentModel;
@@ -6,6 +7,7 @@ using System.ComponentModel;
 namespace Avalime.UI.Views.ToolBar;
 
 public class VmToolBar : ViewModelBase
+	, IMk<VmToolBar>
 	, IDisposable
 {
 	public ImeUiState UiState { get; }
@@ -40,6 +42,17 @@ public class VmToolBar : ViewModelBase
 		};
 		ImeState.PropertyChanged += _imePropertyChangedHandler;
 		UiState.PropertyChanged += _uiStatePropertyChangedHandler;
+	}
+
+	/// <summary>
+	/// 工具欄 VM 的兜底創建路徑。
+	/// </summary>
+	public static VmToolBar Mk()
+	{
+		return new VmToolBar(
+			Di.GetRSvc<ImeUiState>(),
+			Di.GetRSvc<ISvcIme>()
+		);
 	}
 
 	public void ToggleSimplification(){

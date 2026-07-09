@@ -100,12 +100,24 @@ sealed class Program{
 
 	/// <summary>
 	/// Windows 端在啟動時把本機實際 Rime 路徑寫回可寫配置層，
-	/// 保證後續 `RimeSetup` 與 UI 讀到的是當前機器可用路徑。
+	/// 但仍以顯式配置優先，避免宿主默認值把用戶配置覆蓋掉。
 	/// </summary>
 	static void SetupWindowsCfg(){
-		AppCfg.Inst.Set(KeysCfg.Librime.DllPath, RimeDllPath);
-		AppCfg.Inst.Set(KeysCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
-		AppCfg.Inst.Set(KeysCfg.Librime.RimeTraits.app_name, nameof(Avalime.Windows));
+		EnsureCfgOrDefault(KeysCfg.Librime.DllPath, RimeDllPath);
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.distribution_code_name, "Tsinswreng.Avalime.Windows");
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.app_name, nameof(Avalime.Windows));
+	}
+
+	/// <summary>
+	/// 宿主只在配置缺失時補默認值；一旦配置文件已明確給值，就完全尊重配置。
+	/// </summary>
+	static void EnsureCfgOrDefault(ICfgNode<str> Key, str DefaultValue){
+		var Cur = Key.GetFrom(AppCfg.Inst) ?? "";
+		if(!string.IsNullOrWhiteSpace(Cur)){
+			return;
+		}
+		AppCfg.Inst.Set(Key, DefaultValue);
 	}
 
 	public static AppBuilder BuildAvaloniaApp(){

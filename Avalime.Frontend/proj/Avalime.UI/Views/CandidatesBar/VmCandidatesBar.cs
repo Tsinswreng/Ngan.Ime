@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Avalime.Core.Infra;
 using Avalime.Core.Infra.Log;
 using Avalime.Core.Ime;
 using Avalime.Core.Keys;
@@ -14,6 +15,7 @@ namespace Avalime.UI.Views.CandidatesBar;
 using Ctx = VmCandidatesBar;
 
 public partial class VmCandidatesBar : ViewModelBase
+	, IMk<VmCandidatesBar>
 	, IDisposable
 {
 	/// <summary>
@@ -47,6 +49,15 @@ public partial class VmCandidatesBar : ViewModelBase
 			AppLog.Debug($"[Perf] VmCandidatesBar.AfterInput done: {sw.ElapsedMilliseconds}ms, candidates: {candidates.Count}");
 		};
 		ImeState.AfterInput += _afterInputHandler;
+	}
+
+	/// <summary>
+	/// 候選欄 VM 的兜底創建路徑。
+	/// 依賴本身仍交由 DI 解析，只是不再依賴反射式自動構造。
+	/// </summary>
+	public static Ctx Mk()
+	{
+		return new Ctx(Di.GetRSvc<ISvcIme>());
 	}
 
 	/// <summary>

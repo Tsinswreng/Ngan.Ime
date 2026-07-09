@@ -1,4 +1,5 @@
 using Avalime.Core.Keys;
+using Avalime.Core.Infra;
 using Avalime.Core.Infra.Log;
 using Avalime.ViewModels;
 using Avalonia.Threading;
@@ -7,6 +8,7 @@ using System.ComponentModel;
 namespace Avalime.UI.Views.Ime;
 
 public class VmIme : ViewModelBase
+	, IMk<VmIme>
 	, IDisposable
 {
 	public ISvcIme ImeState { get; }
@@ -75,6 +77,17 @@ public class VmIme : ViewModelBase
 		ImeState.ConnectCompleted += _connectCompletedHandler;
 		SyncRimeLogVisibility();
 		_ = StartConnectAsy();
+	}
+
+	/// <summary>
+	/// 根 IME VM 的兜底創建路徑。
+	/// </summary>
+	public static VmIme Mk()
+	{
+		return new VmIme(
+			Di.GetRSvc<ISvcIme>(),
+			Di.GetRSvc<ImeUiState>()
+		);
 	}
 
 	void OnImePropertyChanged(object? sender, PropertyChangedEventArgs e)

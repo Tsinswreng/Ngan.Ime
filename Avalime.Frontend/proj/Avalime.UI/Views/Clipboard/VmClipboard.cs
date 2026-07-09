@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using Avalime.Core.Infra;
 using Avalime.ViewModels;
 
 namespace Avalime.UI.Views.Clipboard;
 
 public class VmClipboard : ViewModelBase
+	, IMk<VmClipboard>
 	, IDisposable
 {
 	public ImeUiState UiState { get; }
@@ -28,6 +30,18 @@ public class VmClipboard : ViewModelBase
 			}
 		};
 		UiState.PropertyChanged += _uiStatePropertyChangedHandler;
+	}
+
+	/// <summary>
+	/// 剪貼板 VM 的兜底創建路徑。
+	/// </summary>
+	public static VmClipboard Mk()
+	{
+		return new VmClipboard(
+			Di.GetRSvc<ImeUiState>(),
+			Di.GetRSvc<IClipboardService>(),
+			Di.GetRSvc<IKeyboardHost>()
+		);
 	}
 
 	public async Task RefreshAsy(CT ct = default){

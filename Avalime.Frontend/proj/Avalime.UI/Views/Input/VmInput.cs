@@ -1,3 +1,4 @@
+using Avalime.Core.Infra;
 using Avalime.Core.Infra.Log;
 using Avalime.Core.Keys;
 using Avalime.ViewModels;
@@ -7,6 +8,7 @@ namespace Avalime.UI.Views.Input;
 using Ctx = VmInput;
 
 public class VmInput : ViewModelBase
+	, IMk<VmInput>
 	, IDisposable
 {
 	public str Text{
@@ -29,6 +31,14 @@ public class VmInput : ViewModelBase
 			AppLog.Debug($"[Perf] VmInput.AfterInput done: {sw.ElapsedMilliseconds}ms, preedit: {preedit}");
 		};
 		ImeState.AfterInput += _afterInputHandler;
+	}
+
+	/// <summary>
+	/// 輸入區 VM 的兜底創建路徑。
+	/// </summary>
+	public static Ctx Mk()
+	{
+		return new Ctx(Di.GetRSvc<ISvcIme>());
 	}
 
 	public void Dispose()

@@ -7,8 +7,16 @@ using System.Threading;
 namespace Avalime.UI;
 
 /// `Ime` 界面的共享 UI 狀態。由根 `VmIme` 與工具欄/剪貼板等子模塊共用。
-public partial class ImeUiState : ObservableObject
+public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 {
+	/// <summary>
+	/// 共享 UI 狀態本身沒有外部構造依賴，未註冊時可直接 new。
+	/// </summary>
+	public static ImeUiState Mk()
+	{
+		return new ImeUiState();
+	}
+
 	static readonly Lock PersistLock = new();
 
 	public ImeUiState()

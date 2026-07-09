@@ -138,11 +138,25 @@ public class Application : AvaloniaAndroidApplication<App>
 		}
 
 		EnsureDir(userDataDir);
-		AppCfg.Inst.Set(KeysCfg.Librime.DllPath, localRime);
-		AppCfg.Inst.Set(KeysCfg.Librime.RimeTraits.user_data_dir, userDataDir);
-		AppCfg.Inst.Set(KeysCfg.Librime.RimeTraits.app_name, ctx.PackageName ?? "rime.avalime");
+		// 配置優先；只有明確未配置時，宿主才補當前設備上的默認值。
+		EnsureCfgOrDefault(KeysCfg.Librime.DllPath, localRime);
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.user_data_dir, userDataDir);
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.distribution_code_name, "Tsinswreng.Avalime.Android");
+		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.app_name, ctx.PackageName ?? "rime.avalime");
 
 		return internalDir;
+	}
+
+	/// <summary>
+	/// 雙源配置以顯式配置爲準；只有缺省值爲空時，才由宿主補上可運行的默認值。
+	/// </summary>
+	static void EnsureCfgOrDefault(ICfgNode<str> Key, str DefaultValue)
+	{
+		var Cur = Key.GetFrom(AppCfg.Inst) ?? "";
+		if(!string.IsNullOrWhiteSpace(Cur)){
+			return;
+		}
+		AppCfg.Inst.Set(Key, DefaultValue);
 	}
 
 	static IServiceProvider BuildAndroidActivityServices()

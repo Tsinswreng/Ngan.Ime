@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using Avalime.Core.Infra;
 using Avalime.Core.Infra.Log;
 using Avalime.Core.Keys;
 using Avalime.UI;
@@ -11,6 +12,7 @@ namespace Avalime.UI.Views.Key;
 using Ctx = VmKey;
 
 public partial class VmKey : ViewModelBase, IKeyViewModel
+	, IMk<VmKey>
 	, IDisposable
 {
 	readonly PropertyChangedEventHandler _imePropertyChangedHandler;
@@ -51,6 +53,14 @@ public partial class VmKey : ViewModelBase, IKeyViewModel
 			}
 			return 0;
 		};
+	}
+
+	/// <summary>
+	/// 單鍵 VM 的兜底創建路徑。
+	/// </summary>
+	public static Ctx Mk()
+	{
+		return new Ctx(Di.GetRSvc<ISvcIme>());
 	}
 
 	public Func<zero>? Click{get;set;}

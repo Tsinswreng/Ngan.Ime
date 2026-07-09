@@ -8,10 +8,8 @@ using Tsinswreng.CsInterop;
 
 namespace Avalime.Rime;
 
-/// <summary>
 /// ISvcIme 的 Rime 引擎實現。
 /// 負責把 Rime 引擎狀態回填到 Core 狀態模型。
-/// </summary>
 public class SvcIme : ISvcIme
 {
 	readonly IServiceProvider _SvcProvider;
@@ -32,20 +30,16 @@ public class SvcIme : ISvcIme
 		RimeSetup.OnOptionChanged += OnOptionChanged;
 	}
 
-	/// <summary>
 	/// 懶取後端 RimeSetup。
 	/// 這裡故意不在構造函數裏碰 RimeSetup，讓 UI 可以先實例化 SvcIme 再異步初始化後端。
-	/// </summary>
 	RimeSetup GetRimeSetup()
 	{
 		_RimeSetup ??= _SvcProvider.GetRequiredService<RimeSetup>();
 		return _RimeSetup;
 	}
 
-	/// <summary>
 	/// 真正建立 Core 與 Rime session 的連通狀態。
 	/// 首次調用時在後台懶初始化 Rime；後續重複調用則複用同一輪初始化任務。
-	/// </summary>
 	public override async Task ConnectAsy(CT Ct = default){
 		Ct.ThrowIfCancellationRequested();
 		var ConnectTask = _ConnectTask;
@@ -64,10 +58,8 @@ public class SvcIme : ISvcIme
 		await ConnectTask.WaitAsync(Ct);
 	}
 
-	/// <summary>
 	/// 單次真正的初始化/連接實現。
 	/// 這裡把同步重活包進後台執行，避免 IME 首屏 UI 被 RimeSetup 構造直接堵住。
-	/// </summary>
 	async Task ConnectCoreAsy(CT Ct){
 		IsConnecting = true;
 		StatusText = "正在連接 Rime";
@@ -93,9 +85,7 @@ public class SvcIme : ISvcIme
 		}
 	}
 
-	/// <summary>
 	/// 通過 Rime API 切換 ascii_mode。
-	/// </summary>
 	public override Task ToggleAsciiModeAsy(CT Ct = default){
 		if(Interlocked.Exchange(ref _IsTogglingAscii, 1) != 0){
 			return Task.CompletedTask;
@@ -121,9 +111,7 @@ public class SvcIme : ISvcIme
 		}, Ct);
 	}
 
-	/// <summary>
 	/// 通過 Rime API 切換 simplification。
-	/// </summary>
 	public override Task ToggleSimplificationAsy(CT Ct = default){
 		if(Interlocked.Exchange(ref _IsTogglingSimplification, 1) != 0){
 			return Task.CompletedTask;
@@ -149,9 +137,7 @@ public class SvcIme : ISvcIme
 		}, Ct);
 	}
 
-	/// <summary>
 	/// 每次輸入後從 Rime 抓最新快照，回流到 Core 狀態。
-	/// </summary>
 	void OnAfterInput(object? Sender, IEnumerable<IKeyEvent> Args){
 		try{
 			var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -162,9 +148,7 @@ public class SvcIme : ISvcIme
 		}
 	}
 
-	/// <summary>
 	/// 逆向 P/Invoke 回調只傳 option 名和值，實際狀態同步仍統一回到這裡。
-	/// </summary>
 	void OnOptionChanged(str OptionName, bool IsEnabled){
 		try{
 			switch(OptionName){
@@ -180,9 +164,7 @@ public class SvcIme : ISvcIme
 		}
 	}
 
-	/// <summary>
 	/// 將 Rime session 的 status/context 轉成 Core 狀態。
-	/// </summary>
 	unsafe void SyncStateFromRime(){
 		var swTotal = System.Diagnostics.Stopwatch.StartNew();
 		lock(_StateLock){
@@ -236,10 +218,8 @@ public class SvcIme : ISvcIme
 		AppLog.Debug($"[Perf] AvalimeRime.SyncStateFromRime total: {swTotal.ElapsedMilliseconds}ms");
 	}
 
-	/// <summary>
 	/// 先按 librime 的 soft cursor 思路，把 composition.preedit 與 cursor_pos 組裝成當前要顯示的 preedit。
 	/// 目前先插入 U+2038 `‸`，優先補齊 Avalime 缺失的輸入游標顯示。
-	/// </summary>
 	unsafe str MkDisplayedPreedit(RimeComposition composition) {
 		var preedit = ToolCStr.ToCsStr(composition.preedit) ?? "";
 		if(preedit.Length <= 0){
@@ -257,9 +237,7 @@ public class SvcIme : ISvcIme
 		return preedit.Insert(cursorPos, Caret);
 	}
 
-	/// <summary>
 	/// 在 native context 有效期間把候選詞複製成 Core DTO，包含分頁訊息。
-	/// </summary>
 	unsafe CandidatePage ReadCandidates(RimeContext* Context){
 		var Ans = new List<ICandidate>();
 		var Menu = Context->menu;
@@ -279,17 +257,13 @@ public class SvcIme : ISvcIme
 		};
 	}
 
-	/// <summary>
 	/// 把 ascii_mode 寫入 stackalloc buffer。
-	/// </summary>
 	static void WriteAsciiMode(Span<byte> Buffer){
 		Buffer.Clear();
 		"ascii_mode"u8.CopyTo(Buffer);
 	}
 
-	/// <summary>
 	/// 把 simplification 寫入 stackalloc buffer。
-	/// </summary>
 	static void WriteSimplification(Span<byte> Buffer){
 		Buffer.Clear();
 		"simplification"u8.CopyTo(Buffer);

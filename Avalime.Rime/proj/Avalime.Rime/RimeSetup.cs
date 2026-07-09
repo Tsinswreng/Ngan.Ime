@@ -113,17 +113,41 @@ unsafe public class RimeSetup
 
 	protected zero _setupRimeTraits(){
 		LogInfo("_setupRimeTraits: begin");
+		var sharedDataDir = KeysCfg.Librime.RimeTraits.shared_data_dir.GetFrom(AppCfg.Inst) ?? "";
 		var userDataDir = KeysCfg.Librime.RimeTraits.user_data_dir.GetFrom(AppCfg.Inst) ?? "";
 		if(string.IsNullOrWhiteSpace(userDataDir)){
 			throw new InvalidOperationException("Librime.RimeTraits.user_data_dir is empty");
 		}
+		var distributionName = KeysCfg.Librime.RimeTraits.distribution_name.GetFrom(AppCfg.Inst) ?? "";
+		var distributionCodeName = KeysCfg.Librime.RimeTraits.distribution_code_name.GetFrom(AppCfg.Inst) ?? "";
+		var distributionVersion = KeysCfg.Librime.RimeTraits.distribution_version.GetFrom(AppCfg.Inst) ?? "";
 		var appName = KeysCfg.Librime.RimeTraits.app_name.GetFrom(AppCfg.Inst) ?? "rime.avalime";
+		var minLogLevel = KeysCfg.Librime.RimeTraits.min_log_level.GetFrom(AppCfg.Inst);
+		var logDir = KeysCfg.Librime.RimeTraits.log_dir.GetFrom(AppCfg.Inst) ?? "";
+		var prebuiltDataDir = KeysCfg.Librime.RimeTraits.prebuilt_data_dir.GetFrom(AppCfg.Inst) ?? "";
+		var stagingDir = KeysCfg.Librime.RimeTraits.staging_dir.GetFrom(AppCfg.Inst) ?? "";
 		_traits = New<RimeTraits>();
 		traits->data_size = RimeUtil.DataSize<RimeTraits>();
+		traits->shared_data_dir = ptrMgr.Str(sharedDataDir);
 		traits->user_data_dir = ptrMgr.Str(userDataDir);
+		traits->distribution_name = ptrMgr.Str(distributionName);
+		traits->distribution_code_name = ptrMgr.Str(distributionCodeName);
+		traits->distribution_version = ptrMgr.Str(distributionVersion);
 		traits->app_name = ptrMgr.Str(appName);
+		traits->min_log_level = minLogLevel;
+		traits->log_dir = ptrMgr.Str(logDir);
+		traits->prebuilt_data_dir = ptrMgr.Str(prebuiltDataDir);
+		traits->staging_dir = ptrMgr.Str(stagingDir);
+		LogInfo("_setupRimeTraits: sharedDataDir=" + sharedDataDir);
 		LogInfo("_setupRimeTraits: userDataDir=" + userDataDir);
+		LogInfo("_setupRimeTraits: distributionName=" + distributionName);
+		LogInfo("_setupRimeTraits: distributionCodeName=" + distributionCodeName);
+		LogInfo("_setupRimeTraits: distributionVersion=" + distributionVersion);
 		LogInfo("_setupRimeTraits: appName=" + appName);
+		LogInfo("_setupRimeTraits: minLogLevel=" + minLogLevel);
+		LogInfo("_setupRimeTraits: logDir=" + logDir);
+		LogInfo("_setupRimeTraits: prebuiltDataDir=" + prebuiltDataDir);
+		LogInfo("_setupRimeTraits: stagingDir=" + stagingDir);
 		return 0;
 	}
 

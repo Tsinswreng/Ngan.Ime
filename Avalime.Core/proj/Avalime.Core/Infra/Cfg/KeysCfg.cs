@@ -13,8 +13,16 @@ public class KeysCfg{
 
 		public static class RimeTraits{
 			public static ICfgNode _R = Mk(null, [nameof(RimeTraits)]);
+			public static ICfgNode<str> shared_data_dir = Mk(_R, [nameof(shared_data_dir)], "");
 			public static ICfgNode<str> user_data_dir = Mk(_R, [nameof(user_data_dir)], "");
+			public static ICfgNode<str> distribution_name = Mk(_R, [nameof(distribution_name)], "");
+			public static ICfgNode<str> distribution_code_name = Mk(_R, [nameof(distribution_code_name)], "");
+			public static ICfgNode<str> distribution_version = Mk(_R, [nameof(distribution_version)], "");
 			public static ICfgNode<str> app_name = Mk(_R, [nameof(app_name)], "rime.avalime");
+			public static ICfgNode<i32> min_log_level = Mk(_R, [nameof(min_log_level)], 0);
+			public static ICfgNode<str> log_dir = Mk(_R, [nameof(log_dir)], "");
+			public static ICfgNode<str> prebuilt_data_dir = Mk(_R, [nameof(prebuilt_data_dir)], "");
+			public static ICfgNode<str> staging_dir = Mk(_R, [nameof(staging_dir)], "");
 		}
 	}
 	public class Keyboard{

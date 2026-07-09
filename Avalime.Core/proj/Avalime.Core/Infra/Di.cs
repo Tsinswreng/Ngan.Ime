@@ -19,10 +19,15 @@ public class Di{
 		return SvcProvider.GetRequiredService<T>();
 	}
 
+	/// <summary>
+	/// 先嘗試從 DI 取服務；若當前類型未註冊，則退回到類型自身定義的 `Mk()`。
+	/// 這樣可避免 `ActivatorUtilities` 對反射構造的依賴，更適合 AOT 場景。
+	/// </summary>
 	public static T DiOrMk<T>()
-		where T:class
+		where T : class, IMk<T>
 	{
-		return ActivatorUtilities.GetServiceOrCreateInstance<T>(SvcProvider);
+		var Svc = SvcProvider?.GetService<T>();
+		return Svc ?? T.Mk();
 	}
 
 }

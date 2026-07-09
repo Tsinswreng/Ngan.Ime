@@ -12,7 +12,7 @@ using Tsinswreng.CsCore;
 	Android 端在 `Application` 啟動時初始化雙源配置：
 	- `Avalime.Ro.jsonc` 只提供 `RwCfgPath`
 	- `Avalime.Rw.jsonc` 提供 `Librime` 結構
-	- 宿主再把實際 `DllPath`、`RimeTraits.user_data_dir`、`RimeTraits.app_name` 寫入可寫層
+	- 宿主再把實際 `DllPath`、`RimeTraits.user_data_dir`、`RimeTraits.distribution_code_name`、`RimeTraits.app_name` 寫入可寫層
 	- 之後由 `RimeSetup.Inst` 從 `AppCfg.Inst` 讀取配置並完成初始化
 	- 另外新增 `RimeWarmup`：`Application` 與 Android IME `OnCreate()` 會在後台先觸發一次預熱
 	- 預熱的本質是提早構造 `RimeSetup.Inst`，把 `initialize/start_maintenance/join_maintenance_thread/create_session` 儘量前移

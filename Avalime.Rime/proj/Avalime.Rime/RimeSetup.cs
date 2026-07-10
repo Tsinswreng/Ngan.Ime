@@ -123,7 +123,7 @@ unsafe public class RimeSetup
 		var distributionVersion = KeysCfg.Librime.RimeTraits.distribution_version.GetFrom(AppCfg.Inst) ?? "";
 		var appName = KeysCfg.Librime.RimeTraits.app_name.GetFrom(AppCfg.Inst) ?? "rime.avalime";
 		var minLogLevel = KeysCfg.Librime.RimeTraits.min_log_level.GetFrom(AppCfg.Inst);
-		var logDir = KeysCfg.Librime.RimeTraits.log_dir.GetFrom(AppCfg.Inst) ?? "";
+		var logDir = KeysCfg.Librime.RimeTraits.log_dir.GetFrom(AppCfg.Inst);
 		var prebuiltDataDir = KeysCfg.Librime.RimeTraits.prebuilt_data_dir.GetFrom(AppCfg.Inst) ?? "";
 		var stagingDir = KeysCfg.Librime.RimeTraits.staging_dir.GetFrom(AppCfg.Inst) ?? "";
 		_traits = New<RimeTraits>();
@@ -138,7 +138,8 @@ unsafe public class RimeSetup
 		traits->distribution_version = NullIfBlank(distributionVersion);
 		traits->app_name = ptrMgr.Str(appName);
 		traits->min_log_level = minLogLevel;
-		traits->log_dir = NullIfBlank(logDir);
+		// librime 约定：null=临时目录，空串=只写 stderr。这里不能把空串吞成 null。
+		traits->log_dir = logDir is null ? null : ptrMgr.Str(logDir);
 		traits->prebuilt_data_dir = NullIfBlank(prebuiltDataDir);
 		traits->staging_dir = NullIfBlank(stagingDir);
 		LogInfo("_setupRimeTraits: sharedDataDir=" + sharedDataDir);

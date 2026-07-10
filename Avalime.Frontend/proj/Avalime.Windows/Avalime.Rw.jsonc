@@ -3,9 +3,10 @@
 		"AutoLinkDll": false,
 		"DllPath": "D:\\ENV\\Rime\\weasel-0.15.0\\rime.dll",
 		"RimeTraits": {
-			"user_data_dir": "D:\\Program Files\\Rime\\User_Data",
+			"user_data_dir": "D:\\Program Files\\Rime\\Avalime",
 			"distribution_code_name": "Tsinswreng.Avalime.Windows",
-			"app_name": "Avalime.Windows"
+			"app_name": "Avalime.Windows",
+			"log_dir": "D:\\Program Files\\Rime\\Avalime\\Log"
 		}
 	},
 	"Keyboard": {

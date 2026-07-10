@@ -35,6 +35,8 @@ sealed class Program{
 		var services = new ServiceCollection();
 		// Windows 桌面端也直接走 Rime 真實實現，避免 UI 啟動後再落回無法工作的 stub 組合。
 		services.AddSingleton<RimeSetup>(_ => RimeSetup.Inst);
+		// Rime 日誌頁依賴抽象日誌源；Windows 宿主需要和 Android 一樣顯式暴露同一份 RimeLogStore。
+		services.AddSingleton<IRimeLogSource>(_ => RimeLogStore.Inst);
 		services.AddSingleton<
 			IOsKeyProcessor
 			, WindowsKeyProcessor

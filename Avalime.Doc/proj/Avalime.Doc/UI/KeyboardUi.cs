@@ -108,7 +108,7 @@ using Tsinswreng.CsCore;
 #H[Rime 日誌頁][
 	`RimeSetup` 現在把引擎通知回調包成 C# 事件 `OnLog` / `OnOptionChanged`。
 	`Avalime.Core.Infra.Log.IRimeLogSource` 是 UI 看到的抽象；
-	Android 宿主把 `Avalime.Rime.RimeLogStore.Inst` 註冊爲該介面。
+	宿主層（如 Android / Windows）負責把 `Avalime.Rime.RimeLogStore.Inst` 註冊爲該介面。
 	`RimeLogStore` 會先保存最近一段初始化日誌，再把新增日誌事件往外廣播。
 	`RimeLogBuffer` 僅依賴 `IRimeLogSource`：
 	- 構造時先回放歷史快照，保證即使 librime 在 UI 顯示前就已開始預熱，也能看到前面的初始化輸出

@@ -161,3 +161,295 @@ Avalime 绑定层也已经有这些字段，不缺 ABI：
 ][
 
 ]
+
+
+-T[2026_0709_220829][
+	現在Avalime已經有 code_name 了。
+	weasel也有code_name 。 現在可以在ts中按 code_name 判斷dll加載路徑了。
+	但是android端有一個限制、就是運行時動態鏈接dll 只給鏈接指定目錄的dll
+	你先查一下 到底是怎麼回事 然後再想一下 C\# lua的dll應該放在甚麼位置好
+][
+````md
+我查完之后，结论先给你：
+
+**Android 这边的问题本质不是“Lua 特别限制”，而是 Android 进程的动态链接器只信任 app 自己 namespace 里的库路径。**
+对 Avalime 这种普通 app 来说，放在外部存储、`user_data_dir`、`/sdcard/...` 这类位置的 `.so`，即使文件可读，`dlopen()`/`package.loadlib()` 也经常会失败，或者依赖库解析失败。
+另外，app 自己真正稳定可用的原生库目录，是系统分配的 app 私有目录和原生库目录；Android 官方 `ApplicationInfo` 里就有 `nativeLibraryDir` 这个概念：
+- [ApplicationInfo](https://developer.android.com/reference/android/content/pm/ApplicationInfo)
+
+结合你现在这套架构，我建议分成两种放法：
+
+1. **发布版最稳的放法**
+- 把 `libCsRimeLua.so` 直接作为 app 原生库随 APK 一起打包
+- 放到 `lib/arm64-v8a/` 对应的 `nativeLibraryDir`
+- TS 侧按 `distribution_code_name === "Tsinswreng.Avalime.Android"` 时，去取 Avalime 暴露出来的 `nativeLibraryDir` 路径，再拼 `libCsRimeLua.so`
+
+优点：
+- 最符合 Android linker 预期
+- 依赖解析最稳
+- 不需要自己复制 `.so`
+
+缺点：
+- 更新 C# Lua 库要跟着重装 app
+
+2. **开发期更灵活的放法**
+- 继续像现在 `librime.so` 一样，放在 Avalime 的**内部私有目录**
+- 例如：`/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+- 不能放外部 `user_data_dir`
+- 最好连 `libc++_shared.so` 也放同目录，必要时由宿主先 preload
+
+优点：
+- 适合你频繁替换 `.so` 调试
+- 不必每次重打整包
+
+缺点：
+- 需要宿主负责复制和兜底依赖
+- 比 `nativeLibraryDir` 略脆弱一点
+
+结合你现在的需求，我的建议是：
+
+- **开发期**：放 `filesDir` 下面的私有目录，方便你替换测试
+- **稳定后/正式方案**：改成 APK 自带 native lib，走 `nativeLibraryDir`
+
+还有一个关键点：
+
+你现在 [LibPath.ts](</D:/Program Files/Rime/User_Data/_tsToLua/src/Tsinswreng/LibPath.ts:19>) 的安卓分支还是 Trime 时代的硬编码：
+- `com.osfans.trime`
+- 而且思路还是“按运行时 ID 猜路径”
+
+现在既然已经有 `distribution_code_name` 了，Avalime 这边最合理的是：
+- 用 `distribution_code_name` 判断宿主
+- Avalime Android 分支不要再走 `user_data_dir`
+- 改走 Avalime 宿主明确提供的内部库目录
+
+我这边还顺手确认了 Avalime 当前 app 私有根目录：
+- `dataDir=/data/user/0/Tsinswreng.Avalime`
+
+所以如果你要我给一个**当前就能落地**的位置建议，我选这个：
+
+`/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+
+原因：
+- 在 app 私有目录内
+- 宿主可控、可复制
+- 跟你现有 `files/librime.so` 的处理方式一致
+- 后面再切到 `nativeLibraryDir` 也不难
+
+如果你同意，我下一步就做两件事之一：
+
+1. 先只改 TS 路径判断：按 `distribution_code_name` 区分 Weasel / Avalime / Trime
+2. 再给 Avalime 加一个“导出内部 native lib 目录给 Lua 用”的明确接口，避免 TS 再硬编码包名路径
+````
+]
+
+
+-T[2026_0709_221325][
+	C\# Lua Dll本質定位是插件
+	必須支持 在不卸載程序的前提下動態增減
+	絕對不能 一動插件就要重裝app
+][
+````md
+那就不能走 `nativeLibraryDir` / APK 自带库这条路了。这个约束已经很明确：
+
+- 你的 `C# Lua dll/so` 本质是**插件**
+- 插件必须支持**不卸载、不重装 app** 的动态增减
+- 所以它必须放在 **APK 外部、但又能被 Avalime 进程稳定 `dlopen()`** 的位置
+
+这里就有一个关键矛盾需要先讲清楚：
+
+**Android 对“任意路径动态加载 `.so`”确实有限制。**
+所以“插件可热替换”不等于“随便放在 `/sdcard` 或 `user_data_dir` 里然后直接 `loadlib`”。
+
+在你的约束下，可行方向只剩两类：
+
+1. **插件文件放外部/可更新目录，宿主启动时复制到 app 私有可加载目录，再 `loadlib`**
+- 外部目录负责“可增减、可替换”
+- 内部私有目录负责“满足 Android linker 要求”
+- 每次检测到插件变更，就复制一份新 `.so` 到内部目录
+- Lua 永远加载内部那份
+
+这是我目前看最稳的方案。
+
+2. **完全不用 `.so` 动态链接，改成 C# 插件解释/托管加载体系**
+- 比如 DLL + 自己的托管插件加载协议
+- 但你现在这条链是 `lua package.loadlib + NativeAOT 导出符号`
+- 这已经是原生 `.so` 插件路线，不是纯托管路线
+- 这条会把体系改大，不适合现在
+
+所以如果坚持你现在的插件定义，**正确方案不是“插件直接放哪里”**，而是：
+
+**插件源位置** 和 **实际加载位置** 分离。
+
+建议结构：
+
+- 插件仓库目录：
+  `/storage/emulated/0/Android/data/Tsinswreng.Avalime/files/UserData/Tsinswreng/_NativeLib/linux-bionic-arm64/`
+  这里方便你直接替换、增删
+
+- 实际加载目录：
+  `/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/`
+  这里由 Avalime 负责同步进去，供 `loadlib` 使用
+
+也就是说：
+- 用户/你维护的是外部插件目录
+- Avalime 在启动或刷新插件时，把可用插件复制到内部私有目录
+- Lua `loadlib` 只认内部目录
+
+这样才能同时满足：
+- 不重装 app
+- 可动态增减插件
+- 符合 Android 动态链接约束
+
+但这里还有一个必须先确认的设计点，我不能替你擅自定：
+
+**插件更新触发方式你要哪一种？**
+
+1. 启动时同步一次
+2. 每次进入输入法时检查并同步
+3. 手动点一个“刷新插件”按钮再同步
+
+我建议先做 `3`，其次是 `1`。
+因为 Android 上已加载的 `.so` 不能简单原地覆盖复用，热更新时机要谨慎，不然你会碰到“旧 so 仍驻留进程”的问题。
+````
+]
+
+
+-T[2026_0709_221709][
+	先不管 可寫的外部目錄在哪裏。
+	也就是說、現在最終 供app鏈接so庫的目錄 你是確定了是吧
+	是哪一個
+][
+````md
+对，**最终供 app 实际链接 `.so` 的目录**，我现在给你的结论是：
+
+`/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/`
+
+目标文件就是：
+
+`/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+
+这是基于你当前包名 `Tsinswreng.Avalime` 和 app 私有 `filesDir` 推出来的稳定位置。
+
+更准确地说，代码里不要硬编码整串路径，应该以：
+
+- `Context.FilesDir.AbsolutePath`
+
+为基准，再拼：
+
+- `Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+
+也就是运行时等价于：
+
+```text
+<filesDir>/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so
+```
+
+对当前 Avalime 包来说，`filesDir` 就是：
+
+`/data/user/0/Tsinswreng.Avalime/files`
+
+所以最终路径就是上面那条。
+````
+]
+
+
+
+-T[2026_0709_222204][
+	也就是說 `/data/user/0/Tsinswreng.Avalime/files`
+	這個目錄 既能被我的app運行時讀寫、
+	裏面的.so也能被我的app運行時動態連接 是吧?
+	那你現在改一下ts、
+	然後把編譯好的那幾個so放到手機裏先驗證一下 看他能不能連上
+][
+
+]
+
+
+-NewSession[]
+
+-T[2026_0710_195751][
+	我現在要調試。我windows端的lua/下文的內容可能頻繁改動、改動之後要同步到手機端的對應文件夾裏面。
+	我的安卓端app現在是release模式編譯的 不能run as。
+	你給我想想辦法。
+	我的安卓手機有su
+][
+
+]
+
+
+-NewSession[]
+
+-T[2026_0710_202303][
+	先看skill;
+	看Avalime這個項目
+	看CsRimeLua這個項目。
+	目前編譯出了幾個CsRimeLua的native dll、linux-bionic-arm64的。
+	你再看
+	`D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\LibPath.ts`
+	`D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\_lib\CsRimeLua.ts`
+	看看現在這些lua的so弄上去了沒有
+][
+````md
+我看完了，结论是：`linux-bionic-arm64` 的 `libCsRimeLua.so` 在你这台机器的 Rime 用户目录里“有”，但按现在 Avalime + Lua 的实际加载路径来看，“还不能算已经弄对了”，而且当前代码存在路径不一致的问题。
+
+关键点：
+
+- `CsRimeLua` 的最新 Android 产物已经生成出来了，最新文件是 [libCsRimeLua.so](/E:/_code/CsRime/CsRimeLua/proj/CsRimeLua.Android/bin/Release/net10.0/linux-bionic-arm64/publish/libCsRimeLua.so)，时间是 `2026-07-09 21:23:37`，大小 `1868872`。
+- 你本机用户目录里也确实有 [libCsRimeLua.so](/D:/Program%20Files/Rime/User_Data/lua/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so)，但它时间是 `2025-10-09 15:21:03`，明显不是这次新编出来的那份。
+- Lua 侧 [LibPath.ts](/D:/Program%20Files/Rime/User_Data/_tsToLua/src/Tsinswreng/LibPath.ts:21) 在 `linux-bionic-arm64` 下不会去读 `D:\Program Files\Rime\User_Data\lua\...`，而是硬编码去 Android 设备里的：
+  - `/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+  - 或 `/data/data/com.osfans.trime/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+- Lua 封装 [CsRimeLua.ts](/D:/Program%20Files/Rime/User_Data/_tsToLua/src/Tsinswreng/_lib/CsRimeLua.ts:8) 也是直接 `resolveDllPath("CsRimeLua")` 后 `package_.loadlib(...)`。
+- 但 Avalime Android 端 [Application.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/Application.cs:68) 现在是把 `libCsRimeLua.so` 复制到 `ctx.FilesDir` 根目录，也就是类似：
+  - `/data/user/0/.../files/libCsRimeLua.so`
+  不是 Lua 现在要找的：
+  - `/data/user/0/.../files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+- 仓库里的 [README.typ](/E:/_code/CsRime/Avalime/README.typ:35) 也写了 Android 侧前置条件是先把 `libCsRimeLua.so` 放进 `/sdcard/rime/`，再由 app 复制进去。
+
+所以当前状态更准确地说是：
+
+1. 本机 Windows 用户目录里已经有一个 `linux-bionic-arm64/libCsRimeLua.so`。
+2. 这份不是最新构建产物。
+3. 更关键的是，Avalime 复制目标路径和 Lua 查找路径对不上，按现状大概率还是加载不到。
+
+还有一件事：skill 里要求看的 `Tsinswreng/AiMemory/Main.typ`，我在预期位置没找到。
+
+这里已经碰到设计/实现不一致，我先停下。你要我下一步做哪种修正？
+
+1. 改 `LibPath.ts`，让 Avalime 分支去读 `filesDir` 根目录的 `libCsRimeLua.so`
+2. 改 Avalime，把 `.so` 复制到 `filesDir/Tsinswreng/_NativeLib/linux-bionic-arm64/`
+3. 两边一起整理，统一成一个最终方案
+````
+]
+
+
+-T[2026_0710_203514][
+先把so弄到lua指定讀取的目錄
+你先給以最快速度弄上去 直接給我adb shell su -c
+我現在先要驗證avalime能不能連得上so
+][
+```sh
+adb push "E:\_code\CsRime\CsRimeLua\proj\CsRimeLua.Android\bin\Release\net10.0\linux-bionic-arm64\publish\libCsRimeLua.so" /data/local/tmp/libCsRimeLua.so
+adb shell su -c 'mkdir -p /data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64'
+adb shell su -c 'cp /data/local/tmp/libCsRimeLua.so /data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so'
+adb shell su -c 'ls -l /data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so'
+```
+]
+
+
+-T[2026_0710_204745][
+	你媽的我讓你申請權限你也不申 還說permission denied
+	我在codex窗口連你申請執行命令的對話框都沒看到！還要我幫你擦屁股！
+	現在那幾個命令都執行了。也重新部署了。
+	但現在我執行輸入法的 `$unixt` 命令、時間戳的毫秒部分沒出來、說明調用so失敗了。
+	你想想應該怎麼查
+][
+
+]
+
+-T[][][]
+-T[][][]
+-T[][][]
+-T[][][]
+-T[][][]
+-T[][][]

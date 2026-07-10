@@ -4,6 +4,7 @@
 		"DllPath": "/data/user/0/Tsinswreng.Avalime/files/librime.so",
 		"RimeTraits": {
 			"user_data_dir": "/sdcard/Android/data/Tsinswreng.Avalime/files/UserData",
+			"log_dir": "/sdcard/Android/data/Tsinswreng.Avalime/files/Logs",
 			"distribution_code_name": "Tsinswreng.Avalime.Android",
 			"app_name": "Tsinswreng.Avalime"
 		}

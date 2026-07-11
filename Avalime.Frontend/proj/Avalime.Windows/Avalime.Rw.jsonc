@@ -1,12 +1,12 @@
 {
 	"Librime": {
 		"AutoLinkDll": false,
-		"DllPath": "D:\\ENV\\Rime\\weasel-0.15.0\\rime.dll",
+		"DllPath": "D:/Program Files/Rime/Avalime/bin/rime.dll",
 		"RimeTraits": {
-			"user_data_dir": "D:\\Program Files\\Rime\\Avalime",
+			"user_data_dir": "D:/Program Files/Rime/Avalime/UserData",
 			"distribution_code_name": "Tsinswreng.Avalime.Windows",
-			"app_name": "Avalime.Windows",
-			"log_dir": "D:\\Program Files\\Rime\\Avalime\\Log"
+			"app_name": "Tsinswreng.Avalime.Windows",
+			"log_dir": "D:/Program Files/Rime/Avalime/Log"
 		}
 	},
 	"Keyboard": {

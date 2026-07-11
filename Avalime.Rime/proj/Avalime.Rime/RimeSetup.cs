@@ -66,7 +66,7 @@ unsafe public class RimeSetup
 		// dispose unmanaged resources
 		//FreeEtNull(&_traits);
 		//FreeIfNotNull(_traits);_traits=null;
-		//FreeEtNull(ref _traits);//TODO traitsʹ成員 有 byte*、恐未釋放
+		//FreeEtNull(ref _traits);//TODO traitsʹ成員 有 u8*、恐未釋放
 		_traits = null;
 		_disposed = true;
 	}
@@ -155,10 +155,8 @@ unsafe public class RimeSetup
 		return 0;
 	}
 
-	/// <summary>
 	/// librime 的可選 `const char*` 字段在“未配置”時應保持 null。
 	/// 對這些字段傳入空串指針，會被上游當成“已明確提供空值”，從而覆蓋默認行爲。
-	/// </summary>
 	u8* NullIfBlank(str? Value){
 		if(string.IsNullOrWhiteSpace(Value)){
 			return null;
@@ -175,16 +173,13 @@ unsafe public class RimeSetup
 		return ToolCStr.ToCsStr(cStr);
 	}
 
-	/// <summary>option 改變時觸發。參數: option_name, is_enabled</summary>
 	public static event Action<string, bool>? OnOptionChanged;
 	public static event EventHandler<RimeLogEventArgs>? OnLog;
 
-	/// <summary>
 	/// 零分配字節比較，避免逆向 P/Invoke 中觸發 GC 導致 Mono !ji->async 斷言崩潰
-	/// </summary>
-	static bool _bytesEq(byte* p, str s){
+	static bool _bytesEq(u8* p, str s){
 		for(i32 i = 0; i < s.Length; i++){
-			if(p[i] != (byte)s[i]) return false;
+			if(p[i] != (u8)s[i]) return false;
 		}
 		return p[s.Length] == 0; // null terminator
 	}
@@ -192,12 +187,13 @@ unsafe public class RimeSetup
 	public static void on_message(
 		void* context_object
 		,RimeSessionId session_id
-		,byte* message_type
-		,byte* message_value
+		,u8* message_type
+		,u8* message_value
 	){
 		// 空指針檢查
-		if(message_type == null || message_value == null) return;
-
+		if(message_type is null || message_value is null){
+			return;
+		}
 		var messageType = S(message_type);
 		var messageValue = S(message_value);
 		if(!string.IsNullOrWhiteSpace(messageType) || !string.IsNullOrWhiteSpace(messageValue)){

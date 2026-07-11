@@ -10,7 +10,7 @@
 		<Compile Include="../TypeAlias.cs" />
 		<Compile Include="../GlobalUsing.cs" />
 	</ItemGroup>
-		<ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="Tsinswreng.CsCore" Version="0.0.1-alpha" />
 		<PackageReference Include="Tsinswreng.CsLog" Version="0.0.1-alpha" />
 		<PackageReference Include="Tsinswreng.CsTools" Version="0.0.1-alpha" />

@@ -1,6 +1,6 @@
 -T[2026_0709_211140][
 先看skill
-看skill的流程來。
+按skill的流程來。
 然後看
 CsRimeLua
 這個項目。
@@ -446,6 +446,183 @@ adb shell su -c 'ls -l /data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeL
 ][
 
 ]
+
+-NewSesn[]
+-T[2026_0711_104527][
+看skill
+
+然後看
+CsRimeLua
+這個項目。
+這個項目目前是 用AOT編譯出dll然後給lua調用的。
+看
+`D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\_lib\CsRimeLua.ts`
+`D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\tools\Date.ts`
+及其他相關文件(不只這個一個文件)
+日誌輸出:
+```
+getUnixTimeMs
+[GetUnixTimeMs] libPath=/storage/emulated/0/Android/data/Tsinswreng.Avalime/files/UserData/lua/Tsinswreng/_NativeLib/win-x86/CsRimeLua.dll; loadlibErr=dlopen failed: library "/storage/emulated/0/Android/data/Tsinswreng.Avalime/files/UserData/lua/Tsinswreng/_NativeLib/win-x86/CsRimeLua.dll" needed or dlopened by "/data/data/Tsinswreng.Avalime/files/librime.so" is not accessible for the namespace "classloader-namespace"; callErr=...eng.Avalime/files/UserData/lua/Tsinswreng/tools/Date.lua:26: attempt to call a nil value (method 'GetUnixTimeMs')
+```
+看看怎麼回事。
+
+][
+````md
+我已经用 `adb` 把设备上的实际状态查清了。结论很明确：
+
+**根因就是设备上的 `RuntimeIdentifier` 还是 `win-x86`，Lua 因此在 Android 上错误地去加载 Windows 的 DLL。**
+
+我在设备上确认到这些事实：
+
+- 设备 ABI 是 `arm64-v8a`
+- Avalime 当前配置里的 `distribution_code_name` 是对的，确实是 `Tsinswreng.Avalime.Android`
+- Avalime 当前配置里的 `user_data_dir` 是
+  `/sdcard/Android/data/Tsinswreng.Avalime/files/UserData`
+- 这个目录下实际存在：
+  - `Tsinswreng/RuntimeIdentifier`
+  - 内容就是 `win-x86`
+- 外部 `UserData/lua/Tsinswreng/_NativeLib/` 下面同时有：
+  - `linux-bionic-arm64/libCsRimeLua.so`
+  - `win-x86/CsRimeLua.dll`
+  - `win-x64/CsRimeLua.dll`
+- Avalime 内部目录里也确实有：
+  - `/data/user/0/Tsinswreng.Avalime/files/libCsRimeLua.so`
+  - `/data/user/0/Tsinswreng.Avalime/files/librime.so`
+  - `/data/user/0/Tsinswreng.Avalime/files/libc++_shared.so`
+- 你之前放进去的内部 native 路径也还在，而且
+  `/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+  实际是一个软链接，指向
+  `/data/user/0/Tsinswreng.Avalime/files/libCsRimeLua.so`
+
+这就把现象完全解释通了：
+
+1. Lua 侧 [LibPath.ts](</D:/Program Files/Rime/User_Data/_tsToLua/src/Tsinswreng/LibPath.ts:12>) 先读 `user_data_dir/Tsinswreng/RuntimeIdentifier`
+2. 设备上这个值现在是 `win-x86`
+3. 所以它走了 `win` 分支，拼出：
+   `/storage/emulated/0/Android/data/Tsinswreng.Avalime/files/UserData/lua/Tsinswreng/_NativeLib/win-x86/CsRimeLua.dll`
+4. 然后 `package.loadlib()` 在 Android 上拿这个 Windows DLL 去 `dlopen`
+5. 于是就报你看到的：
+   `dlopen failed ... classloader-namespace`
+6. 后面的 `attempt to call a nil value (method 'GetUnixTimeMs')` 只是连带结果，因为 `loadlib` 失败后 `GetUnixTimeMs` 根本没加载出来
+
+所以这次**不是 `.so` 不存在**，也**不是 `GetUnixTimeMs` 没导出**。
+真正的问题是：**平台判定文件错了，Lua 被带偏到了 win-x86 路径。**
+
+另外补一条：
+
+- `run-as Tsinswreng.Avalime ...` 失败，提示 `package not debuggable`
+- 所以设备上这包不是 debuggable 包，内部目录我只能通过 `su` 查
+
+现在最小修复方向已经很清楚了：
+
+- 在 Avalime Android 启动时，强制把
+  `UserData/Tsinswreng/RuntimeIdentifier` 写成 `linux-bionic-arm64`
+
+不然你哪怕把 `.so` 放对了，只要这个文件还是 `win-x86`，Lua 就还会继续去找 `CsRimeLua.dll`。
+
+如果你要，我下一步可以直接改代码，把这个修复落到 [Application.cs](</E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/Application.cs>) 里。
+````
+]
+
+
+
+
+-T[2026_0711_105700][
+	你先直接用命令把 RuntimeIdentifier 改了 我現在要試的是 能不能連上so
+][]
+
+-T[2026_0711_105854][
+````
+getUnixTimeMs
+[GetUnixTimeMs] libPath=/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so; loadlibErr=dlopen failed: library "/data/user/0/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so" not found; callErr=...eng.Avalime/files/UserData/lua/Tsinswreng/tools/Date.lua:26: attempt to call a nil value (method 'GetUnixTimeMs')
+````
+現在是這樣
+][
+````md
+又定位到一层更具体的原因了：不是 .so 本体没放进去，而是 当前那个路径是软链接，Android SELinux/namespace 在 dlopen 这里把软链接读拦了。我先直接把这个路径替换成真实文件，再给你一个最接近最终结论的验证状态。
+````
+]
+
+
+
+-T[2026_0711_111207][
+現在 只要`getUnixTimeMs`函數一被調用 輸入法就立即崩潰。
+TswG_log中沒有拿到錯誤信息
+```
+PS C:\Users\lenovo>  adb shell "cat /sdcard/Android/data/Tsinswreng.Avalime/files/UserData/TswG_log"
+getUnixTimeMs
+```
+你用adb logcat看看能不能找到崩潰原因
+][
+````md
+找到了，現在的崩潰已經不是 Lua 層，也不是 `loadlib` 找不到文件。
+
+**結論**
+`getUnixTimeMs` 現在已經成功進入 `libCsRimeLua.so`，然後 **在 so 內部直接 `abort` 崩潰**。
+
+**logcat 關鍵證據**
+最新幾次都是同一類崩潰：
+
+```text
+07-11 11:09:54 F libc  : Fatal signal 6 (SIGABRT) in Tsinswreng.Avalime
+07-11 11:09:55 F DEBUG : Cmdline: Tsinswreng.Avalime
+07-11 11:09:55 F DEBUG : NOTE:   /data/data/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so
+07-11 11:09:55 F DEBUG : #00 pc ... libc.so (abort+164)
+07-11 11:09:55 F DEBUG : #01 pc 00000000000789a4 /data/data/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so
+```
+
+後面幾次重試也是一樣，`#01` 都落在：
+`/data/data/Tsinswreng.Avalime/files/Tsinswreng/_NativeLib/linux-bionic-arm64/libCsRimeLua.so`
+
+另外還有一條很關鍵：
+
+```text
+F libc: FORTIFY: pthread_mutex_lock called on a destroyed mutex
+```
+
+這說明 so 裡面很可能有 **線程/同步對象生命週期問題**，不是簡單的導出名不對。
+
+**我目前能確定的事**
+- `loadlib` 已經能把 so 加載起來了
+- 崩潰發生在 so 內部
+- 你現在放進去的這份 so 是 **舊文件**
+  - 你剛拷進去的內部文件大小：`1302576`
+  - 倉庫裡較新的構建產物：`1868872`
+    路徑是 [libCsRimeLua.so](/E:/_code/CsRime/CsRimeLua/proj/CsRimeLua.Android/bin/Release/net10.0/linux-bionic-arm64/publish/libCsRimeLua.so)
+
+這個大小差很多，所以我高度懷疑你現在驗證的是一個舊版、有已知 native 崩潰問題的 so，而不是倉庫裡最新那個。
+
+**下一步建議**
+先不要猜 C# 哪行。最短路徑是先把設備上的 so 換成倉庫裡最新那份再測一次。
+如果換完還崩，我再按最新產物配套的符號/調試文件去對崩潰地址。
+
+如果你要，我下一條直接給你一組 `adb push/cp` 命令，把最新的 `1868872` 那份灌進現在這個內部路徑。
+````
+]
+
+-T[2026_0711_111641][
+	那你把新的構建產物弄上去試試
+][]
+
+
+-T[2026_0711_182359][
+	先看skill
+	我看了一下、可能是C\# CsRimeLua 這邊的問題。
+	你去看`E:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Infra\Log\AppLog.cs`
+	然後在CsRime.Core裏面也弄一套AppLog。
+	不用弄這麼重、那些擴展方法都可以先不要。
+
+	弄好這個之後、就需要在C\#側主動輸出日誌到文件。
+	但是輸出的日誌的位置是有講究的、
+	我的計畫是 再在dll中導出一個或一些函數 用于初始化一些全局的、因平臺而異的配置、
+	如日誌目錄/UserData目錄/RimeTraits
+	比如先獲取 UserData 目錄、把日誌放在UserData 裏面、這樣就是可寫的。
+
+	你有甚麼想法
+][
+
+]
+
 
 -T[][][]
 -T[][][]

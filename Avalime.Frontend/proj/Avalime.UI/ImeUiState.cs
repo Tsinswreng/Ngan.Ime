@@ -15,62 +15,56 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 	public static partial ImeUiState Mk();
 
 	/// 用戶主動點擊工具欄後的日誌頁顯示狀態。
-	bool _IsRimeLogPinnedVisible;
 	public bool IsRimeLogPinnedVisible{
-		get{return _IsRimeLogPinnedVisible;}
+		get;
 		set{
-			if(SetProperty(ref _IsRimeLogPinnedVisible, value)){
+			if(SetProperty(ref field, value)){
 				OnPropertyChanged(nameof(IsRimeLogVisible));
 			}
 		}
 	}
 
 	/// 系統在“尚未完成初始化”等場景下強制要求顯示日誌頁的狀態。
-	bool _IsRimeLogForcedVisible;
 	public bool IsRimeLogForcedVisible{
-		get{return _IsRimeLogForcedVisible;}
+		get;
 		set{
-			if(SetProperty(ref _IsRimeLogForcedVisible, value)){
+			if(SetProperty(ref field, value)){
 				OnPropertyChanged(nameof(IsRimeLogVisible));
 			}
 		}
 	}
 
-	bool _IsCandidateCommentVisible;
 	public bool IsCandidateCommentVisible{
-		get{return _IsCandidateCommentVisible;}
-		set{SetProperty(ref _IsCandidateCommentVisible, value);}
+		get;
+		set{SetProperty(ref field, value);}
 	}
 
-	bool _IsSplitKeyboardEnabled;
 	/// 用戶手動切換的分體鍵盤狀態。
 	/// Android 宿主會監聽此值，決定是否切到 overlay 分體模式。
 	public bool IsSplitKeyboardEnabled{
-		get{return _IsSplitKeyboardEnabled;}
+		get;
 		set{
-			if(SetProperty(ref _IsSplitKeyboardEnabled, value)){
+			if(SetProperty(ref field, value)){
 				PersistSplitKeyboardEnabled(value);
 			}
 		}
-	}
+	} = KeysCfg.Keyboard.IsSplitEnabled.GetFrom(AppCfg.Inst);
 
-	bool _IsClipboardVisible;
 	public bool IsClipboardVisible{
-		get{return _IsClipboardVisible;}
-		set{SetProperty(ref _IsClipboardVisible, value);}
+		get;
+		set{SetProperty(ref field, value);}
 	}
 
-	bool _IsSystemKeyRemappingEnabled;
 	/// 用戶手動切換的系統按鍵映射開關。
 	/// 其作用域只覆蓋“Rime 未處理按鍵 -> OS 發送前”的映射鏈路。
 	public bool IsSystemKeyRemappingEnabled{
-		get{return _IsSystemKeyRemappingEnabled;}
+		get;
 		set{
-			if(SetProperty(ref _IsSystemKeyRemappingEnabled, value)){
+			if(SetProperty(ref field, value)){
 				PersistBoolCfg(KeysCfg.Keyboard.IsSystemKeyRemappingEnabled, value);
 			}
 		}
-	}
+	} = KeysCfg.Keyboard.IsSystemKeyRemappingEnabled.GetFrom(AppCfg.Inst);
 
 	public bool IsRimeLogVisible{
 		get{return IsRimeLogPinnedVisible || IsRimeLogForcedVisible;}

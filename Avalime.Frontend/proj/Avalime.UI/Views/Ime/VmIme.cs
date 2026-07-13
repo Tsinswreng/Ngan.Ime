@@ -7,7 +7,7 @@ using System.ComponentModel;
 
 namespace Avalime.UI.Views.Ime;
 
-public class VmIme : ViewModelBase
+public partial class VmIme : ViewModelBase
 	, IMk<VmIme>
 	, IDisposable
 {
@@ -21,6 +21,8 @@ public class VmIme : ViewModelBase
 
 	public bool IsClipboardVisible => UiState.IsClipboardVisible;
 
+	public bool IsVoiceInputVisible => UiState.IsVoiceInputVisible;
+
 	public bool IsRimeLogVisible => UiState.IsRimeLogVisible;
 
 	public bool HasPreedit{
@@ -31,8 +33,9 @@ public class VmIme : ViewModelBase
 	public bool ShowToolbar => !IsComposing || IsClipboardVisible;
 	public bool ShowCandidates => (IsComposing || HasPreedit) && !IsClipboardVisible;
 	public bool ShowPreedit => !IsClipboardVisible;
-	public bool ShowKeyboard => !IsClipboardVisible && !IsRimeLogVisible;
+	public bool ShowKeyboard => !IsClipboardVisible && !IsVoiceInputVisible && !IsRimeLogVisible;
 	public bool ShowClipboard => IsClipboardVisible;
+	public bool ShowVoiceInput => IsVoiceInputVisible;
 	public bool ShowRimeLog => IsRimeLogVisible;
 
 	readonly PropertyChangedEventHandler _propertyChangedHandler;

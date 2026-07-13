@@ -13,7 +13,7 @@ using System.Diagnostics;
 // using RimeSessionId = nuint;
 #endregion RimeTypes
 
-using static Tsinswreng.CsInterop.Ptr;
+using static Tsinswreng.CsInterop.Ptrs;
 using Tsinswreng.CsInterop;
 using Rime.Api.Types;
 using Avalime.Core.Infra;
@@ -44,7 +44,7 @@ unsafe public class RimeSetup
 	public static RimeSetup Inst{
 		get{return _InstLazy.Value;}
 	}
-	public PtrMgr ptrMgr = new PtrMgr();
+	public Ptrs ptrs = new ();
 
 
 	~RimeSetup(){
@@ -61,7 +61,7 @@ unsafe public class RimeSetup
 		}
 		if(disposing){
 			// dispose managed resources
-			ptrMgr.Dispose();
+			ptrs.Dispose();
 		}
 		// dispose unmanaged resources
 		//FreeEtNull(&_traits);
@@ -132,14 +132,14 @@ unsafe public class RimeSetup
 		// 若傳空串指針，librime 的 PROVIDED(...) 會把它當成“已顯式提供”，
 		// 反而覆蓋掉內部默認值；尤其 shared_data_dir="" 會直接讓部署/讀 schema 失效。
 		traits->shared_data_dir = NullIfBlank(sharedDataDir);
-		traits->user_data_dir = ptrMgr.Str(userDataDir);
+		traits->user_data_dir = ptrs.CStr(userDataDir);
 		traits->distribution_name = NullIfBlank(distributionName);
 		traits->distribution_code_name = NullIfBlank(distributionCodeName);
 		traits->distribution_version = NullIfBlank(distributionVersion);
-		traits->app_name = ptrMgr.Str(appName);
+		traits->app_name = ptrs.CStr(appName);
 		traits->min_log_level = minLogLevel;
 		// librime 约定：null=临时目录，空串=只写 stderr。这里不能把空串吞成 null。
-		traits->log_dir = logDir is null ? null : ptrMgr.Str(logDir);
+		traits->log_dir = logDir is null ? null : ptrs.CStr(logDir);
 		traits->prebuilt_data_dir = NullIfBlank(prebuiltDataDir);
 		traits->staging_dir = NullIfBlank(stagingDir);
 		LogInfo("_setupRimeTraits: sharedDataDir=" + sharedDataDir);
@@ -161,7 +161,7 @@ unsafe public class RimeSetup
 		if(string.IsNullOrWhiteSpace(Value)){
 			return null;
 		}
-		return ptrMgr.Str(Value);
+		return ptrs.CStr(Value);
 	}
 
 	protected zero _freeRimeTraits(){

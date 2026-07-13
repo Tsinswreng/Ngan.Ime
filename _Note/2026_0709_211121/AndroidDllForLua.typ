@@ -623,10 +623,239 @@ F libc: FORTIFY: pthread_mutex_lock called on a destroyed mutex
 
 ]
 
+-NewSesn[]
+
+-T[2026_0712_202415][
+	有沒有在C\#中調用Lua的庫?
+	我的目標是 讓C\# NativeAOT編譯出Dll、然後Lua調用C\#的Dll。
+	這需要使用到Lua的C API來交互。
+	不是把Lua嵌入到C\#中、
+	是我自己提供一個Lua的原生Dll、裏面導出了Lua的C API。
+	如果我不用庫 自己調的話 我要寫很多`DllImport`或調NativeLibrary的API、
+	還要自己處理棧和數據轉換。
+
+	所以有沒有現成的庫?
+	要求兼容AOT、支持Lua5.4。
+	先告訴我有甚麼庫、找到庫之後、
+	你再去
+	`E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/Cs.cs`
+	這個地方試一遍。
+
+	最後你用AOT編譯出一個dll、在lua中調用、然後運行測試。
+
+	示例代碼(不一定要和我這個寫得一樣)
+````lua
+local dllPath = "./bin/Release/net9.0/win-x64/publish/CsRimeLua.Windows.dll"
+local fnName = "Test"
+local fn,err = package.loadlib(dllPath,fnName)
+if err then
+	print(err)
+	return
+end
+local myTable = {a="hello"}
+local result = fn(myTable)
+print(result)
+
+````
+
+][
+````md
+結論先說：有庫，但真正貼近你這個場景的主要是 [KeraLua NuGet](https://www.nuget.org/packages/KeraLua) / [KeraLua GitHub](https://github.com/NLua/KeraLua)。`NLua` 更偏高層 bridge，不是你這種 `Lua -> package.loadlib -> C# NativeAOT DLL` 的主路；`MoonSharp` 是純 C# 解釋器；`KopiLua` 太老，不適合 Lua 5.4。這次我按你選的 `1` 用 `KeraLua` 試了，結論是“能用，但不夠乾淨”：它公開 API 偏自己創建 Lua state，對外部傳入的 `lua_State*` 不直接友好，所以我在 [Cs.cs](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/Cs.cs) 裏用 `UnsafeAccessor` 接了它的私有構造函數，再用它的公開棧 API 做參數檢查、取表字段、回推字符串。
+
+實驗已跑通。改動在 [Cs.cs](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/Cs.cs)、[Cs.csproj](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/Cs.csproj)、[Test.lua](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/Test.lua)。我成功做了 `dotnet publish -c Release -r win-x64`，產物是 `E:\_code\CsRime\CsRimeLua\proj\Cs\proj\Cs\bin\Release\net10.0\win-x64\publish\Cs.dll`，然後用本機 `Lua 5.4.6` 跑 `Test.lua`，輸出是：
+
+```text
+csharp:hello
+```
+
+所以答案是：`KeraLua` 可以幫你省掉大量底層綁定，但在“外部 Lua 宿主把 `L` 傳進你的 NativeAOT 導出函數”這個模型下，仍然需要一點非公開接入。如果你下一步要做成可維護方案，我建議比較兩條路：繼續封裝 `KeraLua` 的這個接法，或者回到你 repo 裏現有那套自寫 `Lua_5_4` 綁定。
+````
+]
+
+
+-T[2026_0712_204608][
+	我沒告訴你用哪個Lua.dll 你用的是哪個的?
+][
+````md
+用的是 `KeraLua` 帶來的那個 `lua54.dll`，不是你倉庫裏自帶的，也不是我手動指定的別的 Lua。
+
+具體是這個文件：
+
+- 發佈目錄實際加載的 DLL：
+  [lua54.dll](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/bin/Release/net10.0/win-x64/publish/lua54.dll)
+
+它是從這裏拷過來的：
+
+- NuGet 包內原始位置：
+  [lua54.dll](</C:/Users/lenovo/.nuget/packages/keralua/1.4.9/runtimes/win-x64/native/lua54.dll>)
+
+我能確定是它，因為 [Cs.deps.json](/E:/_code/CsRime/CsRimeLua/proj/Cs/proj/Cs/bin/Release/net10.0/win-x64/Cs.deps.json) 裏把 `KeraLua/1.4.9` 的 native 資產記成了：
+
+- `runtimes/win-x64/native/lua54.dll`
+- `fileVersion: 5.4.8.0`
+
+所以這次實驗的前提其實是：
+
+- Lua 腳本宿主：本機 `lua.exe 5.4.6`
+- C# 這邊通過 `KeraLua` P/Invoke 的 Lua C API DLL：`KeraLua` 自帶的 `lua54.dll`，版本標記 `5.4.8.0`
+
+這裏確實有個你沒指定、而我做了默認假設的地方：我默認接受了 `KeraLua` 自帶的 `lua54.dll`。如果你的真實目標是“必須調你自己提供的那個 Lua 原生 DLL”，那這次驗證還不算完全對題。下一步要麼我把 `KeraLua` 綁到你指定的 `lua54.dll`，要麼就直接驗證你自帶 DLL 的符號兼容性。
+````
+]
+
+
+-T[2026_0712_204814][
+	那他的dll是哪來的? 自己預編譯的嗎? 只有windows版的 還是其他平臺的也準備了?
+如果我把我的C\#代碼編譯到安卓平臺呢? 他就會給我準備安卓版的liblua.so嗎
+][
+````md
+是，從包內容看，`KeraLua` 是自己在 NuGet 包裏直接附帶預編譯好的 Lua 原生庫，不是你本機編譯時再去現場編。
+
+本地 `nuspec` 寫得很明白：
+
+- [keralua.nuspec](</C:/Users/lenovo/.nuget/packages/keralua/1.4.9/keralua.nuspec>)
+- 描述是 `C# Native bindings of Lua 5.4 (compatible with iOS/Mac/Android/.NET/UWP)`
+
+它帶的原生庫不只是 Windows。包裏實際有這些平臺資產：
+
+- Windows: `win-x86`, `win-x64`, `win-arm`, `win-arm64`
+- Android: `android-arm`, `android-arm64`, `android-x86`, `android-x64`
+- Linux: `linux-x64`, `linux-arm64`
+- macOS: `osx`
+- iOS: `ios`
+- Mac Catalyst: `maccatalyst`
+- tvOS: `tvos`
+
+你本機包目錄裏都能看到，例如：
+
+- Android `liblua54.so`：
+  [android-arm64 liblua54.so](</C:/Users/lenovo/.nuget/packages/keralua/1.4.9/runtimes/android-arm64/native/liblua54.so>)
+- Windows `lua54.dll`：
+  [win-x64 lua54.dll](</C:/Users/lenovo/.nuget/packages/keralua/1.4.9/runtimes/win-x64/native/lua54.dll>)
+
+所以你問的這句，答案基本是“會”：
+
+- 如果你把 C# 項目編到安卓平臺，`KeraLua` 包本身確實已經準備了安卓版的 `liblua54.so`。
+
+但要補兩個關鍵前提：
+
+1. “包裏有”不等於“你的最終產物一定正確帶上”
+- 這取決於你的目標框架、RID、Android 打包方式、NativeAOT/普通 Mono/`dotnet publish` 流程。
+- 至少從包內容上看，`KeraLua` 已經提供了可供 SDK 選擇的安卓原生資產。
+
+2. 那是 `KeraLua` 自帶的 Lua，不是你的 Lua
+- 如果你的目標是“我自己提供一個 Lua 原生 DLL/.so，C# 只調我這個”，那 `KeraLua` 默認行為未必符合你。
+- 這種情況通常要關掉它自帶原生庫的包含，或者改成明確加載你自己的庫。
+
+它那個 targets 文件甚至有這個開關：
+
+- [KeraLua.targets](</C:/Users/lenovo/.nuget/packages/keralua/1.4.9/build/net46/KeraLua.targets>)
+- `ShouldIncludeNativeLua=False`
+
+也就是說，它默認是“幫你帶一份 Lua”，但理論上可以不帶。
+
+你如果要，我下一步可以專門幫你驗證兩件事中的一件：
+
+1. `KeraLua` 在 Android 發佈時，實際會不會把 `liblua54.so` 打進產物。
+2. 怎麼讓 `KeraLua` 不用它自己的 Lua，而改綁你自帶的那個 Lua。
+````
+]
+
+
+-T[2026_0712_205030][
+	先看skill和全局記憶
+	我現在的需求是、用C\# 寫 Rime 輸出法引擎的擴展。
+	如果我用kera自帶的Lua dll的C API、完了再讓運行在Rime提供的Lua環境中的lua調用C\#的dll
+	這樣可行嗎、
+	還是說我必須從Rime.dll中獲取Lua的C API
+][
+
+]
+
+
+-T[2026_0712_213820][
+	爲甚麼不行? Lua 的 C API的那些函數不都是無狀態的嗎? 靠調用方自己傳Lua State指針進去、對齊版本也不行嗎
+][
+````md
+你這個質疑是對的，我前一句話說得太絕對了。更精確的說法是：
+
+**不是“原理上絕對不行”，而是“沒有 ABI 保證，工程上不能當成可靠前提”。**
+
+原因在這。
+
+`lua_*` 這些 C API 看起來像“無狀態函數”，是因為參數表面上只有 `lua_State*`。
+但實際上它們不是那種“只看公開不透明句柄、完全跨實現穩定”的接口。
+
+它們隱含依賴這些東西：
+
+- `lua_State` 和它關聯的 `global_State` 的內存布局
+- `TValue`、`GCObject`、`CallInfo` 等內部結構布局
+- 編譯時宏和選項
+  - 例如 `LUA_USE_APICHECK`
+  - `LUA_32BITS`
+  - `LUA_INT_TYPE`
+  - `LUA_FLOAT_TYPE`
+  - 以及宿主自己改過的補丁
+- 同一份 Lua core 對內部不變式的假設
+- 宿主可能在 `extra space`、panic、allocator、warning hook、registry 裏掛的東西
+
+所以：
+
+- 如果 **A 模塊** 建出了 `lua_State*`
+- 你再拿 **B 模塊** 裏另一份 Lua core 的 `lua_getfield/lua_tolstring/...` 去操作它
+
+只有在這個前提下才“可能”沒事：
+
+- A/B 幾乎是同一份 Lua 實現
+- 版本一致
+- 補丁一致
+- 編譯選項一致
+- ABI 一致
+- 宿主沒有做你不知道的內部定製
+
+這種情況下，**有可能碰巧可用**。
+但這不是 Lua 官方給你的穩定契約。
+
+所以我不會把它當成可依賴設計。
+
+對你這個 Rime 場景，關鍵不是“Lua 5.4 對齊就行不行”，而是：
+
+- Rime 裏跑腳本的那個 `lua_State*` 是 **Rime 那份 Lua core** 建的
+- 你最穩的做法，是用 **同一宿主模塊導出的 Lua C API** 去操作它
+- 這樣至少你和宿主對 `lua_State` 的理解是同源的
+
+換句話說：
+
+- `KeraLua` 自帶 `lua54.dll` 這條路，不是邏輯上必死
+- 但它屬於“跨兩份 Lua 實現混用同一個 `lua_State*`”
+- 這件事沒有正式 ABI 保證，所以不適合作為你要長期維護的 Rime 擴展方案
+
+你可以把它類比成：
+
+- 不是所有“長得像 `struct*` 的 opaque handle”都能跨不同 DLL 的不同實現混用
+- 如果接口文檔沒承諾跨實現 ABI，最好默認不安全
+
+這裏我想追問你一個邊界，好讓我後面別猜：
+
+你現在是想確認“理論上是否有可能混用”，還是想讓我去 **實測 Rime 宿主的 `lua_State*` 丟給 KeraLua 自帶 `lua54.dll` 到底會不會炸**？
+這兩個結論不一樣：
+
+- 理論上：有可能碰巧能跑
+- 工程上：我仍然建議綁 Rime 自己導出的 Lua API
+````
+]
+
+
+-T[2026_0712_215958][
+	`E:\_code\CsRime\CsRimeLua\proj\TestLuaLib\proj\Cs\Cs.cs`
+	你去這裏再試一下、看他支不支持指定自己的Lua Dll。
+	注意不要破壞原來的代碼。
+	lua的dll用這個`"D:\ENV\Rime\weasel-0.15.0\rime.dll"`
+][
+
+]
 
 -T[][][]
 -T[][][]
 -T[][][]
--T[][][]
--T[][][]
--T[][][]
+

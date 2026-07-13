@@ -6,7 +6,7 @@ using System.ComponentModel;
 
 namespace Avalime.UI.Views.ToolBar;
 
-public class VmToolBar : ViewModelBase
+public partial class VmToolBar : ViewModelBase
 	, IMk<VmToolBar>
 	, IDisposable
 {
@@ -15,6 +15,7 @@ public class VmToolBar : ViewModelBase
 
 	public str HanLabel => ImeState.IsSimplification ? "汉" : "漢";
 	public IBrush CandidateCommentForeground => UiState.IsCandidateCommentVisible ? UiCfg.Inst.MainColor : Brushes.White;
+	public IBrush VoiceInputForeground => UiState.IsVoiceInputVisible ? UiCfg.Inst.MainColor : Brushes.White;
 	public IBrush SplitKeyboardForeground => UiState.IsSplitKeyboardEnabled ? UiCfg.Inst.MainColor : Brushes.White;
 	public IBrush SystemKeyRemappingForeground => UiState.IsSystemKeyRemappingEnabled ? UiCfg.Inst.MainColor : Brushes.White;
 
@@ -62,6 +63,8 @@ public class VmToolBar : ViewModelBase
 	public void ToggleClipboard(){
 		UiState.ToggleClipboard();
 	}
+
+	public partial void ToggleVoiceInput();
 
 	public void ToggleRimeLog(){
 		UiState.ToggleRimeLog();

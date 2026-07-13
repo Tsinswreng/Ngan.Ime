@@ -32,7 +32,7 @@ IME Frontend for Rime with Avalonia
 - .NET 10 SDK
 - Android SDK（API 23+）
 - 已連接的 Android 設備或模擬器
-- librime.so 及依賴（`libc++_shared.so`、`libCsRimeLua.so`）已放入 `/sdcard/rime/`
+- librime.so 及依賴（`libc++_shared#image("assets\2026-07-12-21-01-01.png").so`、`libCsRimeLua.so`）已放入 `/sdcard/rime/`
 - Rime 配置檔案已放入 `/sdcard/rime/`
 
 === 編譯與安裝
@@ -59,3 +59,4 @@ adb install -r bin/Release/net10.0-android/publish/Tsinswreng.Avalime-Signed.apk
 === 首次使用
 
 點擊鍵盤上方「連接 Rime」按鈕載入引擎，之後即可開始打字。
+

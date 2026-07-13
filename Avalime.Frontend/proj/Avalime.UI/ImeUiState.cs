@@ -55,6 +55,13 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 		set{SetProperty(ref field, value);}
 	}
 
+	/// 語音輸入頁是否顯示。
+	/// 此狀態只替換 body 區，不改動上方 preedit 與 toolbar/candidates 的互斥邏輯。
+	public bool IsVoiceInputVisible{
+		get;
+		set{SetProperty(ref field, value);}
+	}
+
 	/// 用戶手動切換的系統按鍵映射開關。
 	/// 其作用域只覆蓋“Rime 未處理按鍵 -> OS 發送前”的映射鏈路。
 	public bool IsSystemKeyRemappingEnabled{
@@ -76,6 +83,13 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 
 	/// 從剪貼板頁退出，回到普通鍵盤區。
 	public partial void ExitClipboard();
+
+	/// 在鍵盤區與語音輸入頁之間切換。
+	/// 打開語音頁時需要先退出 clipboard / rime log，避免 body 區模式重疊。
+	public partial void ToggleVoiceInput();
+
+	/// 從語音輸入頁退出，回到普通鍵盤區。
+	public partial void ExitVoiceInput();
 
 	/// 切換手動釘住的日誌頁。
 	/// 準備打開日誌頁時需要先退出剪貼板頁，保持 body 區語義單一。

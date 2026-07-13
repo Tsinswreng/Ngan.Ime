@@ -6,6 +6,7 @@ using ViewKeyBoardControl = Avalime.UI.Views.KeyBoard.ViewKeyBoard;
 using ViewPreeditControl = Avalime.UI.Views.Preedit.ViewPreedit;
 using ViewRimeLogControl = Avalime.UI.Views.RimeLog.ViewRimeLog;
 using ViewToolBarControl = Avalime.UI.Views.ToolBar.ViewToolBar;
+using ViewVoiceInputControl = Avalime.UI.Views.VoiceInput.ViewVoiceInput;
 using Avalonia.Controls;
 using System.ComponentModel;
 using Tsinswreng.Avln.Grid;
@@ -14,7 +15,7 @@ using Avalime.Core.Infra.Log;
 namespace Avalime.UI.Views.Ime;
 using Ctx = VmIme;
 
-public class ViewIme : AppViewBase<Ctx>
+public partial class ViewIme : AppViewBase<Ctx>
 	, IDisposable
 {
 	ViewPreeditControl? _preedit;
@@ -22,6 +23,7 @@ public class ViewIme : AppViewBase<Ctx>
 	ViewCandidatesBarControl? _candidates;
 	ViewKeyBoardControl? _keyboard;
 	ViewClipboardControl? _clipboard;
+	ViewVoiceInputControl? _voiceInput;
 	ViewRimeLogControl? _rimeLog;
 	PropertyChangedEventHandler? _ctxPropertyChangedHandler;
 	PropertyChangedEventHandler? _uiStatePropertyChangedHandler;

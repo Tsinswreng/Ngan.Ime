@@ -70,6 +70,7 @@ public partial class ViewToolBar{
 				ClipboardIcon = O;
 				O.Width = UiCfg.Inst.TopBarFontSize;
 				O.Height = UiCfg.Inst.TopBarFontSize;
+				Ctx.Bind(O, Avalonia.Controls.Shapes.Shape.FillProperty, X=>X.ClipboardForeground);
 			});
 		})
 		.A(MkBtn(), B=>{
@@ -81,6 +82,7 @@ public partial class ViewToolBar{
 				RimeLogIcon = O;
 				O.Width = UiCfg.Inst.TopBarFontSize;
 				O.Height = UiCfg.Inst.TopBarFontSize;
+				Ctx.Bind(O, Avalonia.Controls.Shapes.Shape.FillProperty, X=>X.RimeLogForeground);
 			});
 		})
 		.A(MkBtn(), B=>{

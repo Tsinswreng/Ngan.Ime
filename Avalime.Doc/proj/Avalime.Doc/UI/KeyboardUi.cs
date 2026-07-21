@@ -80,6 +80,7 @@ using Tsinswreng.CsCore;
 	工具欄第二個按鈕切換剪貼板頁。
 	目前先接平台當前 clipboard 內容，不含歷史。
 	點擊條目後通過宿主接口 `IKeyboardHost.CommitText(...)` 直接上屏，然後退出剪貼板頁。
+	剪貼板頁打開期間，工具欄剪貼板圖標使用 `UiCfg.MainColor`；退出後恢復白色。
 
 	工具欄新增麥克風按鈕，切換到第一版語音輸入前端：
 	- 語音頁替換 `ViewKeyBoard` 所在的 body 區，保留上方 preedit 與工具欄/候選欄結構
@@ -90,6 +91,7 @@ using Tsinswreng.CsCore;
 	- 錄音、搜索、語言選中、持久化及語音識別服務均尚未接入
 
 	工具欄還有一個日誌按鈕，點擊後在鍵盤區與 `Rime` 日誌頁之間切換；
+	日誌頁顯示期間，工具欄日誌圖標使用 `UiCfg.MainColor`；手動釘住或系統強制顯示都算作打開。
 	切換範圍只覆蓋 `ViewKeyBoard` 所在的 body 區，預編輯欄、候選欄、工具欄本身不切。
 	當 `RimeConnectionState` 處於 `IsConnecting=true` 或尚未 `IsConnected` 時，也會自動切到日誌頁，方便直接觀察引擎連接輸出。
 		連接完成（`IsConnecting=false` 且 `IsConnected=true`）後自動切回鍵盤視圖。

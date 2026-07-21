@@ -15,6 +15,14 @@ public partial class VmToolBar{
 			}
 		};
 		_uiStatePropertyChangedHandler = (_, E)=>{
+			// 剪貼板頁切換時刷新其工具欄圖標高亮色。
+			if(E.PropertyName == nameof(ImeUiState.IsClipboardVisible)){
+				OnPropertyChanged(nameof(ClipboardForeground));
+			}
+			// 日誌頁可能由手動釘住態或系統強制態改變，二者都通過合成屬性通知。
+			if(E.PropertyName == nameof(ImeUiState.IsRimeLogVisible)){
+				OnPropertyChanged(nameof(RimeLogForeground));
+			}
 			if(E.PropertyName == nameof(ImeUiState.IsVoiceInputVisible)){
 				OnPropertyChanged(nameof(VoiceInputForeground));
 			}

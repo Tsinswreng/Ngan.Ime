@@ -31,6 +31,9 @@ public partial class VmToolBar : ViewModelBase
 			}
 		};
 		_uiStatePropertyChangedHandler = (_, e) => {
+			if(e.PropertyName == nameof(ImeUiState.IsVoiceInputVisible)){
+				OnPropertyChanged(nameof(VoiceInputForeground));
+			}
 			if(e.PropertyName == nameof(ImeUiState.IsCandidateCommentVisible)){
 				OnPropertyChanged(nameof(CandidateCommentForeground));
 			}

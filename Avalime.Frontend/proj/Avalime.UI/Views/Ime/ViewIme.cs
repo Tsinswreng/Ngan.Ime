@@ -65,6 +65,9 @@ public partial class ViewIme : AppViewBase<Ctx>
 		var clipboard = new ViewClipboardControl();
 		_clipboard = clipboard;
 
+		var voiceInput = new ViewVoiceInputControl();
+		_voiceInput = voiceInput;
+
 		var rimeLog = new ViewRimeLogControl();
 		_rimeLog = rimeLog;
 
@@ -84,6 +87,9 @@ public partial class ViewIme : AppViewBase<Ctx>
 			clipboard.IsVisible = Ctx.ShowClipboard;
 			clipboard.IsHitTestVisible = Ctx.ShowClipboard;
 
+			voiceInput.IsVisible = Ctx.ShowVoiceInput;
+			voiceInput.IsHitTestVisible = Ctx.ShowVoiceInput;
+
 			rimeLog.IsVisible = Ctx.ShowRimeLog;
 			rimeLog.IsHitTestVisible = Ctx.ShowRimeLog;
 		}
@@ -95,6 +101,7 @@ public partial class ViewIme : AppViewBase<Ctx>
 				or nameof(Ctx.ShowCandidates)
 				or nameof(Ctx.ShowKeyboard)
 				or nameof(Ctx.ShowClipboard)
+				or nameof(Ctx.ShowVoiceInput)
 				or nameof(Ctx.ShowRimeLog)
 			){
 				SyncVisible();
@@ -121,6 +128,7 @@ public partial class ViewIme : AppViewBase<Ctx>
 			_bodyOverlay = o;
 			o.A(keyboard)
 			.A(clipboard)
+			.A(voiceInput)
 			.A(rimeLog);
 		});
 	}
@@ -160,6 +168,7 @@ public partial class ViewIme : AppViewBase<Ctx>
 		(_candidates as IDisposable)?.Dispose();
 		_keyboard?.Dispose();
 		(_clipboard as IDisposable)?.Dispose();
+		(_voiceInput as IDisposable)?.Dispose();
 		(_rimeLog as IDisposable)?.Dispose();
 		(Ctx as IDisposable)?.Dispose();
 	}

@@ -59,14 +59,16 @@ public partial class VmIme : ViewModelBase
 		};
 		PropertyChanged += _propertyChangedHandler;
 		_uiStatePropertyChangedHandler = (_, e) => {
-			if(e.PropertyName is nameof(ImeUiState.IsClipboardVisible) or nameof(ImeUiState.IsRimeLogVisible)){
+			if(e.PropertyName is nameof(ImeUiState.IsClipboardVisible) or nameof(ImeUiState.IsVoiceInputVisible) or nameof(ImeUiState.IsRimeLogVisible)){
 				OnPropertyChanged(nameof(IsClipboardVisible));
+				OnPropertyChanged(nameof(IsVoiceInputVisible));
 				OnPropertyChanged(nameof(IsRimeLogVisible));
 				OnPropertyChanged(nameof(ShowToolbar));
 				OnPropertyChanged(nameof(ShowCandidates));
 				OnPropertyChanged(nameof(ShowPreedit));
 				OnPropertyChanged(nameof(ShowKeyboard));
 				OnPropertyChanged(nameof(ShowClipboard));
+				OnPropertyChanged(nameof(ShowVoiceInput));
 				OnPropertyChanged(nameof(ShowRimeLog));
 			}
 		};

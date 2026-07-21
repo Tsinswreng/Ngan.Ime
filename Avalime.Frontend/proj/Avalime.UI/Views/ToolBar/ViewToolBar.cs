@@ -91,6 +91,17 @@ public class ViewToolBar : AppViewBase<Ctx>
 		.A(MkBtn(), b=>{
 			b.PointerPressed += (_, e) => {
 				e.Handled = true;
+				Ctx?.ToggleVoiceInput();
+			};
+			b.SetChild(Avalime.UI.Icons.Icons.Microphone(), o=>{
+				o.Width = UiCfg.Inst.TopBarFontSize;
+				o.Height = UiCfg.Inst.TopBarFontSize;
+				Ctx.Bind(o, Avalonia.Controls.Shapes.Shape.FillProperty, x=>x.VoiceInputForeground);
+			});
+		})
+		.A(MkBtn(), b=>{
+			b.PointerPressed += (_, e) => {
+				e.Handled = true;
 				Ctx?.ToggleSplitKeyboard();
 			};
 			b.SetChild(new TextBlock(), o=>{

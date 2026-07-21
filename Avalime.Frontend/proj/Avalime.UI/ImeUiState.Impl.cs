@@ -13,6 +13,7 @@ public partial class ImeUiState {
 		// step 1: 進入剪貼板頁前，先解除和它互斥的手動日誌頁。
 		if (!IsClipboardVisible) {
 			IsRimeLogPinnedVisible = false;
+			IsVoiceInputVisible = false;
 		}
 
 		// step 2: 再翻轉剪貼板頁狀態。
@@ -23,10 +24,24 @@ public partial class ImeUiState {
 		IsClipboardVisible = false;
 	}
 
+	public partial void ToggleVoiceInput() {
+		// 語音頁與其他 body 模式互斥；本階段只提供前端頁面入口。
+		if (!IsVoiceInputVisible) {
+			IsClipboardVisible = false;
+			IsRimeLogPinnedVisible = false;
+		}
+		IsVoiceInputVisible = !IsVoiceInputVisible;
+	}
+
+	public partial void ExitVoiceInput() {
+		IsVoiceInputVisible = false;
+	}
+
 	public partial void ToggleRimeLog() {
 		// step 1: 打開手動日誌頁前，先退出剪貼板頁，避免 body 區同時承擔兩種模式。
 		if (!IsRimeLogPinnedVisible) {
 			IsClipboardVisible = false;
+			IsVoiceInputVisible = false;
 		}
 
 		// step 2: 再翻轉手動釘住態。

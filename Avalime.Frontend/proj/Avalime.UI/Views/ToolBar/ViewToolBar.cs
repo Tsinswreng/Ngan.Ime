@@ -1,170 +1,51 @@
-using Avalime.Core.Infra;
+using System.ComponentModel;
+using Avalime.UI.Icons;
 using Avalime.UI.Infra;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Media;
-using System.ComponentModel;
+using Tsinswreng.Avln.Grid;
 
 namespace Avalime.UI.Views.ToolBar;
 using Ctx = VmToolBar;
 
-public class ViewToolBar : AppViewBase<Ctx>
-	, IDisposable
-{
-	GridStack Root = new(IsRow: false);
-	readonly ImeUiState _uiState;
-	PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
+/// 輸入法頂部工具欄視圖聲明。
+/// 各模式入口的圖標控件均獨立暴露，便於綁定選中高亮及進行視圖測試。
+public partial class ViewToolBar : AppViewBase<Ctx>, IDisposable{
+	/// 工具欄水平根版面；每個功能入口佔一個等寬欄位。
+	public GridStack Root = new(IsRow: false);
 
-	public ViewToolBar(){
-		Ctx = Di.DiOrMk<Ctx>();
-		_uiState = Di.DiOrMk<ImeUiState>();
-		Render();
-	}
+	/// 工具欄使用的共享 UI 狀態；目前用於同步頂欄高度。
+	public readonly ImeUiState _uiState;
 
-	void Render(){
-		this.SetContent(Root.Grid);
-		Root.Grid.Background = Brushes.Black;
-		Root.Grid.Height = GetTopBarHeight();
-		Root.Grid.ClipToBounds = true;
-		ClipToBounds = true;
-		Root.SetColDefs([
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-			new(1, GUT.Star),
-		]);
+	/// 共享 UI 狀態變更處理器；釋放視圖時必須解除訂閱。
+	public PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
 
-		Root
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleSimplification();
-			};
-			b.SetChild(new TextBlock(), o=>{
-				o.Foreground = Brushes.White;
-				o.VerticalAlignment = VAlign.Center;
-				o.HorizontalAlignment = HAlign.Center;
-				o.FontSize = UiCfg.Inst.TopBarFontSize;
-				Ctx.Bind(o, TextBlock.TextProperty, x => x.HanLabel);
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleCandidateComment();
-			};
-			b.SetChild(new TextBlock(), o=>{
-				o.Foreground = Brushes.White;
-				o.VerticalAlignment = VAlign.Center;
-				o.HorizontalAlignment = HAlign.Center;
-				o.FontSize = UiCfg.Inst.TopBarFontSize;
-				o.Text = "註";
-				Ctx.Bind(o, TextBlock.ForegroundProperty, x => x.CandidateCommentForeground);
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleClipboard();
-			};
-			b.SetChild(Avalime.UI.Icons.Icons.Clipboard(), o=>{
-				o.Width = UiCfg.Inst.TopBarFontSize;
-				o.Height = UiCfg.Inst.TopBarFontSize;
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleRimeLog();
-			};
-			b.SetChild(Avalime.UI.Icons.Icons.ScrollText(), o=>{
-				o.Width = UiCfg.Inst.TopBarFontSize;
-				o.Height = UiCfg.Inst.TopBarFontSize;
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleVoiceInput();
-			};
-			b.SetChild(Avalime.UI.Icons.Icons.Microphone(), o=>{
-				o.Width = UiCfg.Inst.TopBarFontSize;
-				o.Height = UiCfg.Inst.TopBarFontSize;
-				Ctx.Bind(o, Avalonia.Controls.Shapes.Shape.FillProperty, x=>x.VoiceInputForeground);
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleSplitKeyboard();
-			};
-			b.SetChild(new TextBlock(), o=>{
-				o.Foreground = Brushes.White;
-				o.VerticalAlignment = VAlign.Center;
-				o.HorizontalAlignment = HAlign.Center;
-				o.FontSize = UiCfg.Inst.TopBarFontSize;
-				o.Text = "分";
-				Ctx.Bind(o, TextBlock.ForegroundProperty, x => x.SplitKeyboardForeground);
-			});
-		})
-		.A(MkBtn(), b=>{
-			b.PointerPressed += (_, e) => {
-				e.Handled = true;
-				Ctx?.ToggleSystemKeyRemapping();
-			};
-			b.SetChild(new TextBlock(), o=>{
-				o.Foreground = Brushes.White;
-				o.VerticalAlignment = VAlign.Center;
-				o.HorizontalAlignment = HAlign.Center;
-				o.FontSize = UiCfg.Inst.TopBarFontSize;
-				o.Text = "映";
-				Ctx.Bind(o, TextBlock.ForegroundProperty, x => x.SystemKeyRemappingForeground);
-			});
-		})
-		;
-		_uiStatePropertyChangedHandler = (_, e) => {
-			if(e.PropertyName == nameof(ImeUiState.IsCandidateCommentVisible)){
-				SyncHeight();
-			}
-		};
-		_uiState.PropertyChanged += _uiStatePropertyChangedHandler;
-	}
+	/// 剪貼板入口圖標。
+	/// 剪貼板頁打開時，其填充色應綁定爲 `VmToolBar.ClipboardForeground`。
+	public Icon? ClipboardIcon;
 
-	double GetTopBarHeight() => _uiState.IsCandidateCommentVisible
-		? UiCfg.Inst.TopBarHeight
-		: UiCfg.Inst.TopBarHeightNoComment;
+	/// Rime 日誌入口圖標。
+	/// 日誌頁由手動或系統強制顯示時，其填充色應綁定爲 `VmToolBar.RimeLogForeground`。
+	public Icon? RimeLogIcon;
 
-	void SyncHeight()
-	{
-		var height = GetTopBarHeight();
-		Root.Grid.Height = height;
-		this.Height = height;
-	}
+	/// 語音輸入入口圖標。
+	/// 語音頁打開時，其填充色綁定爲 `VmToolBar.VoiceInputForeground`。
+	public Icon? VoiceInputIcon;
 
-	static Border MkBtn(){
-		return new Border{
-			Background = Brushes.Black,
-			BorderBrush = UiCfg.Inst.GapLineBrush,
-			BorderThickness = new(0.5),
-			CornerRadius = new(0),
-			Padding = new(0),
-			HorizontalAlignment = HAlign.Stretch,
-			VerticalAlignment = VAlign.Stretch,
-			ClipToBounds = true,
-		};
-	}
+	/// 建立工具欄、解析 ViewModel 並組裝控件樹。
+	public partial ViewToolBar();
 
-	public void Dispose()
-	{
-		if(_uiStatePropertyChangedHandler is not null){
-			_uiState.PropertyChanged -= _uiStatePropertyChangedHandler;
-		}
-		(Ctx as IDisposable)?.Dispose();
-	}
+	/// 組裝工具欄中的簡繁、註釋、剪貼板、日誌、語音及其他功能入口。
+	private partial void Render();
+
+	/// 根據候選註釋顯示狀態取得工具欄高度。
+	private partial f64 GetTopBarHeight();
+
+	/// 候選註釋顯示狀態改變後，同步工具欄自身高度。
+	private partial void SyncHeight();
+
+	/// 建立具有統一黑色背景與分隔線的工具欄按鈕容器。
+	private static partial Border MkBtn();
+
+	/// 解除共享狀態訂閱並釋放工具欄 ViewModel。
+	public partial void Dispose();
 }

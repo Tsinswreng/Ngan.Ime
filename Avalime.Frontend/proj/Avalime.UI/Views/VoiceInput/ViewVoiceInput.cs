@@ -11,9 +11,9 @@ using Ctx = VmVoiceInput;
 ///
 /// # 整體佈局
 /// 頁面根節點使用橫向 `GridStack`，把有限的輸入法 body 高度轉化為可利用的橫向空間：
-/// - 左欄是識別草稿區，使用 3 Star，約佔可用寬度的 60%，並吃滿全部可用高度。
+/// - 左欄是識別草稿區，使用 1 Star，約佔可用寬度的三分之一，並吃滿全部可用高度。
 /// - 中間只保留一條窄分隔線，不使用 Margin 製造不可利用的空白。
-/// - 右欄是操作區，使用 2 Star，約佔可用寬度的 40%，以垂直 `GridStack` 組織全部操作。
+/// - 右欄是操作區，使用 2 Star，約佔可用寬度的三分之二，以垂直 `GridStack` 組織全部操作。
 ///
 /// 左欄不得再在文本框下方放置橫跨整頁的操作列；清空、上屏、語言、狀態與錄音均移入右欄。
 /// 這樣即使 Windows 測試窗口高度較小，文本框仍能取得完整高度，錄音按鈕與底部操作也不會被裁切。
@@ -49,7 +49,7 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 
 	/// 語音頁根橫向版面。
 	///
-	/// 實現應設置三列：`3 Star / Auto 分隔線 / 2 Star`，並依次加入草稿區、分隔線與右側操作區。
+	/// 實現應設置三列：`1 Star / Auto 分隔線 / 2 Star`，並依次加入草稿區、分隔線與右側操作區。
 	/// 禁止重新改成上下兩行，也禁止用原生 `Grid` 手動分配子控件列號；由 `GridStack` 自動放置三個子項。
 	public GridStack Root = new(IsRow: false);
 
@@ -98,13 +98,17 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	public TextBlock? LangText;
 
 	/// 右側操作區中的圓形錄音按鈕。
-	/// - Idle/Completed/Failed：白色，點擊開始新會話。
-	/// - Recording：`UiCfg.MainColor`，點擊停止錄音。
+	/// - Idle/Completed/Failed：黑色背景、白色麥克風，符合整頁深色模式。
+	/// - Recording：`UiCfg.MainColor` 背景、黑色麥克風，點擊停止錄音。
 	/// - Starting/Finalizing：保留忙碌視覺並禁止重複啟動。
 	public Button? RecordButton;
 
 	/// 錄音按鈕中央的麥克風圖形。
-	/// 背景使用主色時需要維持足夠對比度，不應與按鈕背景同色。
+	/// 錄音按鈕必須清除 Fluent Button 的默認 Padding，並把水平/垂直內容對齊均設為 Center；
+	/// Button 內容使用固定正方形 `Grid` 承載圖標，容器與圖標均雙向居中；不得再用 Margin 或
+	/// RenderTransform 猜測性補償位置，避免不同 DPI 與按鈕尺寸下再次偏移。圖標 SVG 的幾何
+	/// 邊界本身也必須以 24×24 正方形視區的中心對稱設計，不能依賴不對稱留白補位。
+	/// 深色普通態使用白色圖標，主色錄音態使用黑色圖標，兩種狀態都保持足夠對比度。
 	public Control? RecordIcon;
 
 	/// 右欄狀態區的主要狀態提示，綁定 `StatusText`。

@@ -30,7 +30,7 @@ public partial class ViewVoiceInput{
 			O.Background = Brushes.Black;
 			O.A(Root.Grid, _=>{
 				Root.SetColDefs([
-					new(3, GUT.Star),
+					new(1, GUT.Star),
 					new(1, GUT.Auto),
 					new(2, GUT.Star),
 				]);
@@ -198,15 +198,28 @@ public partial class ViewVoiceInput{
 			var Diameter = UiCfg.Inst.BaseFontSize * 2.05;
 			B.Width = Diameter;
 			B.Height = Diameter;
-			B.BorderThickness = new(0);
+			B.Padding = new(0);
+			B.BorderThickness = new(1);
+			B.BorderBrush = Brushes.White;
 			B.CornerRadius = new(Diameter / 2);
 			B.HorizontalAlignment = HAlign.Center;
 			B.VerticalAlignment = VAlign.Center;
+			B.HorizontalContentAlignment = HAlign.Center;
+			B.VerticalContentAlignment = VAlign.Center;
 			B.Click += async(_, _)=>await ToggleRecording(default);
-			B.SetContent(Avalime.UI.Icons.Icons.Microphone(), I=>{
-				RecordIcon = I;
-				I.Width = UiCfg.Inst.BaseFontSize * 0.8;
-				I.Height = UiCfg.Inst.BaseFontSize * 0.8;
+			B.SetContent(new Grid(), G=>{
+				var IconSize = UiCfg.Inst.BaseFontSize * 0.8;
+				G.Width = IconSize;
+				G.Height = IconSize;
+				G.HorizontalAlignment = HAlign.Center;
+				G.VerticalAlignment = VAlign.Center;
+				G.A(Avalime.UI.Icons.Icons.Microphone(), I=>{
+					RecordIcon = I;
+					I.Width = IconSize;
+					I.Height = IconSize;
+					I.HorizontalAlignment = HAlign.Center;
+					I.VerticalAlignment = VAlign.Center;
+				});
 			});
 		});
 		return R;
@@ -236,14 +249,15 @@ public partial class ViewVoiceInput{
 		LangSelector.IsHitTestVisible = false;
 	}
 
-	/// 按当前录音状态切换背景和图标对比度。
+	/// 按当前录音状态切换深色普通态与主色录音态的背景、边框和图标对比度。
 	private partial void SyncRecordingVisual(){
 		if(RecordButton is null || RecordIcon is not Avalonia.Controls.Shapes.Shape Icon){
 			return;
 		}
 		var Recording = Ctx?.IsRecording == true;
-		RecordButton.Background = Recording ? UiCfg.Inst.MainColor : Brushes.White;
-		Icon.Fill = Brushes.Black;
+		RecordButton.Background = Recording ? UiCfg.Inst.MainColor : Brushes.Black;
+		RecordButton.BorderBrush = Recording ? UiCfg.Inst.MainColor : Brushes.White;
+		Icon.Fill = Recording ? Brushes.Black : Brushes.White;
 	}
 
 	/// 把录音操作交给 VM，View 不直接接触 Provider。

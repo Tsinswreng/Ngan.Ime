@@ -9,8 +9,16 @@ namespace Avalime.UI;
 
 public partial class App : Application
 {
+	/// 初始化 Avalime 的全局控件樣式。
+	///
+	/// 當前主要統一 Button 的普通背景與鼠標懸停邊框：普通狀態保持穩定深色背景，
+	/// 懸停時僅以 `UiCfg.MainColor` 突出邊框，避免 FluentTheme 把按鈕內容區改成突兀的黑色。
+	/// 具體樣式實現獨立放在 `App.Style.Impl.cs`，避免入口生命週期與視覺規則混雜。
+	private partial void InitStyle();
+
 	public override void Initialize(){
 		AvaloniaXamlLoader.Load(this);
+		InitStyle();
 	}
 
 	public override void OnFrameworkInitializationCompleted(){

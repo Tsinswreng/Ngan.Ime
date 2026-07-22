@@ -24,27 +24,22 @@ public partial class ViewVoiceInput{
 		SyncRecordingVisual();
 	}
 
-	/// 使用两个等权重主体行保证文本区至少占一半高度，并在最上层放语言选择覆盖层。
+	/// 使用左右分栏充分利用输入法的横向空间，并在最上层放语言选择覆盖层。
 	private partial void Render(){
-		var ControlArea = new GridStack(IsRow: true);
-		ControlArea.SetRowDefs([
-			new(1, GUT.Auto),
-			new(1, GUT.Star),
-		]);
-		ControlArea.A(MkLangBar())
-		.A(MkRecordArea());
-
 		this.SetContent(new Grid(), O=>{
 			O.Background = Brushes.Black;
 			O.A(Root.Grid, _=>{
-				Root.SetRowDefs([
-					new(1, GUT.Star),
+				Root.SetColDefs([
+					new(3, GUT.Star),
 					new(1, GUT.Auto),
-					new(1, GUT.Star),
+					new(2, GUT.Star),
 				]);
 				Root.A(MkDraftArea())
-				.A(MkDraftActionBar())
-				.A(ControlArea.Grid);
+				.A(new Border(), B=>{
+					B.Width = 1;
+					B.Background = UiCfg.Inst.GapLineBrush;
+				})
+				.A(MkControlArea());
 			})
 			.A(new ViewVoiceInputLangSelector(), V=>{
 				LangSelector = V;
@@ -59,10 +54,10 @@ public partial class ViewVoiceInput{
 	/// 建立多行草稿文本框，长内容在控件内部滚动。
 	private partial Control MkDraftArea(){
 		var R = new Border{
-			Background = UiCfg.Inst.CandidateBgColor,
+			Background = Brushes.Black,
 			BorderBrush = UiCfg.Inst.GapLineBrush,
-			BorderThickness = new(0, 0, 0, 0.5),
-			Padding = new(8),
+			BorderThickness = new(0),
+			Padding = new(8, 6),
 		};
 		R.SetChild(new TextBox(), T=>{
 			DraftTextBox = T;
@@ -71,46 +66,66 @@ public partial class ViewVoiceInput{
 			T.Background = Brushes.Black;
 			T.Foreground = Brushes.White;
 			T.BorderBrush = UiCfg.Inst.GapLineBrush;
+			T.BorderThickness = new(1);
 			T.FontSize = UiCfg.Inst.BaseFontSize * 0.55;
-			T.Padding = new(10);
+			T.Padding = new(8);
 			Ctx.Bind(T, X=>X.Text, X=>X.DraftText, Mode: BindingMode.TwoWay);
 			Ctx.Bind(T, X=>X.IsReadOnly, X=>X.CanEditDraft, Converter: new FnConvtr<bool, bool>(X=>!X));
 		});
 		return R;
 	}
 
-	/// 建立清空与上屏操作；Windows 上屏能力不足时显示说明并禁用按钮。
-	private partial Control MkDraftActionBar(){
-		var R = new GridStack(IsRow: false);
-		R.SetColDefs([
+	/// 建立右侧完整操作区，把可压缩高度集中交给状态区。
+	private partial Control MkControlArea(){
+		ControlArea.SetRowDefs([
 			new(1, GUT.Auto),
 			new(1, GUT.Star),
 			new(1, GUT.Auto),
+			new(1, GUT.Auto),
+			new(1, GUT.Auto),
 		]);
-		R.A(new Button(), B=>{
-			ClearTextButton = B;
-			B.SetContent("清空");
-			B.Click += (_, _)=>ClearText();
-			Ctx.Bind(B, X=>X.IsEnabled, X=>X.CanClearText);
-		})
+		ControlArea.A(MkLangBar())
+		.A(MkStatusArea())
+		.A(MkRecordArea())
 		.A(new TextBlock(), T=>{
 			CommitUnsupportedText = T;
 			T.Text = "Windows 宿主尚未接入上屏";
+			T.TextWrapping = TextWrapping.Wrap;
 			T.Foreground = Brushes.Gray;
-			T.VerticalAlignment = VAlign.Center;
 			T.HorizontalAlignment = HAlign.Center;
-			T.FontSize = UiCfg.Inst.BaseFontSize * 0.38;
+			T.FontSize = UiCfg.Inst.BaseFontSize * 0.34;
+			T.Margin = new(6, 1);
 			Ctx.Bind(T, X=>X.IsVisible, X=>X.IsCommitSupported, Converter: new FnConvtr<bool, bool>(X=>!X));
+		})
+		.A(MkDraftActionBar());
+		return ControlArea.Grid;
+	}
+
+	/// 建立右栏底部等宽的清空与上屏按钮。
+	private partial Control MkDraftActionBar(){
+		DraftActionBar.SetColDefs([
+			new(1, GUT.Star),
+			new(1, GUT.Star),
+		]);
+		DraftActionBar.A(new Button(), B=>{
+			ClearTextButton = B;
+			B.HorizontalAlignment = HAlign.Stretch;
+			B.CornerRadius = new(0);
+			B.SetContent("清空");
+			B.Click += (_, _)=>ClearText();
+			Ctx.Bind(B, X=>X.IsEnabled, X=>X.CanClearText);
 		})
 		.A(new Button(), B=>{
 			CommitTextButton = B;
 			B.Background = UiCfg.Inst.MainColor;
 			B.Foreground = Brushes.Black;
+			B.HorizontalAlignment = HAlign.Stretch;
+			B.CornerRadius = new(0);
 			B.SetContent("上屏");
 			B.Click += (_, _)=>CommitText();
 			Ctx.Bind(B, X=>X.IsEnabled, X=>X.CanCommitText);
 		});
-		return R.Grid;
+		return DraftActionBar.Grid;
 	}
 
 	/// 建立当前语言入口，识别忙碌期间通过绑定禁用。
@@ -119,16 +134,16 @@ public partial class ViewVoiceInput{
 			Background = Brushes.Black,
 			BorderBrush = UiCfg.Inst.GapLineBrush,
 			BorderThickness = new(0, 0, 0, 0.5),
-			Padding = new(8, 5),
+			Padding = new(6, 4),
 		};
 		R.SetChild(new Button(), B=>{
 			LangButton = B;
 			B.Background = UiCfg.Inst.CandidateBgColor;
 			B.Foreground = Brushes.White;
 			B.BorderBrush = UiCfg.Inst.GapLineBrush;
-			B.CornerRadius = new(UiCfg.Inst.BaseFontSize);
-			B.Padding = new(16, 5);
-			B.HorizontalAlignment = HAlign.Center;
+			B.CornerRadius = new(UiCfg.Inst.BaseFontSize * 0.35);
+			B.Padding = new(8, 4);
+			B.HorizontalAlignment = HAlign.Stretch;
 			B.Click += (_, _)=>OpenLangSelector();
 			Ctx.Bind(B, X=>X.IsEnabled, X=>X.CanSelectLang);
 			B.SetContent(new TextBlock(), T=>{
@@ -141,12 +156,11 @@ public partial class ViewVoiceInput{
 		return R;
 	}
 
-	/// 建立状态、错误及圆形录音按钮，保持下半区紧凑可用。
-	private partial Control MkRecordArea(){
+	/// 建立右栏唯一的可伸缩状态区，窗口变矮时由本区吸收压缩。
+	private partial Control MkStatusArea(){
 		var R = new GridStack(IsRow: true);
 		R.SetRowDefs([
 			new(1, GUT.Star),
-			new(1, GUT.Auto),
 			new(1, GUT.Auto),
 			new(1, GUT.Auto),
 			new(1, GUT.Star),
@@ -156,20 +170,32 @@ public partial class ViewVoiceInput{
 			StatusText = T;
 			T.HorizontalAlignment = HAlign.Center;
 			T.Foreground = Brushes.LightGray;
-			T.FontSize = UiCfg.Inst.BaseFontSize * 0.45;
+			T.TextWrapping = TextWrapping.Wrap;
+			T.FontSize = UiCfg.Inst.BaseFontSize * 0.4;
 			Ctx.Bind(T, X=>X.Text, X=>X.StatusText);
 		})
 		.A(new TextBlock(), T=>{
 			ErrorText = T;
 			T.HorizontalAlignment = HAlign.Center;
 			T.Foreground = Brushes.OrangeRed;
-			T.FontSize = UiCfg.Inst.BaseFontSize * 0.38;
+			T.TextWrapping = TextWrapping.Wrap;
+			T.FontSize = UiCfg.Inst.BaseFontSize * 0.34;
 			Ctx.Bind(T, X=>X.Text, X=>X.ErrorText);
 			Ctx.Bind(T, X=>X.IsVisible, X=>X.HasError);
 		})
-		.A(new Button(), B=>{
+		.A(new Border());
+		return R.Grid;
+	}
+
+	/// 建立不带额外 Star 留白的紧凑录音按钮区。
+	private partial Control MkRecordArea(){
+		var R = new Border{
+			Background = Brushes.Black,
+			Padding = new(4, 2),
+		};
+		R.SetChild(new Button(), B=>{
 			RecordButton = B;
-			var Diameter = UiCfg.Inst.BaseFontSize * 2.7;
+			var Diameter = UiCfg.Inst.BaseFontSize * 2.05;
 			B.Width = Diameter;
 			B.Height = Diameter;
 			B.BorderThickness = new(0);
@@ -179,12 +205,11 @@ public partial class ViewVoiceInput{
 			B.Click += async(_, _)=>await ToggleRecording(default);
 			B.SetContent(Avalime.UI.Icons.Icons.Microphone(), I=>{
 				RecordIcon = I;
-				I.Width = UiCfg.Inst.BaseFontSize;
-				I.Height = UiCfg.Inst.BaseFontSize;
+				I.Width = UiCfg.Inst.BaseFontSize * 0.8;
+				I.Height = UiCfg.Inst.BaseFontSize * 0.8;
 			});
-		})
-		.A(new Border());
-		return R.Grid;
+		});
+		return R;
 	}
 
 	/// 打开覆盖层前再次检查状态，防止延迟点击绕过按钮禁用。

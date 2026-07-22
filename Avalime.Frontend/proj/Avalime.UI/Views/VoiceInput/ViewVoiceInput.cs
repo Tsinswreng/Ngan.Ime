@@ -10,9 +10,24 @@ using Ctx = VmVoiceInput;
 /// 語音輸入頁 View 聲明與界面設計方案。
 ///
 /// # 整體佈局
-/// 頁面使用垂直 `GridStack`，主體分成等權重的上下兩部分：
-/// - 上半部分至少佔可用 body 高度的 50%，放置多行識別文本框與文本操作列。
-/// - 下半部分放置語言入口、狀態/錯誤信息及圓形錄音按鈕。
+/// 頁面根節點使用橫向 `GridStack`，把有限的輸入法 body 高度轉化為可利用的橫向空間：
+/// - 左欄是識別草稿區，使用 3 Star，約佔可用寬度的 60%，並吃滿全部可用高度。
+/// - 中間只保留一條窄分隔線，不使用 Margin 製造不可利用的空白。
+/// - 右欄是操作區，使用 2 Star，約佔可用寬度的 40%，以垂直 `GridStack` 組織全部操作。
+///
+/// 左欄不得再在文本框下方放置橫跨整頁的操作列；清空、上屏、語言、狀態與錄音均移入右欄。
+/// 這樣即使 Windows 測試窗口高度較小，文本框仍能取得完整高度，錄音按鈕與底部操作也不會被裁切。
+///
+/// # 右側操作區
+/// 右欄由上至下排列：
+/// - 當前識別語言入口，使用 Auto 高度。
+/// - 狀態與錯誤信息區，使用 Star 高度吸收剩餘空間；文字過長時換行，不向下擠出按鈕。
+/// - 圓形錄音按鈕，使用 Auto 高度並保持完整可見。
+/// - Windows 上屏能力提示，僅在宿主不支持時顯示。
+/// - 清空與上屏操作列，使用 Auto 高度固定在右欄底部，兩個按鈕橫向並排。
+///
+/// 右欄的語言、錄音與底部操作均不得使用會把總高度撐出 body 的固定行高；
+/// 可伸縮空間集中交給狀態區，使小高度窗口優先保住所有可操作控件。
 ///
 /// 文本框是本頁主要工作區，不把識別結果轉成候選詞，避免候選欄空間不足；
 /// 識別結果先留在草稿中，允許完成後人工修改，只有點擊“上屏”才交給宿主。
@@ -32,41 +47,57 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	/// 建立語音輸入頁、解析 ViewModel 並組裝完整控件樹。
 	public partial ViewVoiceInput();
 
-	/// 語音頁根垂直版面。
-	/// 行定義應確保文本草稿區至少取得一半可用高度，控制區不得擠壓文本區到不足 50%。
-	public GridStack Root = new(IsRow: true);
+	/// 語音頁根橫向版面。
+	///
+	/// 實現應設置三列：`3 Star / Auto 分隔線 / 2 Star`，並依次加入草稿區、分隔線與右側操作區。
+	/// 禁止重新改成上下兩行，也禁止用原生 `Grid` 手動分配子控件列號；由 `GridStack` 自動放置三個子項。
+	public GridStack Root = new(IsRow: false);
+
+	/// 右側垂直操作區。
+	///
+	/// 實現應以 `Auto / Star / Auto / Auto / Auto` 行組織語言入口、狀態區、錄音按鈕、
+	/// 能力提示與底部操作列。狀態區是唯一主要伸縮行，窗口變矮時先壓縮狀態留白，
+	/// 不得裁掉錄音、清空或上屏按鈕。
+	public GridStack ControlArea = new(IsRow: true);
+
+	/// 右欄底部的橫向文本操作列。
+	///
+	/// 實現應使用等權重兩列放置清空與上屏；能力提示不夾在兩個按鈕之間，避免提示文字
+	/// 把按鈕推到窗口外。兩個按鈕必須在窄右欄中仍保持完整邊界與可點擊區域。
+	public GridStack DraftActionBar = new(IsRow: false);
 
 	/// 顯示與編輯識別草稿的多行文本框。
 	/// - 綁定 `DraftText`。
-	/// - 支持換行與垂直滾動。
+	/// - 填滿左欄的全部寬度與高度，不在其下方預留按鈕行或狀態行。
+	/// - 支持換行與控件內部垂直滾動，長文本不得撐大整個語音頁。
 	/// - `CanEditDraft=false` 時只讀，防止流式臨時結果覆蓋人工修改。
 	/// - 完成或失敗後恢復編輯，讓用戶修正標點、專名與識別錯誤。
 	public TextBox? DraftTextBox;
 
-	/// 文本草稿區的滾動容器。
-	/// 長文本必須在本區內滾動，不得把錄音按鈕與語言入口擠出畫面。
-	public ScrollViewer? DraftScroll;
-
 	/// 清空識別草稿的按鈕。
+	/// 位於右欄最底部操作列左側，與上屏按鈕等寬。
 	/// 綁定 `CanClearText`；忙碌或草稿為空時禁用，點擊後調用 `VmVoiceInput.ClearText()`。
 	public Button? ClearTextButton;
 
 	/// 將人工確認後的草稿提交到外部輸入目標的按鈕。
+	/// 位於右欄最底部操作列右側，必須始終完整顯示，不得被窗口下沿裁切。
 	/// 綁定 `CanCommitText`；Windows 原型因宿主不支持上屏而保持禁用。
 	public Button? CommitTextButton;
 
 	/// 上屏按鈕旁的能力提示。
-	/// Windows 不支持上屏時顯示明確說明，避免用戶誤認為按鈕失效；Android 支持後可隱藏。
+	/// 位於底部操作列上方，獨佔右欄的一個 Auto 行並允許換行。
+	/// Windows 不支持上屏時顯示簡短說明，避免用戶誤認為按鈕失效；Android 支持後隱藏並釋放該行高度。
 	public TextBlock? CommitUnsupportedText;
 
 	/// 顯示當前 BCP 47 語言並打開語言選擇覆蓋層的按鈕。
+	/// 位於右欄頂部，寬度填滿右欄，避免只在頁面中央形成一個孤立膠囊。
 	/// 綁定 `CanSelectLang`，正在錄音或等待尾包時禁用。
 	public Button? LangButton;
 
 	/// 語言按鈕的文字內容，綁定 `CurrentLangDisplay`。
 	public TextBlock? LangText;
 
-	/// 語音頁中央的圓形錄音按鈕。
+	/// 右側操作區中的圓形錄音按鈕。
 	/// - Idle/Completed/Failed：白色，點擊開始新會話。
 	/// - Recording：`UiCfg.MainColor`，點擊停止錄音。
 	/// - Starting/Finalizing：保留忙碌視覺並禁止重複啟動。
@@ -76,34 +107,45 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	/// 背景使用主色時需要維持足夠對比度，不應與按鈕背景同色。
 	public Control? RecordIcon;
 
-	/// 錄音按鈕附近的主要狀態提示，綁定 `StatusText`。
+	/// 右欄狀態區的主要狀態提示，綁定 `StatusText`。
+	/// 文字居中並允許換行；狀態區縮小時不得以最小高度把下方操作推出窗口。
 	public TextBlock? StatusText;
 
 	/// 最近一次語音操作錯誤的文字區。
-	/// 綁定 `ErrorText` 與 `HasError`；錯誤不覆蓋已識別草稿，方便用戶保存已有結果。
+	/// 與主要狀態共同放在右欄可伸縮狀態區，綁定 `ErrorText` 與 `HasError`。
+	/// 錯誤不覆蓋已識別草稿；長錯誤允許換行或裁剪，但不得擠掉錄音與底部操作。
 	public TextBlock? ErrorText;
 
 	/// 覆蓋在語音頁上的語言選擇視圖。
 	/// 打開時阻止下層文本與錄音控件接收點擊；選擇或取消後恢復主頁交互。
 	public ViewVoiceInputLangSelector? LangSelector;
 
-	/// 組裝文本草稿區、文本操作列、語言入口、錄音控制區、狀態區及語言選擇覆蓋層。
+	/// 組裝左右兩欄、中央分隔線及覆蓋整個語音頁的語言選擇層。
+	/// 主內容必須完全由橫向 `Root` 與垂直 `ControlArea` 兩級 `GridStack` 完成。
 	private partial void Render();
 
-	/// 建立佔據至少半頁高度的識別文本區。
-	/// 返回內容包含多行文本框和必要的內部滾動，不包含清空/上屏等外部操作。
+	/// 建立填滿左欄的識別文本區。
+	/// 返回內容只包含多行文本框及其邊框，不包含任何操作按鈕、語言或狀態控件。
 	private partial Control MkDraftArea();
 
-	/// 建立文本操作列。
-	/// 左側放清空，右側放上屏；Windows 不支持上屏時同時顯示能力提示。
+	/// 建立右側完整操作區。
+	/// 使用 `ControlArea` 依次組裝語言入口、可伸縮狀態區、錄音按鈕、能力提示及底部操作列。
+	private partial Control MkControlArea();
+
+	/// 建立右欄底部文本操作列。
+	/// 使用 `DraftActionBar` 的兩個等權重 Star 列，左側放清空、右側放上屏；本區不承載能力提示。
 	private partial Control MkDraftActionBar();
 
 	/// 建立當前語言入口。
 	/// 語言選擇層只負責返回 `NormLangDetail`，實際更新由 `VmVoiceInput.ApplyLang` 統一處理。
 	private partial Control MkLangBar();
 
-	/// 建立錄音控制區。
-	/// 包含主狀態、錯誤信息和圓形錄音按鈕；尺寸應適配 Windows 原型與未來 Android 鍵盤高度。
+	/// 建立可伸縮的狀態與錯誤信息區。
+	/// 本區佔用右欄唯一的 Star 行，負責吸收窗口高度變化，不包含錄音按鈕。
+	private partial Control MkStatusArea();
+
+	/// 建立圓形錄音按鈕區。
+	/// 本區使用 Auto 高度，只保留按鈕需要的尺寸與小量內邊距，不再加入上下 Star 空白行。
 	private partial Control MkRecordArea();
 
 	/// 打開語言選擇覆蓋層。

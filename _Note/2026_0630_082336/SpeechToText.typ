@@ -153,11 +153,254 @@ CsNgaq 的語言選擇並不是單一控件：`ViewDictionary` 會打開 `ViewNo
 
 ]
 
--T[][][]
+-T[2026_0721_203940][
+	接下來去設計剩餘部分。
+][
+````md
+目前不能直接進入具體架構設計，還有三個會根本改變方案的需求缺口需要你裁定。
 
--T[][][]
+我理解的剩餘需求是：
 
--T[][][]
+- 完成語言列表、搜索、選擇與持久化。
+- 接入麥克風權限、錄音與語音識別。
+- 顯示錄音中、識別中、錯誤等狀態。
+- 將最終識別文字通過 `IKeyboardHost.CommitText` 上屏。
+- 關閉語音頁、輸入法隱藏或宿主銷毀時，可靠停止錄音並釋放資源。
+- 保持 `Avalime.UI -> Core 抽象 <- Android/Windows 實現` 的分層。
+
+需要你確認：
+
+1. 第一版使用哪種識別引擎？
+
+   - Android 系統 `SpeechRecognizer`：通常免費、實現較快、多語言能力取決於手機上的語音服務，可能聯網且不同設備表現不一致。
+   - 雲端 API：準確度和語言支持較可控，但涉及密鑰、費用、音頻上傳及網絡錯誤。
+   - 同時設計可替換引擎抽象，第一個實現 Android `SpeechRecognizer`。我推薦這個。
+
+2. 第一版平台範圍？
+
+   - 先完整支持 Android；Windows 只提供不可用的 stub，後續再接引擎。我推薦這個。
+   - Android 和 Windows 本輪一起支持。這需要再選 Windows 語音引擎。
+
+3. 識別結果如何上屏？
+
+   - 錄音期間顯示臨時結果，停止或識別完成後一次性上屏。我推薦這個，避免反覆修改目標輸入框。
+   - 每次臨時結果都立即上屏。這需要維護替換/撤回邏輯，容易破壞已有文字。
+   - 完成後先顯示結果，讓用戶再點「上屏」。
+
+請回答這三點；確認後我會給出正式需求確認單，再提供多套架構方案供你選擇。
+````
+]
+
+-T[2026_0721_204412][
+	1.用http api聯網調別人的引擎。
+	支持的語種要多。
+	我會說中英日語、在學西班牙 意大利 法語、以後可能學德語。
+	不要翻牆的。
+
+	2.先做好windows的、我確認無誤 再把一些細節修好之後再弄到安卓上來。
+	在安卓上編譯麻煩。如果是調http api的話不需要太多系統專屬適配層。
+
+	3 把前端改一下吧。
+	至少留一半空間給文本輸入框。識別上來的文字先展示在文本框裏。
+	點上屏了纔能上屏。因爲windows沒接系統輸入法api所以上屏不了。
+	直接直接生成候選又容納不下。
+
+	最好要支持流式的。就是實時響應顯示文本。
+	如果太複雜不好弄就算了。但是做的時候要預留未來擴展。
+
+	你先去調研一下 哪些識別引擎好用。
+	識別要準確。最好能便宜點。
+	最好有能在線試用的。
+
+][
+````md
+調研結論：第一版最值得試的是火山引擎「豆包大模型流式语音识别」，阿里云作为第二适配器预留。
+
+**推荐顺序**
+
+| 服务 | 你的语言覆盖 | 流式 | 价格/试用 | 判断 |
+|---|---|---|---|---|
+| 火山引擎 | 明确列出中、英、日、西、意、法、德，共25种 | WebSocket | 免费20小时/半年；活动价30小时66元 | 第一版首选 |
+| 阿里云 NLS | 宣称50余种语言，包含英、日等 | 实时流式 | 公开页未清晰展示当前具体价格 | 第二适配器 |
+| 腾讯云 ASR | 宣称15个小语种，但公开实时体验主要是中、英、粤 | WebSocket | 新用户5小时免费；30小时72元活动价 | 便宜，但不优先 |
+| 讯飞语音听写 | 宣称65种语言 | 流式，短音频≤60秒；另有不限时长产品 | 免费试用较多；多个小语种正式价格各2000元/年 | 覆盖广，但个人使用偏贵 |
+
+**为什么首选火山**
+
+- 官方流式 API 明确支持：
+
+  `zh-CN`、`en-US`、`ja-JP`、`es-MX`、`it-IT`、`fr-FR`、`de-DE`。
+
+- 还支持自动语种识别，共25种语言。
+- 官方直接将“游戏语音输入、手机输入法”列为应用场景。
+- 免费额度是20小时、有效期半年，足够完成 Windows 原型与准确率测试。
+- 产品页提供直接使用浏览器麦克风的在线体验。
+- API 是 WebSocket。它从 HTTP 握手升级连接，适合持续上传音频并接收增量结果。
+
+官方资料：
+
+- [在线能力体验及价格](https://www.volcengine.com/product/asr)
+- [流式识别 WebSocket API](https://www.volcengine.com/docs/6561/1354869)
+- [免费额度与计费](https://www.volcengine.com/docs/6561/1359369)
+
+**需要注意的火山限制**
+
+火山的多语种参数目前只适用于文档所称的 `bigmodel_nostream`“流式输入模式”。它仍然通过 WebSocket 分包上传，但返回策略不像双向流式模式那样尽快逐字刷新：
+
+- 双向流式：尽快返回字符，但外语 `language` 参数存在限制。
+- 流式输入模式：累计约15秒或收到最后一包时返回；官方同时称平均5秒音频可在300–400ms内返回。
+
+因此它能实现流式架构，但外语是否能达到你期望的“边说边明显更新”，必须实际试听验证。这是第一项验收重点。
+
+**其他服务**
+
+阿里云 NLS：
+
+- 官方宣称实时流式识别支持50余种语言和20余种方言。
+- 宣称通用准确率90%以上，部分模型可达99%。
+- 支持中英自由说。
+- 有[通义听悟在线体验](https://tingwu.aliyun.com/)。
+- 但公开产品页没有把全部语言代码、模型限制和当前单价集中列清楚，需要注册后在控制台验证。
+
+官方页：[阿里云实时语音识别](https://ai.aliyun.com/nls/trans)
+
+腾讯云：
+
+- 实时识别支持不限时长、“边说边出文字”。
+- 新用户可领实时识别5小时，30小时活动资源包72元。
+- 在线体验目前公开展示普通话、英语、粤语和普方英大模型。
+- 虽然宣称15种小语种，但对你需要的日、西、意、法、德是否都能用于同一个实时接口，公开页证据不如火山明确。
+
+官方页：[腾讯云语音识别](https://cloud.tencent.com/product/asr)
+
+讯飞：
+
+- 语言数量最多，提供网页在线体验和免费试用。
+- 普通实时听写限制单段不超过60秒；另有不限时长的实时转写大模型。
+- 小语种正式套餐较贵，页面显示日、西、意、法、德等分别为2000元/年，不适合个人先期使用。
+
+官方页：[讯飞实时语音听写](https://www.xfyun.cn/services/voicedictation)
+
+**建议的下一步**
+
+先以火山引擎作为首个实现，但架构抽象为可替换 Provider：
+
+```text
+Windows 麦克风
+    ↓ PCM 音频流
+IVoiceRecognitionProvider
+    ↓
+VolcengineVoiceRecognitionProvider
+    ↓ WebSocket
+增量识别结果
+    ↓
+语音页 TextBox
+    ↓ 用户点“上屏”
+IKeyboardHost.CommitText
+```
+
+前端按你的要求调整为：
+
+- 上半部分：多行识别文本框，至少占语音页一半高度。
+- 下半部分：语言选择、圆形录音按钮、状态文字、“清空”和“上屏”按钮。
+- 临时结果持续覆盖当前未确定片段，确定片段累加，避免重复文字。
+- Windows 的 `IKeyboardHost.CommitText` 仍是 stub，所以第一阶段“上屏”按钮可禁用或显示“Windows 宿主尚未接入”；复制文本仍可作为调试出口。
+- API Key 从本地配置读取，不能硬编码进源码。
+
+在正式设计前，还需你确认一个选择：第一版是否确定采用火山引擎，并接受先实测它的外语增量返回延迟；如果效果不够实时，再增加阿里云适配器？
+````
+]
+
+-T[2026_0721_210212][
+	一會我去試。趁現在你先把前端改了。
+	向我輸出匯報設計的同時也寫Decl.
+	Decl上的註釋要詳細、讓Decl充當設計方案書和文檔的角色。
+][
+````md
+前端设计与 Decl 已同步完成；Decl 本身作为详细设计文档，尚未修改实现。
+
+**页面布局**
+
+```text
+┌──────────────────────────────┐
+│ 多行识别文本框               │
+│                              │  至少占 50%
+│ 稳定文本 + 当前临时文本      │
+├──────────────────────────────┤
+│ [清空]   Windows无法上屏提示 │
+│                     [上屏]   │
+├──────────────────────────────┤
+│       [zh-CN 中文（中国）]   │
+│                              │
+│          录音状态            │
+│        （圆形录音按钮）       │
+│          错误信息            │
+└──────────────────────────────┘
+```
+
+主要控件、尺寸约束和交互职责写在 [ViewVoiceInput.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/ViewVoiceInput.cs:10)。
+
+**状态设计**
+
+新增识别阶段：
+
+- `Idle`：可选语言、编辑、清空、上屏。
+- `Starting`：初始化录音设备及网络连接。
+- `Recording`：持续录音和接收流式结果。
+- `Finalizing`：停止录音，等待服务端最终结果。
+- `Completed`：恢复人工编辑，允许上屏。
+- `Failed`：保留已有文本和错误信息，允许修改或重试。
+
+详见 [EVoiceInputPhase.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/EVoiceInputPhase.cs:6)。
+
+**流式文本**
+
+Provider 不向 UI 发送需要盲目追加的字符串，而是发送完整快照：
+
+- `FinalizedText`：已经稳定、不会再改写的文本。
+- `InterimText`：下一包可能整体替换的临时尾句。
+- `IsCompleted`：本轮识别是否最终完成。
+
+VM 每次使用 `FinalizedText + InterimText` 重建草稿，避免产生重复句子。契约见 [VoiceRecognitionTextUpdate.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VoiceRecognitionTextUpdate.cs:6)。
+
+**ViewModel 设计**
+
+[VmVoiceInput.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VmVoiceInput.cs:12) 已声明：
+
+- `DraftText`、稳定文本和临时文本。
+- 状态、错误及宿主上屏能力。
+- 编辑、清空、语言选择和上屏的可用条件。
+- 开始、停止、取消识别。
+- 接收流式更新、清空草稿和用户确认上屏。
+
+录音与等待尾包期间文本框只读；完成或失败后允许人工修改。
+
+**Windows 降级**
+
+`IKeyboardHost` 新增 `CanCommitText`：
+
+- Windows 原型返回 `false`，禁用上屏并显示明确提示。
+- Android 将来有有效输入连接时返回 `true`。
+- 识别结果不会因为宿主无法上屏而丢失。
+
+见 [IKeyboardHost.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/IKeyboardHost.cs:3)。
+
+**语言选择**
+
+语言列表将来自当前识别 Provider 的真实支持语言，不再由 UI 假设：
+
+- 搜索 BCP 47 代码、本地名称和英文名称。
+- 搜索结果保持 Provider 原始排序。
+- 增加显式关闭按钮。
+- 无匹配项时显示提示。
+- 选择与取消通过事件返回主页面。
+
+详见 [VmVoiceInputLangSelector.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VmVoiceInputLangSelector.cs:11) 和 [ViewVoiceInputLangSelector.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/ViewVoiceInputLangSelector.cs:10)。
+
+当前没有运行编译：新增 partial 声明尚无对应实现，现有 `.Impl.cs` 也还未迁移到新布局；这是声明审查阶段的预期状态。
+````
+]
+
 -T[][][]
 
 

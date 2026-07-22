@@ -4,6 +4,8 @@ namespace Avalime.Android;
 
 public class AndroidKeyboardHost : Avalime.UI.IKeyboardHost
 {
+	public bool CanCommitText => _getIme() is not null;
+
 	readonly Func<AvalimeInputMethodService?> _getIme;
 
 	public AndroidKeyboardHost(Func<AvalimeInputMethodService?> getIme){

@@ -253,6 +253,8 @@ public class Application : AvaloniaAndroidApplication<App>
 
 file class ActivityKeyboardHost : IKeyboardHost
 {
+	public bool CanCommitText => false;
+
 	public void HideKeyboard() { }
 
 	public void CommitText(str text) { }

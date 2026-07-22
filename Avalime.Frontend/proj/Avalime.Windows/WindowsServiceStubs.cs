@@ -10,6 +10,7 @@ class StubImeKeyProcessor : IImeKeyProcessor {
 }
 
 class StubKeyboardHost : IKeyboardHost {
+	public bool CanCommitText => false;
 	public void HideKeyboard() { }
 	public void CommitText(str text) { }
 }

@@ -105,9 +105,9 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 
 	/// 錄音按鈕中央的麥克風圖形。
 	/// 錄音按鈕必須清除 Fluent Button 的默認 Padding，並把水平/垂直內容對齊均設為 Center；
-	/// Button 內容使用固定正方形 `Grid` 承載圖標，容器與圖標均雙向居中；不得再用 Margin 或
-	/// RenderTransform 猜測性補償位置，避免不同 DPI 與按鈕尺寸下再次偏移。圖標 SVG 的幾何
-	/// 邊界本身也必須以 24×24 正方形視區的中心對稱設計，不能依賴不對稱留白補位。
+	/// Button 內容使用固定正方形 `Grid` 承載圖標，容器與圖標均雙向居中。麥克風底座與弧線的
+	/// 墨量不對稱，即使 SVG 幾何邊界居中，視覺中心仍會略偏左；實現需以圖標寬度約 8.3% 的
+	/// 固定水平右移校正可見輪廓。校正量按圖標尺寸比例計算，確保不同 DPI 下保持一致。
 	/// 深色普通態使用白色圖標，主色錄音態使用黑色圖標，兩種狀態都保持足夠對比度。
 	public Control? RecordIcon;
 

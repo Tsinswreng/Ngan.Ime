@@ -219,6 +219,8 @@ public partial class ViewVoiceInput{
 					I.Height = IconSize;
 					I.HorizontalAlignment = HAlign.Center;
 					I.VerticalAlignment = VAlign.Center;
+					// 麥克風底座與拾音弧線造成可見墨量偏左，按圖標尺寸右移 2px（30px 基準字體）。
+					I.RenderTransform = new TranslateTransform(IconSize / 12, 0);
 				});
 			});
 		});

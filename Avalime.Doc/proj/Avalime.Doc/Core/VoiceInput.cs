@@ -29,7 +29,7 @@ using Tsinswreng.CsCore;
 
 #H[火山協議][
 	使用 v3 WebSocket 二進制協議：
-	- 默認端點 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream`。
+	- 默認端點 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream`，在尾包後返回最終結果；經本機實測，當前帳號的雙向端點在錄音中僅返回空快照，暫不作為正式路徑。
 	- 新控制臺優先使用 `X-Api-Key`；仍保留舊版 AppId / AccessToken 配置。
 	- full client request 使用 JSON + GZip。
 	- audio-only request 保留每個 PCM 分片邊界，最後發送帶 last-package 標誌的尾包。

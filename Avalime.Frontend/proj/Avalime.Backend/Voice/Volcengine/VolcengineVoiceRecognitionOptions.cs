@@ -13,7 +13,8 @@ public sealed class VolcengineVoiceRecognitionOptions{
 	public str AccessToken{get;set;} = "";
 
 	/// WebSocket v3 端點。
-	/// 默認使用支持多語種參數的流式輸入模式；需要更低延遲時可由配置切換其他 v3 模式。
+	/// 默認使用流式輸入模式，在尾包後返回最終結果，優先保障本機實測可用性與最終準確率。
+	/// 若後續確認帳號側的雙向流式即時出字能力可用，可由本機配置切換其他 v3 端點。
 	public str Endpoint{get;set;} = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream";
 
 	/// 火山計費資源標識；默認為豆包流式語音識別模型 1.0 小時版。

@@ -116,6 +116,8 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 					await Results.Writer.WriteAsync(Result, Ct);
 					if(Result.IsCompleted){
 						FinalResultCompletion.TrySetResult(NIL);
+						// 最終結果已交給 UI；火山隨後主動關閉 WebSocket 是正常收尾，不能再讀一次並誤報連接失敗。
+						break;
 					}
 				}
 			}
@@ -150,7 +152,8 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		}
 	}
 
-	/// 把服务端 complete utterance 累入稳定段；最后一个未 definite 的句子保持临时段。
+	/// 把服務端每幀完整文本作為 UI 快照。
+	/// 雙向流式回應中的 utterance 結構會依 VAD / 二遍識別選項改變，不能用它當作文本顯示的唯一來源。
 	private partial VoiceRecognitionResult? ConvertResult(VolcengineProtocolMessage Message){
 		if(Message.MessageType != EVolcengineMessageType.FullServerResponse){
 			return null;
@@ -163,26 +166,18 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 			return null;
 		}
 
-		var Stable = new StringBuilder();
-		var Interim = new StringBuilder();
-		foreach(var Utterance in Response.result.utterances){
-			if(Utterance.definite){
-				Stable.Append(Utterance.text);
-			}else{
-				Interim.Append(Utterance.text);
-			}
-		}
-		if(Response.result.utterances.Count == 0){
-			Interim.Append(Response.result.text);
-		}
 		var IsCompleted = Message.Flags is EVolcengineMessageFlags.LastPackage or EVolcengineMessageFlags.HasNegativeSequence;
-		if(IsCompleted && Interim.Length > 0){
-			Stable.Append(Interim);
-			Interim.Clear();
+		var Text = Response.result.text;
+		if(str.IsNullOrWhiteSpace(Text) && Response.result.utterances.Count > 0){
+			// 少數回應只填 utterance；這時才退回拼接分句，保持對舊回應的相容。
+			Text = str.Concat(Response.result.utterances.Select(X=>X.text));
 		}
+		// 僅記錄快照長度，區分「服務端尚未給字」與「文本已產生但 UI 未刷新」，不洩露識別內容。
+		AppLog.Debug($"[VoiceInput] Result snapshot chars={Text.Length} utterances={Response.result.utterances.Count} completed={IsCompleted}");
 		return new VoiceRecognitionResult{
-			FinalizedText = Stable.ToString(),
-			InterimText = Interim.ToString(),
+			// 非最終幀的 result.text 是可被下一幀覆蓋的完整暫存快照；最終幀才轉為穩定文本。
+			FinalizedText = IsCompleted ? Text : "",
+			InterimText = IsCompleted ? "" : Text,
 			IsCompleted = IsCompleted,
 			TraceId = TraceId,
 		};

@@ -1,5 +1,6 @@
 using Avalime.Core.Infra;
 using Avalime.Core.Language;
+using Avalime.Core.Voice;
 using Avalime.ViewModels;
 
 namespace Avalime.UI.Views.VoiceInput;
@@ -21,17 +22,20 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 	/// VM 只依赖此跨平台接口；Windows/Android 的具体提交方式留在各自宿主程序集。
 	readonly IKeyboardHost KeyboardHost;
 
+	/// 供應商無關的流式語音識別入口；Windows 注入火山實現，Android 未來替換為平台適配實現。
+	readonly IVoiceRecognitionProvider RecognitionProvider;
+
 	/// 建立语音输入 VM 并读取当前宿主的上屏能力。
 	/// 后续接入识别 Provider 时，在此构造函数继续注入抽象，不允许 VM 反查全局 DI。
-	public partial VmVoiceInput(IKeyboardHost KeyboardHost);
+	public partial VmVoiceInput(IKeyboardHost KeyboardHost, IVoiceRecognitionProvider RecognitionProvider);
 
 	/// 當前語音識別語言。
 	/// 使用 BCP 47 完整標籤區分地區變體，例如 `zh-CN`、`zh-TW`、`en-US`、`es-MX`。
 	/// 切換語言只影響下一次識別；正在錄音時語言按鈕應禁用，避免中途改變 Provider 參數。
-	public NormLangDetail CurrentLang{
+	public INormLang CurrentLang{
 		get;
 		set{SetProperty(ref field, value);}
-	} = new(){
+	} = new NormLangDetail(){
 		Code = "zh-CN",
 		NativeName = "中文（中國）",
 		EnglishName = "Chinese (China)",
@@ -39,6 +43,7 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 
 	/// 當前語言按鈕的單行顯示文字。
 	/// 顯示格式由 VM 統一生成，例如 `zh-CN  中文（中國）`，View 不自行拼接業務文字。
+	/// //Note 感覺不太符合Mvvm規範。不應該用轉換器嗎
 	public str CurrentLangDisplay{
 		get;
 		set{SetProperty(ref field, value);}

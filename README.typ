@@ -48,6 +48,24 @@ adb install -r bin/Release/net10.0-android/publish/Tsinswreng.Avalime-Signed.apk
 
 ```
 
+=== WSL NativeAOT 編譯
+
+Android 工程的日常編譯仍然使用 Mono runtime；NativeAOT 只通過專用腳本顯式啟用。
+腳本需要在 WSL 中執行，預設使用 `android-arm64`、`$HOME/Android/Sdk`，以及
+`/mnt/d/ENV/_wsl/android-ndk-r27c`。如果本機路徑不同，可先設置環境變量：
+
+```bash
+cd Avalime/Avalime.Frontend/proj/Avalime.Android
+
+ANDROID_SDK_DIRECTORY=/path/to/android-sdk \\
+ANDROID_NDK_DIRECTORY=/path/to/linux-ndk \\
+NATIVEAOT_ARTIFACTS_PATH=/path/to/artifacts \\
+bash PublishNativeAot.sh
+```
+
+這個流程保持 Avalonia 12.0.4 不變，並使用 `PublishAot=true`、
+`UseMonoRuntime=false` 和 `PublishTrimmed=true` 生成 NativeAOT APK。
+
 === 啟用輸入法
 
 安裝後在 Android 系統設定中啟用 Avalime 輸入法：
@@ -59,4 +77,3 @@ adb install -r bin/Release/net10.0-android/publish/Tsinswreng.Avalime-Signed.apk
 === 首次使用
 
 點擊鍵盤上方「連接 Rime」按鈕載入引擎，之後即可開始打字。
-

@@ -99,7 +99,8 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 
 	/// 右側操作區中的圓形錄音按鈕。
 	/// - Idle/Completed/Failed：黑色背景、白色麥克風，符合整頁深色模式。
-	/// - Recording：`UiCfg.MainColor` 背景、黑色麥克風，點擊停止錄音。
+	/// - Recording：`UiCfg.MainColor` 背景、黑色麥克風，點擊結束錄音並等待最終結果。
+	/// - Finalizing：再次點擊取消等待與本輪會話。
 	/// - Starting/Finalizing：保留忙碌視覺並禁止重複啟動。
 	public Button? RecordButton;
 
@@ -166,7 +167,7 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	/// 視覺同步只讀取 VM 狀態，不在 View 中自行改變識別生命週期。
 	private partial void SyncRecordingVisual();
 
-	/// 點擊錄音按鈕後，將取消令牌交給 `VmVoiceInput.ToggleRecording`。
+	/// 點擊錄音按鈕後，空閒時開始；錄音中正常結束；等待最終結果時取消。
 	/// 事件處理本身不直接開麥克風或建立網絡連接。
 	private partial Task<nil> ToggleRecording(CT Ct);
 

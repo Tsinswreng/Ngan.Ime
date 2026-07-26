@@ -29,7 +29,7 @@ using Tsinswreng.CsCore;
 	- `OnWindowShown()` 只補 `RequestLayout()` / `Invalidate()` 的輕量刷新，不再二次重掛；這是爲了減少橫豎屏切換後首次彈出時的額外 surface 重建成本
 	- Android 宿主不再在 `Application` 或 `InputMethodService.OnCreate()` 階段提前觸發 `RimeWarmup`
 	- 現在先保證 `OnCreateInputView()` / `OnStartInputView()` 能把 IME UI 拉起來
-	- 真正的 Rime 連接改由 `VmIme` 構造後異步調 `ISvcIme.ConnectAsy()`，連接期間強制顯示日誌視圖，成功後再切回鍵盤
+	- 真正的 Rime 連接改由 `VmIme` 構造後異步調 `ISvcIme.ConnectAsy()`；首屏先展示日誌，成功後僅在用戶未主動切換 body 頁時才回到鍵盤
 	- 另外會啓動一個常駐前台通知；若偶發黑屏且無法自行恢復，用戶可點通知觸發“強制恢復”
 	- “強制恢復”路徑不改動默認 hide 行爲，而是丟棄當前 `LoggingAvaloniaView`、重建新的 `MainView` 與 `AvaloniaView`，再重掛回 IME window
 	- Android 9+ 還會額外調 `RequestShowSelf(ShowFlags.Forced)`，嘗試把重建後的鍵盤重新拉回可見狀態

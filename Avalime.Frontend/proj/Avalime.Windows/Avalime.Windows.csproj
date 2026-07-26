@@ -2,6 +2,8 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
+		<!-- NAudio WASAPI uses built-in COM interop; keep it enabled for the Windows prototype. -->
+		<BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 	</PropertyGroup>
 
 	<ItemGroup>

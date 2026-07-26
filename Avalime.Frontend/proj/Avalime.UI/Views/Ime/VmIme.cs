@@ -36,12 +36,12 @@ public partial class VmIme : ViewModelBase
 	public bool ShowKeyboard => !IsClipboardVisible && !IsVoiceInputVisible && !IsRimeLogVisible;
 	public bool ShowClipboard => IsClipboardVisible;
 	public bool ShowVoiceInput => IsVoiceInputVisible;
+	/// 日誌、語音、剪貼板與鍵盤由 ImeUiState 保持互斥；此處只投影狀態。
 	public bool ShowRimeLog => IsRimeLogVisible;
 
 	readonly PropertyChangedEventHandler _propertyChangedHandler;
 	readonly EventHandler<IEnumerable<IKeyEvent>> _afterInputHandler;
 	readonly PropertyChangedEventHandler _uiStatePropertyChangedHandler;
-	readonly PropertyChangedEventHandler _imePropertyChangedHandler;
 	readonly EventHandler<bool> _connectCompletedHandler;
 
 	public VmIme(ISvcIme ImeState, ImeUiState UiState){
@@ -76,11 +76,9 @@ public partial class VmIme : ViewModelBase
 
 		_afterInputHandler = (_, _) => RefreshCompositionState();
 		ImeState.AfterInput += _afterInputHandler;
-		_imePropertyChangedHandler = OnImePropertyChanged;
-		ImeState.PropertyChanged += _imePropertyChangedHandler;
 		_connectCompletedHandler = OnConnectCompleted;
 		ImeState.ConnectCompleted += _connectCompletedHandler;
-		SyncRimeLogVisibility();
+		UiState.BeginInitialRimeLog();
 		_ = StartConnectAsy();
 	}
 
@@ -93,18 +91,6 @@ public partial class VmIme : ViewModelBase
 			Di.GetRSvc<ISvcIme>(),
 			Di.GetRSvc<ImeUiState>()
 		);
-	}
-
-	void OnImePropertyChanged(object? sender, PropertyChangedEventArgs e)
-	{
-		if(e.PropertyName is nameof(ISvcIme.IsConnecting) or nameof(ISvcIme.IsConnected)){
-			SyncRimeLogVisibility();
-		}
-	}
-
-	void SyncRimeLogVisibility()
-	{
-		UiState.SetForcedRimeLogVisible(ImeState.IsConnecting || !ImeState.IsConnected);
 	}
 
 	/// <summary>
@@ -122,12 +108,12 @@ public partial class VmIme : ViewModelBase
 
 	/// <summary>
 	/// 後端初始化完成後，統一在 UI 線程刷新可見狀態。
-	/// 成功時會把強制日誌態解除，失敗時則保留日誌頁給用戶看錯誤輸出。
+	/// 成功時只在用戶尚未選頁時回到鍵盤；失敗時保留初始日誌頁供查看錯誤。
 	/// </summary>
 	void OnConnectCompleted(object? Sender, bool IsSuccess)
 	{
 		Dispatcher.UIThread.Post(() => {
-			SyncRimeLogVisibility();
+			UiState.CompleteInitialRimeLog(IsSuccess);
 			if(IsSuccess){
 				RefreshCompositionState();
 			}
@@ -148,7 +134,6 @@ public partial class VmIme : ViewModelBase
 		PropertyChanged -= _propertyChangedHandler;
 		UiState.PropertyChanged -= _uiStatePropertyChangedHandler;
 		ImeState.AfterInput -= _afterInputHandler;
-		ImeState.PropertyChanged -= _imePropertyChangedHandler;
 		ImeState.ConnectCompleted -= _connectCompletedHandler;
 	}
 }

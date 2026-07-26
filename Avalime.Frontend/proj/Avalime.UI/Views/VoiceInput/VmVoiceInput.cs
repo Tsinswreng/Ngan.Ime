@@ -206,8 +206,8 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 	/// 正在識別時即使收到延遲回調也應忽略，保證一輪會話的語言參數不變。
 	public partial void ApplyLang(INormLang Lang);
 
-	/// 由錄音按鈕觸發開始或停止動作。
-	/// 空閒、完成或失敗狀態下開始新會話；錄音狀態下請求停止；其他過渡狀態忽略重複點擊。
+	/// 由錄音按鈕觸發開始、結束錄音或取消等待動作。
+	/// 錄音中點擊正常結束錄音並等待最終結果；僅在等待最終結果時再次點擊才取消會話。
 	public partial Task<nil> ToggleRecording(CT Ct);
 
 	/// 開始一次新識別會話。

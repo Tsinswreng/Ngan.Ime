@@ -260,9 +260,11 @@ public partial class ViewVoiceInput{
 		RecordButton.Background = Recording ? UiCfg.Inst.MainColor : Brushes.Black;
 		RecordButton.BorderBrush = Recording ? UiCfg.Inst.MainColor : Brushes.White;
 		Icon.Fill = Recording ? Brushes.Black : Brushes.White;
+		// Finalizing 期間仍允許點擊，作為放棄等待遠端尾包的取消入口。
+		RecordButton.IsEnabled = Ctx?.Phase is not EVoiceInputPhase.Starting;
 	}
 
-	/// 把录音操作交给 VM，View 不直接接触 Provider。
+	/// 把開始或立即取消操作交給 VM；View 不直接接觸 Provider。
 	private async partial Task<nil> ToggleRecording(CT Ct){
 		if(Ctx is not null){
 			await Ctx.ToggleRecording(Ct);

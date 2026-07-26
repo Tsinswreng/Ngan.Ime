@@ -10,6 +10,9 @@ public partial class ImeUiState {
 	}
 
 	public partial void ToggleClipboard() {
+		// 任何工具欄操作都代表用戶已選擇 body 頁，不再讓初始化流程搶回日誌頁。
+		MarkUserSelectedBodyPage();
+
 		// step 1: 進入剪貼板頁前，先解除和它互斥的手動日誌頁。
 		if (!IsClipboardVisible) {
 			IsRimeLogPinnedVisible = false;
@@ -21,10 +24,13 @@ public partial class ImeUiState {
 	}
 
 	public partial void ExitClipboard() {
+		MarkUserSelectedBodyPage();
 		IsClipboardVisible = false;
 	}
 
 	public partial void ToggleVoiceInput() {
+		MarkUserSelectedBodyPage();
+
 		// 語音頁與其他 body 模式互斥；本階段只提供前端頁面入口。
 		if (!IsVoiceInputVisible) {
 			IsClipboardVisible = false;
@@ -34,10 +40,13 @@ public partial class ImeUiState {
 	}
 
 	public partial void ExitVoiceInput() {
+		MarkUserSelectedBodyPage();
 		IsVoiceInputVisible = false;
 	}
 
 	public partial void ToggleRimeLog() {
+		MarkUserSelectedBodyPage();
+
 		// step 1: 打開手動日誌頁前，先退出剪貼板頁，避免 body 區同時承擔兩種模式。
 		if (!IsRimeLogPinnedVisible) {
 			IsClipboardVisible = false;
@@ -49,13 +58,28 @@ public partial class ImeUiState {
 	}
 
 	public partial void ExitRimeLog() {
-		// step 1: 同時清空手動態與強制態，讓 UI 完整回到普通模式。
+		// 顯式退出日誌頁就是回到鍵盤的使用者選擇。
+		MarkUserSelectedBodyPage();
 		IsRimeLogPinnedVisible = false;
-		IsRimeLogForcedVisible = false;
 	}
 
-	public partial void SetForcedRimeLogVisible(bool Value) {
-		IsRimeLogForcedVisible = Value;
+	public partial void BeginInitialRimeLog() {
+		// 每個新的連接流程都有自己的首屏決策，不能沿用上一輪的用戶操作標記。
+		HasUserSelectedBodyPage = false;
+		IsRimeLogPinnedVisible = false;
+		IsInitialRimeLogVisible = true;
+	}
+
+	public partial void CompleteInitialRimeLog(bool IsSuccess) {
+		// 失敗時保留日誌以提供錯誤輸出；成功且未被用戶打斷時才回到鍵盤。
+		if(IsSuccess && !HasUserSelectedBodyPage){
+			IsInitialRimeLogVisible = false;
+		}
+	}
+
+	partial void MarkUserSelectedBodyPage() {
+		HasUserSelectedBodyPage = true;
+		IsInitialRimeLogVisible = false;
 	}
 
 	public partial void ToggleCandidateComment() {

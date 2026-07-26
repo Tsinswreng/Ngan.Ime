@@ -37,7 +37,8 @@ public sealed partial class VolcengineVoiceRecognitionProvider{
 		return new VolcengineStartRequest{
 			user = new(){uid = Guid.NewGuid().ToString()},
 			audio = new(){
-				format = "raw",
+				// 這是裸 16-bit PCM 分片；火山的 format 名稱為 pcm，raw 僅是 codec 的預設值。
+				format = "pcm",
 				codec = "raw",
 				rate = Request.Audio.SampleRate,
 				bits = Request.Audio.BitsPerSample,
@@ -56,9 +57,9 @@ public sealed partial class VolcengineVoiceRecognitionProvider{
 	/// 新旧控制台使用不同认证头；资源和关联标识两种模式共用。
 	private partial void SetAuthorizationHeaders(ClientWebSocket Socket, str RequestId){
 		Socket.Options.SetRequestHeader("X-Api-Resource-Id", Options.ResourceId);
-		Socket.Options.SetRequestHeader("X-Api-Request-Id", RequestId);
 		Socket.Options.SetRequestHeader("X-Api-Connect-Id", RequestId);
-		Socket.Options.SetRequestHeader("X-Api-Sequence", "-1");
+		// 火山 WebSocket 握手只接受其文档列出的认证与连接标识头。
+		// Request-Id / Sequence 属于其他历史协议，不应混入 v3 握手而影响网关鉴权。
 		if(!str.IsNullOrWhiteSpace(Options.ApiKey)){
 			Socket.Options.SetRequestHeader("X-Api-Key", Options.ApiKey);
 			return;

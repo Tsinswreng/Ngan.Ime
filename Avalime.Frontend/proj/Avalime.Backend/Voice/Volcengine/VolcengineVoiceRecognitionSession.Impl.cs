@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using Avalime.Core.Voice;
+using Avalime.Core.Infra.Log;
 
 namespace Avalime.Backend.Voice.Volcengine;
 
@@ -37,6 +38,8 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		if(PcmChunk.IsEmpty){
 			return NIL;
 		}
+		// 僅記錄分片尺寸，不記錄音頻內容，藉此區分“沒有採到音”與“服務端沒有回包”。
+		AppLog.Debug($"[VoiceInput] Send PCM bytes={PcmChunk.Length}");
 		await SendMessage(VolcengineProtocolCodec.EncodeAudio(PcmChunk.Span, false), Ct);
 		return NIL;
 	}
@@ -48,6 +51,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		}
 		if(!IsAudioCompleted){
 			IsAudioCompleted = true;
+			AppLog.Info("[VoiceInput] Send final PCM packet");
 			await SendMessage(VolcengineProtocolCodec.EncodeAudio(ReadOnlySpan<byte>.Empty, true), Ct);
 		}
 
@@ -102,6 +106,8 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 			while(!Ct.IsCancellationRequested && Socket.State is WebSocketState.Open or WebSocketState.CloseSent){
 				var Raw = await ReceiveMessage(Ct);
 				var Message = VolcengineProtocolCodec.Decode(Raw);
+				// 記錄協議元資料與解壓後負載大小，避免把識別文本或任何敏感音頻寫入日誌。
+				AppLog.Debug($"[VoiceInput] Receive frame type={Message.MessageType} flags={Message.Flags} payloadBytes={Message.Payload.Length}");
 				if(Message.MessageType == EVolcengineMessageType.ServerError){
 					throw MkServerException(Message);
 				}

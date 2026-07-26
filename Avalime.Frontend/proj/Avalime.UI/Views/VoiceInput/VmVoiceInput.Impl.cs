@@ -1,4 +1,5 @@
 using Avalime.Core.Infra;
+using Avalime.Core.Infra.Log;
 using Avalime.Core.Language;
 using Avalime.Core.Voice;
 using Avalonia.Threading;
@@ -39,10 +40,13 @@ public partial class VmVoiceInput{
 		}
 	}
 
-	/// 僅 Idle/Completed/Failed 可開始，僅 Recording 可請求停止。
+	/// 錄音中點擊表示正常收尾；只有已進入等待最終結果時，第二次點擊才表示放棄等待。
 	public async partial Task<nil> ToggleRecording(CT Ct){
 		if(Phase == EVoiceInputPhase.Recording){
 			return await StopRecognition(Ct);
+		}
+		if(Phase == EVoiceInputPhase.Finalizing){
+			return await CancelRecognition(Ct);
 		}
 		if(Phase is EVoiceInputPhase.Idle or EVoiceInputPhase.Completed or EVoiceInputPhase.Failed){
 			return await StartRecognition(Ct);
@@ -63,6 +67,7 @@ public partial class VmVoiceInput{
 			DraftText = "";
 			StatusText = "正在連接語音識別服務";
 			Phase = EVoiceInputPhase.Starting;
+			AppLog.Info($"[VoiceInput] Start requested language={CurrentLang.Code} sampleRate={AudioOptions.SampleRate} channels={AudioOptions.Channels}");
 			SessionCts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
 			var SessionCt = SessionCts.Token;
 			var Request = new VoiceRecognitionRequest{
@@ -124,9 +129,11 @@ public partial class VmVoiceInput{
 			}
 			Phase = EVoiceInputPhase.Finalizing;
 			StatusText = "正在等待最終識別結果";
-			await AudioSession.Stop(Ct);
+			// 使用本輪會話令牌，使錄音按鈕的「取消」能中斷正在等待的尾包。
+			var SessionCt = SessionCts?.Token ?? Ct;
+			await AudioSession.Stop(SessionCt);
 			await SendAudioTask!;
-			await RecognitionSession.CompleteAudio(Ct);
+			await RecognitionSession.CompleteAudio(SessionCt);
 			await ReadResultsTask!;
 			StatusText = "識別完成，可修改後上屏";
 			Phase = EVoiceInputPhase.Completed;
@@ -196,6 +203,8 @@ public partial class VmVoiceInput{
 
 	/// 映射异常并保留已识别文本，用户可复制、修正或立即开始下一轮。
 	private async partial Task<nil> FailRecognition(Exception Error, CT Ct){
+		// 此處是所有啟動、錄音、網絡與協議異常的唯一收束點，必須保留原始堆棧供本機日誌排查。
+		AppLog.Error(Error, "[VoiceInput] Recognition session failed");
 		ErrorText = Error is VoiceRecognitionException VoiceError
 			? VoiceError.Message
 			: "語音識別失敗，請檢查麥克風、網絡和配置";
@@ -227,6 +236,8 @@ public partial class VmVoiceInput{
 
 	/// 取消保留现有草稿，只停止音频和网络资源。
 	public async partial Task<nil> CancelRecognition(CT Ct){
+		// 先發出取消訊號，再等待 SessionGate；否則 StopRecognition 持鎖等待尾包時，取消按鈕看似點了卻無法生效。
+		SessionCts?.Cancel();
 		await SessionGate.WaitAsync(Ct);
 		try{
 			if(IsBusy){

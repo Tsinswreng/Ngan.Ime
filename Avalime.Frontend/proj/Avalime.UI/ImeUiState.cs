@@ -24,8 +24,9 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 		}
 	}
 
-	/// 系統在“尚未完成初始化”等場景下強制要求顯示日誌頁的狀態。
-	public bool IsRimeLogForcedVisible{
+	/// 本次 Rime 連接開始時自動顯示的初始日誌頁。
+	/// 它只決定首屏；用戶一旦主動選擇 body 頁，就不再覆蓋該選擇。
+	public bool IsInitialRimeLogVisible{
 		get;
 		set{
 			if(SetProperty(ref field, value)){
@@ -74,8 +75,12 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 	} = KeysCfg.Keyboard.IsSystemKeyRemappingEnabled.GetFrom(AppCfg.Inst);
 
 	public bool IsRimeLogVisible{
-		get{return IsRimeLogPinnedVisible || IsRimeLogForcedVisible;}
+		get{return IsRimeLogPinnedVisible || IsInitialRimeLogVisible;}
 	}
+
+	/// 使用者是否已經主動選擇過 body 頁。
+	/// 連接成功後只在此值為 false 時，才把初始日誌頁自動切回鍵盤。
+	public bool HasUserSelectedBodyPage{get; private set;}
 
 	/// 在鍵盤區與剪貼板頁之間切換。
 	/// 當準備打開剪貼板頁時，先關閉手動釘住的日誌頁，避免 body 區雙重模式重疊。
@@ -95,11 +100,15 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 	/// 準備打開日誌頁時需要先退出剪貼板頁，保持 body 區語義單一。
 	public partial void ToggleRimeLog();
 
-	/// 完整退出日誌頁，同時清除手動釘住態與系統強制態。
+	/// 完整退出日誌頁，回到普通鍵盤區。
 	public partial void ExitRimeLog();
 
-	/// 由外部連接流程寫入“系統強制顯示日誌頁”的狀態。
-	public partial void SetForcedRimeLogVisible(bool Value);
+	/// 開始一次 Rime 連接時，將日誌頁作為初始 body 頁展示。
+	public partial void BeginInitialRimeLog();
+
+	/// 結束一次 Rime 連接。
+	/// 成功時，僅在用戶未主動導航的情況下由初始日誌頁回到鍵盤；失敗則保留初始日誌頁供查閱。
+	public partial void CompleteInitialRimeLog(bool IsSuccess);
 
 	/// 切換候選詞 comment 區顯示狀態。
 	public partial void ToggleCandidateComment();
@@ -117,4 +126,7 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 	/// 共享的布爾偏好持久化入口。
 	/// UI 線程只更新內存配置；真正寫盤放到後台，避免工具欄點擊被 IO 卡住。
 	static partial void PersistBoolCfg(ICfgNode<bool> Key, bool Value);
+
+	/// 記錄用戶對 body 頁的明確選擇，並撤銷僅用於首屏的自動日誌頁。
+	partial void MarkUserSelectedBodyPage();
 }

@@ -103,17 +103,19 @@ public sealed partial class WindowsAudioInputSession{
 		var ResampleBuffer = new byte[ChunkByteLength];
 		while(Resampler.Read(ResampleBuffer, 0, ResampleBuffer.Length) is var Read && Read > 0){
 			TargetBuffer.AddSamples(ResampleBuffer, 0, Read);
-		}
-		while(TargetBuffer.BufferedBytes >= ChunkByteLength){
-			var Buffer = new byte[ChunkByteLength];
-			var Copied = TargetBuffer.Read(Buffer, 0, ChunkByteLength);
-			if(Copied != ChunkByteLength){
-				throw new InvalidOperationException("目標音頻緩衝沒有返回完整分片");
-			}
-			if(!Chunks.Writer.TryWrite(Buffer)){
-				Chunks.Writer.TryComplete(new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "語音網絡發送過慢，麥克風緩衝已滿"));
-				_ = Stop(CancellationToken.None);
-				return;
+			// 必須在每次重採樣讀取後立即排出完整分片。
+			// 若累積到迴圈結束才排出，長回調可先撐爆 TargetBuffer，儘管下游其實可正常消費。
+			while(TargetBuffer.BufferedBytes >= ChunkByteLength){
+				var Buffer = new byte[ChunkByteLength];
+				var Copied = TargetBuffer.Read(Buffer, 0, ChunkByteLength);
+				if(Copied != ChunkByteLength){
+					throw new InvalidOperationException("目標音頻緩衝沒有返回完整分片");
+				}
+				if(!Chunks.Writer.TryWrite(Buffer)){
+					Chunks.Writer.TryComplete(new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "語音網絡發送過慢，麥克風緩衝已滿"));
+					_ = Stop(CancellationToken.None);
+					return;
+				}
 			}
 		}
 	}

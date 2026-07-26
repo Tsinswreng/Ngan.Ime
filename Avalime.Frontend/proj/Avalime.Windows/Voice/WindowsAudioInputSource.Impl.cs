@@ -26,12 +26,15 @@ public sealed partial class WindowsAudioInputSource{
 			Capture = new WasapiCapture(Device);
 			SourceBuffer = new BufferedWaveProvider(Capture.WaveFormat){
 				DiscardOnBufferOverflow = false,
+				// 空輸入必須返回 0；預設補零會使重採樣器無限產生虛假的 PCM。
+				ReadFully = false,
 				BufferDuration = TimeSpan.FromMilliseconds(Options.ChunkDurationMs * Options.MaxBufferedChunks),
 			};
 			var TargetFormat = new WaveFormat(Options.SampleRate, Options.BitsPerSample, Options.Channels);
 			Resampler = new MediaFoundationResampler(SourceBuffer, TargetFormat){ResamplerQuality = 60};
 			TargetBuffer = new BufferedWaveProvider(TargetFormat){
 				DiscardOnBufferOverflow = false,
+				ReadFully = false,
 				BufferDuration = TimeSpan.FromMilliseconds(Options.ChunkDurationMs * Options.MaxBufferedChunks),
 			};
 			var Session = new WindowsAudioInputSession(Device, Capture, SourceBuffer, Resampler, TargetBuffer, Options, Ct);

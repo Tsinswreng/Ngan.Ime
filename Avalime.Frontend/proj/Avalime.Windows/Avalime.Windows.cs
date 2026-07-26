@@ -21,7 +21,6 @@ using Avalonia;
 using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Tsinswreng.CsCfg;
 
 
@@ -31,7 +30,8 @@ sealed class Program{
 
 	[STAThread]
 	public static void Main(string[] args){
-		AppLog.Inst.InnerLogger = NullLogger.Instance;
+		// Desktop 視窗通常沒有附著終端；所有背景語音錯誤必須落到可直接讀取的本機檔案。
+		AppLog.Inst.InnerLogger = new WindowsFileLogger(Path.Combine(AppContext.BaseDirectory, "Avalime.Windows.log"));
 		InitCfg();
 		SetupWindowsCfg();
 		var services = new ServiceCollection();

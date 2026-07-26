@@ -102,17 +102,14 @@ using Tsinswreng.CsCore;
 	- 全局 Button 懸停只以 `UiCfg.MainColor` 高亮模板邊框，普通背景保持穩定，不再使用突兀的黑色懸停背景
 
 	工具欄還有一個日誌按鈕，點擊後在鍵盤區與 `Rime` 日誌頁之間切換；
-	日誌頁顯示期間，工具欄日誌圖標使用 `UiCfg.MainColor`；手動釘住或系統強制顯示都算作打開。
+	日誌頁顯示期間，工具欄日誌圖標使用 `UiCfg.MainColor`；手動釘住或初始自動顯示都算作打開。
 	切換範圍只覆蓋 `ViewKeyBoard` 所在的 body 區，預編輯欄、候選欄、工具欄本身不切。
-	當 `RimeConnectionState` 處於 `IsConnecting=true` 或尚未 `IsConnected` 時，也會自動切到日誌頁，方便直接觀察引擎連接輸出。
-		連接完成（`IsConnecting=false` 且 `IsConnected=true`）後自動切回鍵盤視圖。
-	這裡現在拆成兩條狀態：
-	- `Forced`：初始化未完成時由 `VmIme` 自動打開，完成後自動關閉
+	`VmIme` 開始 Rime 連接時先展示一次日誌頁，方便直接觀察引擎部署輸出。
+	這裡拆成兩條狀態：
+	- `Initial`：本次連接的首屏日誌頁；只在用戶未作任何 body 頁操作且連接成功時自動回到鍵盤
 	- `Pinned`：用戶手動點擊工具欄日誌按鈕後打開/關閉
-	兩者最終以“或”合併成 `IsRimeLogVisible`，因此：
-	- 初始化期間會先彈出日誌頁
-	- 初始化完成後若只是自動打開，會立即自動切回鍵盤
-	- 正常狀態下用戶手動打開日誌頁，不會再被“已連接”狀態立刻強制關掉
+	用戶在部署過程中切到鍵盤、剪貼板、語音或手動日誌頁，都會清除 `Initial` 並保留其選擇；連接流程不會再覆蓋它。
+	連接失敗且用戶未操作時，保留 `Initial` 日誌頁供查看錯誤輸出。
 
 	工具欄新增了分體鍵盤按鈕：
 	- 點擊後切換 `ImeUiState.IsSplitKeyboardEnabled`

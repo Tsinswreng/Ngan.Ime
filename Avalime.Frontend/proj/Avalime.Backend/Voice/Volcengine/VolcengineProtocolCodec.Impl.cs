@@ -85,6 +85,14 @@ public static partial class VolcengineProtocolCodec{
 
 	/// GZip 输出需要独立可持有存储，供 WebSocket 异步发送使用。
 	private static partial byte[] Compress(ReadOnlySpan<byte> Payload){
+		if(Payload.IsEmpty){
+			// GZipStream 在從未寫入資料時可能不產生任何位元組。
+			// 最後包雖然沒有 PCM，仍必須帶可解壓的 gzip 空流；否則服務端會報 ungzip EOF。
+			return [
+				0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+				0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			];
+		}
 		using var Output = new MemoryStream();
 		using(var Gzip = new GZipStream(Output, CompressionLevel.Fastest, leaveOpen: true)){
 			Gzip.Write(Payload);

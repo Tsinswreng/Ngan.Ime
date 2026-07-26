@@ -19,6 +19,7 @@
 		<PackageVersion Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.1" />
 		<PackageVersion Include="System.Reactive" Version="6.0.1" />
 		<PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+		<PackageVersion Include="NAudio" Version="2.2.1" />
 		<PackageVersion Include="Tsinswreng.CsInterop" Version="0.1.0.25463" />
 		<PackageVersion Include="Tsinswreng.CsTools" Version="0.0.1-alpha" />
 		<PackageVersion Include="Tsinswreng.Avln.Dsl" Version="0.3.0-alpha" />

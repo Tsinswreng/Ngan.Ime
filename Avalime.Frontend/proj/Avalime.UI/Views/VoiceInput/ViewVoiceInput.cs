@@ -141,7 +141,7 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	private partial Control MkDraftActionBar();
 
 	/// 建立當前語言入口。
-	/// 語言選擇層只負責返回 `NormLangDetail`，實際更新由 `VmVoiceInput.ApplyLang` 統一處理。
+	/// 語言選擇層只負責返回 `INormLang`，實際更新由 `VmVoiceInput.ApplyLang` 統一處理。
 	private partial Control MkLangBar();
 
 	/// 建立可伸縮的狀態與錯誤信息區。
@@ -157,7 +157,7 @@ public partial class ViewVoiceInput : AppViewBase<Ctx>, IDisposable{
 	private partial void OpenLangSelector();
 
 	/// 接收語言選擇結果、交給 VM 並關閉覆蓋層。
-	private partial void OnLangSelected(NormLangDetail Lang);
+	private partial void OnLangSelected(INormLang Lang);
 
 	/// 统一隐藏语言选择覆盖层，供“选择完成”和“取消返回”两条交互路径复用。
 	private partial void CloseLangSelector();

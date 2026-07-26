@@ -25,16 +25,49 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 	/// 供應商無關的流式語音識別入口；Windows 注入火山實現，Android 未來替換為平台適配實現。
 	readonly IVoiceRecognitionProvider RecognitionProvider;
 
+	/// 當前平台的實時麥克風音頻來源；Windows 注入 WASAPI 實現，Android 後續注入平台錄音實現。
+	readonly IAudioInputSource AudioInputSource;
+
+	/// 當前平臺的 PCM 格式與分片配置；一輪會話開始後使用其快照，不受配置文件後續修改影響。
+	readonly AudioInputOptions AudioOptions;
+
+	/// 串行化開始、停止、取消及失敗清理，防止多條 UI/生命週期回調同時替換會話資源。
+	readonly SemaphoreSlim SessionGate = new(1, 1);
+
+	/// 當前正在使用的麥克風會話；非忙碌狀態下必須為 null。
+	IAudioInputSession? AudioSession;
+
+	/// 當前正在使用的遠端識別會話；非忙碌狀態下必須為 null。
+	IVoiceRecognitionSession? RecognitionSession;
+
+	/// 控制本輪音頻發送和結果讀取兩條後台管線的取消源。
+	CancellationTokenSource? SessionCts;
+
+	/// 持續從麥克風讀取分片並發送到 Provider 的後台任務。
+	Task<nil>? SendAudioTask;
+
+	/// 持續讀取 Provider 文本快照並更新 UI 的後台任務。
+	Task<nil>? ReadResultsTask;
+
 	/// 建立语音输入 VM 并读取当前宿主的上屏能力。
 	/// 后续接入识别 Provider 时，在此构造函数继续注入抽象，不允许 VM 反查全局 DI。
-	public partial VmVoiceInput(IKeyboardHost KeyboardHost, IVoiceRecognitionProvider RecognitionProvider);
+	public partial VmVoiceInput(
+		IKeyboardHost KeyboardHost
+		, IVoiceRecognitionProvider RecognitionProvider
+		, IAudioInputSource AudioInputSource
+		, AudioInputOptions AudioOptions
+	);
 
 	/// 當前語音識別語言。
 	/// 使用 BCP 47 完整標籤區分地區變體，例如 `zh-CN`、`zh-TW`、`en-US`、`es-MX`。
 	/// 切換語言只影響下一次識別；正在錄音時語言按鈕應禁用，避免中途改變 Provider 參數。
 	public INormLang CurrentLang{
 		get;
-		set{SetProperty(ref field, value);}
+		set{
+			if(SetProperty(ref field, value)){
+				OnPropertyChanged(nameof(CurrentLangDisplay));
+			}
+		}
 	} = new NormLangDetail(){
 		Code = "zh-CN",
 		NativeName = "中文（中國）",
@@ -42,12 +75,16 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 	};
 
 	/// 當前語言按鈕的單行顯示文字。
-	/// 顯示格式由 VM 統一生成，例如 `zh-CN  中文（中國）`，View 不自行拼接業務文字。
-	/// //Note 感覺不太符合Mvvm規範。不應該用轉換器嗎
+	/// 此值由 `CurrentLang` 即時計算，不保存第二份可變狀態，避免語言身份與顯示文字失去同步。
+	/// 當語言同時實現 `INormLangDetail` 時附帶本地名稱，否則只顯示標準代碼。
 	public str CurrentLangDisplay{
-		get;
-		set{SetProperty(ref field, value);}
-	} = "zh-CN  中文（中國）";
+		get{
+			if(CurrentLang is INormLangDetail Detail && !str.IsNullOrWhiteSpace(Detail.NativeName)){
+				return $"{Detail.Code}  {Detail.NativeName}";
+			}
+			return CurrentLang.Code;
+		}
+	}
 
 	/// 當前識別會話所處的前端階段。
 	/// setter 需要同步通知所有派生可用性屬性及錄音按鈕視覺屬性。
@@ -165,9 +202,9 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 	/// 語音頁 VM 的兜底創建路徑。
 	public static partial VmVoiceInput Mk();
 
-	/// 接收語言選擇頁返回的標準化語言，更新 `CurrentLang` 與顯示文字。
+	/// 接收語言選擇頁返回的標準化語言；顯示文字由只讀派生屬性自動更新。
 	/// 正在識別時即使收到延遲回調也應忽略，保證一輪會話的語言參數不變。
-	public partial void ApplyLang(NormLangDetail Lang);
+	public partial void ApplyLang(INormLang Lang);
 
 	/// 由錄音按鈕觸發開始或停止動作。
 	/// 空閒、完成或失敗狀態下開始新會話；錄音狀態下請求停止；其他過渡狀態忽略重複點擊。
@@ -183,7 +220,19 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 
 	/// 接收 Provider 的流式文本快照。
 	/// 每次使用 `FinalizedText + InterimText` 重建 `DraftText`，而不是盲目追加響應文本。
-	public partial void ApplyRecognitionText(VoiceRecognitionTextUpdate Update);
+	public partial void ApplyRecognitionText(VoiceRecognitionResult Update);
+
+	/// 循環讀取麥克風分片並按原始時序發送；音頻序列只允許在此消費一次。
+	private partial Task<nil> PumpAudio(IAudioInputSession AudioSession, IVoiceRecognitionSession RecognitionSession, CT Ct);
+
+	/// 循環讀取遠端結果，將 Core 文本快照切換到 UI 線程應用。
+	private partial Task<nil> PumpResults(IVoiceRecognitionSession RecognitionSession, CT Ct);
+
+	/// 正常停止或取消後統一釋放音頻、網絡、取消源及後台任務引用。
+	private partial Task<nil> ReleaseSessionResources(bool CancelRemote, CT Ct);
+
+	/// 把設備、網絡、鑒權或協議異常映射成保留已有文本的 Failed 狀態。
+	private partial Task<nil> FailRecognition(Exception Error, CT Ct);
 
 	/// 清空草稿、穩定段、臨時段與錯誤信息。
 	/// 忙碌狀態下不執行，避免破壞正在進行的會話資料。

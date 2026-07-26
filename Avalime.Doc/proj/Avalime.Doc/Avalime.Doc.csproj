@@ -10,6 +10,7 @@
 		<ProjectReference Include="..\..\..\Avalime.Frontend\proj\Avalime.Rime\Avalime.Rime.csproj" />
 		<ProjectReference Include="..\..\..\Avalime.Frontend\proj\Avalime.UI\Avalime.UI.csproj" />
 		<ProjectReference Include="..\..\..\Avalime.Frontend\proj\Avalime.Windows\Avalime.Windows.csproj" />
+		<ProjectReference Include="..\..\..\Avalime.Frontend\proj\Avalime.Backend\Avalime.Backend.csproj" />
 	</ItemGroup>
 
 </Project>

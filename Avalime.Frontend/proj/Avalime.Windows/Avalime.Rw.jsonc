@@ -15,5 +15,28 @@
 			"Family": "孤鹜 筑紫明朝",
 			"BaseFontSize": 32.0
 		}
+	},
+	"VoiceInput": {
+		"Audio": {
+			"SampleRate": 16000,
+			"Channels": 1,
+			"BitsPerSample": 16,
+			"ChunkDurationMs": 200,
+			"MaxBufferedChunks": 32
+		},
+		"Volcengine": {
+			"ApiKey": "",
+			"AppId": "",
+			"AccessToken": "",
+			"Endpoint": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+			"ResourceId": "volc.bigasr.sauc.duration",
+			"ModelName": "bigmodel",
+			"ConnectTimeoutMs": 10000,
+			"FinalResultTimeoutMs": 15000,
+			"MaxServerMessageBytes": 1048576,
+			"EnablePunctuation": true,
+			"EnableInverseTextNormalization": true,
+			"ShowUtterances": true
+		}
 	}
 }

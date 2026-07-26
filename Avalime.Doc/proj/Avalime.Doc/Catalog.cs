@@ -5,6 +5,7 @@ using Tsinswreng.CsCore;
 [Doc($$"""
 #H[{{nameof(Avalime.Doc.Core)}}][
 	ImeState 流程
+	語音輸入跨平臺契約、火山協議及 Windows 音頻分層
 ]
 
 #H[{{nameof(Avalime.Doc.Rime)}}][

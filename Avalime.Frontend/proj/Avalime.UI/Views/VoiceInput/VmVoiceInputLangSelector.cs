@@ -17,6 +17,12 @@ namespace Avalime.UI.Views.VoiceInput;
 /// 搜索對 BCP 47 代碼、本地名稱和英文名稱做大小寫不敏感的包含匹配。
 /// 空搜索顯示全部支持語言；搜索結果保持 Provider 給出的原始排序，常用語言可由 Provider 權重提前。
 public partial class VmVoiceInputLangSelector : ViewModelBase, IMk<VmVoiceInputLangSelector>{
+	/// 提供當前供應商實際支持的語言目錄。
+	readonly Avalime.Core.Voice.IVoiceRecognitionProvider RecognitionProvider;
+
+	/// 建立語言選擇 VM，並以 Provider 的 IReadOnlyList&lt;INormLang&gt; 初始化列表。
+	public partial VmVoiceInputLangSelector(Avalime.Core.Voice.IVoiceRecognitionProvider RecognitionProvider);
+
 	/// 語言名稱或 BCP 47 代碼搜索文字。
 	/// setter 本身只保存輸入；按搜索按鈕或 Enter 時才更新結果，避免每次鍵入都重建控件列表。
 	public str Input{
@@ -26,14 +32,14 @@ public partial class VmVoiceInputLangSelector : ViewModelBase, IMk<VmVoiceInputL
 
 	/// 當前 Provider 支持的完整語言集合快照。
 	/// 搜索只讀取此集合，不直接向網絡服務重新請求；Provider 切換後由上層重新載入。
-	public IReadOnlyList<NormLangDetail> SourceRows{
+	public IReadOnlyList<INormLang> SourceRows{
 		get;
 		set{SetProperty(ref field, value);}
 	} = [];
 
 	/// 當前搜索結果，供语言列表展示。
 	/// 集合順序與 `SourceRows` 一致；搜索不應偷偷按名稱重新排序，避免常用語言權重失效。
-	public ObservableCollection<NormLangDetail> Rows{
+	public ObservableCollection<INormLang> Rows{
 		get;
 		set{
 			if(SetProperty(ref field, value)){
@@ -49,12 +55,12 @@ public partial class VmVoiceInputLangSelector : ViewModelBase, IMk<VmVoiceInputL
 	}
 
 	/// 語言選擇 VM 的兜底創建路徑。
-	/// 兜底資料只供設計預覽；正式運行由構造依賴取得 Provider 支持語言。
+	/// 兜底路徑從全局 DI 取得 Provider；不再維護與服務端能力可能不一致的靜態語言表。
 	public static partial VmVoiceInputLangSelector Mk();
 
 	/// 使用當前 Provider 支持語言初始化完整集合與可見結果。
 	/// 輸入集合在此轉成穩定快照，避免 Provider 在顯示期間修改集合造成枚舉競態。
-	public partial void LoadRows(IEnumerable<NormLangDetail> Rows);
+	public partial void LoadRows(IEnumerable<INormLang> Rows);
 
 	/// 清空搜索條件並恢復完整语言列表。
 	public partial void ClearSearch();

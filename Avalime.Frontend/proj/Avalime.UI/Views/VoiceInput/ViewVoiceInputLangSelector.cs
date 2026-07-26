@@ -51,7 +51,7 @@ public partial class ViewVoiceInputLangSelector : AppViewBase<Ctx>, IDisposable{
 	public TextBlock? EmptyText;
 
 	/// 用戶選擇語言時通知語音輸入頁。
-	public event Action<NormLangDetail>? OnSelected;
+	public event Action<INormLang>? OnSelected;
 
 	/// 用戶不改變語言並要求關閉覆蓋層時通知語音輸入頁。
 	public event Action? OnCloseRequested;
@@ -71,10 +71,10 @@ public partial class ViewVoiceInputLangSelector : AppViewBase<Ctx>, IDisposable{
 
 	/// 建立單個語言項目。
 	/// 代碼使用主色突出，本地名稱為主要文字，英文名稱為次要灰色文字。
-	private partial Control MkLangItem(NormLangDetail Lang);
+	private partial Control MkLangItem(INormLang Lang);
 
 	/// 將指定語言回傳給語音輸入頁。
-	private partial void SelectLang(NormLangDetail Lang);
+	private partial void SelectLang(INormLang Lang);
 
 	/// 不改變語言並請求關閉覆蓋層。
 	private partial void Close();

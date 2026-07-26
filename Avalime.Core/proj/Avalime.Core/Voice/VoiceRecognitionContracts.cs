@@ -2,11 +2,50 @@ using Avalime.Core.Language;
 
 namespace Avalime.Core.Voice;
 
+/// 語音輸入失敗的穩定分類，供 UI 生成用戶可讀提示，不依賴供應商錯誤碼。
+public enum EVoiceRecognitionErrorKind{
+	Unknown = 0,
+	Configuration,
+	MicrophonePermission,
+	AudioDevice,
+	Network,
+	Authentication,
+	Quota,
+	UnsupportedLanguage,
+	Protocol,
+	Cancelled,
+}
+
+/// 語音輸入管線的統一異常。
+/// ProviderCode 與 TraceId 保留第三方診斷信息，但 UI 的行爲判斷只依賴 Kind。
+public partial class VoiceRecognitionException : Exception{
+	/// 穩定錯誤分類。
+	public EVoiceRecognitionErrorKind Kind{get;}
+
+	/// 供應商或平臺原始錯誤碼；沒有時爲空。
+	public str ProviderCode{get;}
+
+	/// 遠端調用追蹤標識；沒有建立遠端會話時爲空。
+	public str TraceId{get;}
+
+	/// 建立統一語音異常，並保留底層異常作爲 InnerException。
+	public partial VoiceRecognitionException(
+		EVoiceRecognitionErrorKind Kind
+		, str Message
+		, str ProviderCode = ""
+		, str TraceId = ""
+		, Exception? InnerException = null
+	);
+}
+
 /// 一次語音識別請求的供應商無關參數。
 /// 語言在會話建立時固定，識別期間切換語言必須先結束當前會話。
 public sealed class VoiceRecognitionRequest{
 	/// 本輪使用的 BCP 47 語言標籤。
 	public INormLang Language{get;set;} = new NormLangDetail();
+
+	/// 本輪實際發送的 PCM 格式；必須與 IAudioInputSource 的會話配置一致。
+	public AudioInputOptions Audio{get;set;} = new();
 
 	/// 是否要求服務端返回臨時結果；首版固定為 true 以支持流式展示。
 	public bool EnableInterimResults{get;set;} = true;
@@ -23,6 +62,9 @@ public sealed class VoiceRecognitionResult{
 
 	/// 是否代表服務端已發出本輪最終結果。
 	public bool IsCompleted{get;set;}
+
+	/// 供應商返回的會話追蹤標識；發生錯誤時可用於服務端排查。
+	public str TraceId{get;set;} = "";
 }
 
 /// 供應商無關的流式識別會話。

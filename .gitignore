@@ -456,3 +456,6 @@ $RECYCLE.BIN/
 
 *.sln
 TestAvln12
+
+
+.Private/*

@@ -11,12 +11,26 @@ using Tsinswreng.CsCore;
 	- `{{nameof(IVoiceRecognitionProvider)}}` / `{{nameof(IVoiceRecognitionSession)}}`：供應商無關的流式識別會話。
 	- `{{nameof(VolcengineVoiceRecognitionProvider)}}`：跨 Windows / Android 複用的火山 v3 WebSocket 適配器。
 	- `{{nameof(WindowsAudioInputSource)}}`：Windows 專屬 WASAPI 音頻採集入口。
+	- Android 平台使用原生 `AudioRecord` 實現相同 PCM 契約，不引入第三方音頻庫。
 	- `VmVoiceInput`：組合音頻與遠端識別管線，只維護 UI 狀態和文本草稿。
 ]
 
 #H[Windows 第一版依賴][
 	Windows 音頻採集暫時使用 NAudio 的 WASAPI 封裝，以先完成可驗證原型。
 	NAudio 的 NativeAOT 相容性列爲後續驗證項；若發布測試不通過，只替換 `WindowsAudioInputSource` / `WindowsAudioInputSession`，跨平臺契約和 `Avalime.Backend` 不變。
+]
+
+#H[Android 適配][
+	Android 音頻層固定輸出 16 kHz、16-bit、單聲道 little-endian PCM，直接複用火山 Provider 與語音 UI。
+	採集循環在專用後台任務中執行阻塞式 `AudioRecord.Read`，按配置分成固定時長包並寫入有界 Channel；
+	隊列滿時終止會話，不丟棄音頻，也不無限增加內存。
+
+	普通 Activity 和 `InputMethodService` 各自建立 DI 容器，因此兩個組合根都必須註冊語音 Provider、音頻源、音頻配置及語音 ViewModel。
+	缺少 `RECORD_AUDIO` 權限時，IME Service 啓動主 Activity 顯示系統權限對話框；
+	本次錄音返回 `MicrophonePermission` 錯誤，授權後用戶返回輸入法再次開始錄音。
+
+	Android 實現只使用靜態可分析的原生綁定、顯式泛型 DI 註冊和普通托管任務，
+	不使用程序集掃描、`dynamic`、Emit 或運行時生成代碼，以支持 Android NativeAOT 發布。
 ]
 
 #H[音頻數據流][
@@ -42,6 +56,7 @@ using Tsinswreng.CsCore;
 	- `Audio`：採樣率、聲道、位深、分片時長、最大緩衝包數。
 	- `Volcengine`：ApiKey、舊版憑據、端點、資源 ID、模型名、連接/尾包超時及結果選項。
 	- 密鑰只存本機可寫配置，不寫入代碼和日誌。
+	- Android APK 內的初始配置只包含空憑據與非敏感默認值；ApiKey 必須由用戶寫入手機外部可寫配置，不能打包進 APK。
 ]
 
 #H[會話時序][

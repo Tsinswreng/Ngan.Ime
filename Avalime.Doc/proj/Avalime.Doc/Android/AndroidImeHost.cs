@@ -84,6 +84,20 @@ using Tsinswreng.CsCore;
 	`AppLog.Inst.InnerLogger` 在 Android `Application` 啟動時切到 `AndroidLogger`，Release 也可直接進 logcat。
 ]
 
+#H[語音輸入宿主][
+	Android 語音輸入通過原生 `AudioRecord` 採集 16 kHz、16-bit、單聲道 PCM，
+	後續火山 WebSocket 協議與語音頁狀態機直接複用跨平台程序集。
+
+	`Application` 的普通 Activity 容器與 `InputMethodService.OnCreate()` 的 IME 容器都調用同一 Android 語音組合根，
+	避免主界面可解析語音服務、輸入法窗口卻缺少依賴。
+
+	錄音權限採用 Activity 中轉：
+	- Manifest 聲明 `RECORD_AUDIO`
+	- IME Service 發現缺權限時，以專用 action 打開 `MainActivity`
+	- 該啓動路徑只申請麥克風，不觸發普通啓動的通知與懸浮窗權限流程
+	- 權限結果返回後立即關閉 Activity，讓用戶回到原應用並再次點擊錄音
+]
+
 #H[原生庫載入][
 	Android 端不再把 `librime.so` 放進 APK 的 `lib/arm64-v8a/` 標準原生庫路徑。
 	原因是某些 `librime_jni.so` 變體在 `JNI_OnLoad` 會主動查找宿主 App 裡的 Java 類，

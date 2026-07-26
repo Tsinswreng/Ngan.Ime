@@ -19,6 +19,7 @@ using Avalime.UI.Views.Key;
 using Avalime.UI.Views.KeyBoard;
 using Avalime.UI.Views.RimeLog;
 using Avalime.UI.Views.ToolBar;
+using Avalime.Android.Voice;
 using Avalonia.Android;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -464,6 +465,7 @@ public class AvalimeInputMethodService : InputMethodService {
 		ActiveServiceRef.SetTarget(this);
 
 		var services = new ServiceCollection();
+		AndroidVoiceComposition.AddAndroidVoiceInput(services, this);
 		services.AddSingleton<RimeSetup>(_ => RimeSetup.Inst);
 		services.AddSingleton<IRimeLogSource>(_ => RimeLogStore.Inst);
 		services.AddSingleton<IImeKeyProcessor, RimeKeyProcessor>();

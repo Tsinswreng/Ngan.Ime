@@ -84,7 +84,7 @@ public class KeysCfg{
 			public static ICfgNode<str> AppId = Mk(_R, [nameof(AppId)], "");
 			public static ICfgNode<str> AccessToken = Mk(_R, [nameof(AccessToken)], "");
 			public static ICfgNode<str> Endpoint = Mk(_R, [nameof(Endpoint)], "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream");
-			public static ICfgNode<str> ResourceId = Mk(_R, [nameof(ResourceId)], "volc.bigasr.sauc.duration");
+			public static ICfgNode<str> ResourceId = Mk(_R, [nameof(ResourceId)], "volc.seedasr.sauc.duration");
 			public static ICfgNode<str> ModelName = Mk(_R, [nameof(ModelName)], "bigmodel");
 			public static ICfgNode<i64> ConnectTimeoutMs = Mk(_R, [nameof(ConnectTimeoutMs)], 10000L);
 			public static ICfgNode<i64> FinalResultTimeoutMs = Mk(_R, [nameof(FinalResultTimeoutMs)], 15000L);

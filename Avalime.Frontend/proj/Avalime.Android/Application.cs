@@ -13,6 +13,7 @@ using Avalime.UI.Views.Key;
 using Avalime.UI.Views.KeyBoard;
 using Avalime.UI.Views.RimeLog;
 using Avalime.UI.Views.ToolBar;
+using Avalime.Android.Voice;
 using Avalonia;
 using Avalonia.Android;
 using Microsoft.Extensions.DependencyInjection;
@@ -162,6 +163,7 @@ public class Application : AvaloniaAndroidApplication<App>
 	static IServiceProvider BuildAndroidActivityServices()
 	{
 		var services = new ServiceCollection();
+		AndroidVoiceComposition.AddAndroidVoiceInput(services, global::Android.App.Application.Context);
 		services.AddSingleton<RimeSetup>(_ => RimeSetup.Inst);
 		services.AddSingleton<IRimeLogSource>(_ => RimeLogStore.Inst);
 		services.AddSingleton<IImeKeyProcessor, RimeKeyProcessor>();

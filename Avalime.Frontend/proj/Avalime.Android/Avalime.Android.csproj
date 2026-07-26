@@ -14,6 +14,16 @@
 		<PublishAot>false</PublishAot>
 	</PropertyGroup>
 
+	<!--
+		.NET Android NativeAOT workloads before the customer-app fix can drop the
+		TLS trust-manager JNI callback because it is referenced only from Java.
+		Keep and export the symbol using the workaround from dotnet/runtime#129872.
+	-->
+	<ItemGroup Condition="'$(PublishAot)' == 'true'">
+		<IlcArg Include="--export-dynamic-symbol:Java_net_dot_android_crypto_DotnetProxyTrustManager_verifyRemoteCertificate" />
+		<LinkerArg Include="-Wl,-u,Java_net_dot_android_crypto_DotnetProxyTrustManager_verifyRemoteCertificate" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<AndroidResource Include="Icon.png">
 			<Link>Resources\drawable\Icon.png</Link>

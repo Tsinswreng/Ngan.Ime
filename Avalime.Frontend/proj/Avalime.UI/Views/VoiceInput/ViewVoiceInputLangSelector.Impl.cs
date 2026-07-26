@@ -122,7 +122,7 @@ public partial class ViewVoiceInputLangSelector{
 	}
 
 	/// 建立代码、本地名和英文名三层信息的点击项。
-	private partial Control MkLangItem(NormLangDetail Lang){
+	private partial Control MkLangItem(INormLang Lang){
 		var R = new Button{
 			Background = Brushes.Black,
 			BorderBrush = UiCfg.Inst.GapLineBrush,
@@ -145,13 +145,14 @@ public partial class ViewVoiceInputLangSelector{
 		})
 		.A(new StackPanel(), P=>{
 			P.Spacing = 2;
+			var Detail = Lang as INormLangDetail;
 			P.A(new TextBlock(), T=>{
-				T.Text = Lang.NativeName;
+				T.Text = Detail?.NativeName ?? Lang.Code;
 				T.Foreground = Brushes.White;
 				T.FontSize = UiCfg.Inst.BaseFontSize * 0.48;
 			})
 			.A(new TextBlock(), T=>{
-				T.Text = Lang.EnglishName;
+				T.Text = Detail?.EnglishName ?? "";
 				T.Foreground = Brushes.Gray;
 				T.FontSize = UiCfg.Inst.BaseFontSize * 0.36;
 			});
@@ -162,7 +163,7 @@ public partial class ViewVoiceInputLangSelector{
 	}
 
 	/// 回传语言选择，不在覆盖层内部改变主页面状态。
-	private partial void SelectLang(NormLangDetail Lang){
+	private partial void SelectLang(INormLang Lang){
 		OnSelected?.Invoke(Lang);
 	}
 

@@ -7,7 +7,7 @@ using Avalonia.Media;
 namespace Avalime.UI.Views.VoiceInput;
 
 /// 語音输入页的完整前端实现。
-/// 录音 Provider 尚未接入，但布局、文本编辑、语言选择与宿主能力降级均按最终数据流工作。
+/// 布局、文本编辑、语言选择与宿主能力降级均通过 VM 的跨平台语音会话数据流工作。
 public partial class ViewVoiceInput{
 	/// 建立视图、订阅 VM 状态并组装控件树。
 	public partial ViewVoiceInput(){
@@ -237,7 +237,7 @@ public partial class ViewVoiceInput{
 	}
 
 	/// 应用选择并关闭覆盖层。
-	private partial void OnLangSelected(NormLangDetail Lang){
+	private partial void OnLangSelected(INormLang Lang){
 		Ctx?.ApplyLang(Lang);
 		CloseLangSelector();
 	}

@@ -20,6 +20,9 @@ public sealed partial class WindowsAudioInputSession : IAudioInputSession{
 	/// 把設備格式重採樣爲目標 PCM 格式的轉換器。
 	readonly MediaFoundationResampler Resampler;
 
+	/// 暫存重採樣後不足一個目標分片的 PCM，確保對外只輸出固定時長分片。
+	readonly BufferedWaveProvider TargetBuffer;
+
 	/// 向單一消費者輸出 PCM 分片的有界隊列。
 	readonly Channel<ReadOnlyMemory<byte>> Chunks;
 
@@ -41,6 +44,7 @@ public sealed partial class WindowsAudioInputSession : IAudioInputSession{
 		, WasapiCapture Capture
 		, BufferedWaveProvider SourceBuffer
 		, MediaFoundationResampler Resampler
+		, BufferedWaveProvider TargetBuffer
 		, AudioInputOptions Options
 		, CT Ct
 	);

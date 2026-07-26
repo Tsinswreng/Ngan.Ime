@@ -1,35 +1,45 @@
 using Avalime.Core.Infra;
 using Avalime.Core.Language;
+using Avalime.Core.Voice;
 using Avalonia.Threading;
 
 namespace Avalime.UI.Views.VoiceInput;
 
-/// 語音輸入頁 ViewModel 的前端狀態實現。
-/// 當前尚未注入真正的識別 Provider，因此錄音入口會以明確錯誤結束，其他前端能力可獨立驗證。
+/// 語音輸入頁的識別會話編排實現。
+/// VM 只協調跨平臺抽象，不解析供應商協議，也不直接調用 Windows 麥克風 API。
 public partial class VmVoiceInput{
-	/// 建立 VM 並從宿主读取是否支持上屏。
-	public partial VmVoiceInput(IKeyboardHost KeyboardHost){
+	/// 保存所有注入依賴，並讀取宿主是否支持上屏。
+	public partial VmVoiceInput(
+		IKeyboardHost KeyboardHost
+		, IVoiceRecognitionProvider RecognitionProvider
+		, IAudioInputSource AudioInputSource
+		, AudioInputOptions AudioOptions
+	){
 		this.KeyboardHost = KeyboardHost;
+		this.RecognitionProvider = RecognitionProvider;
+		this.AudioInputSource = AudioInputSource;
+		this.AudioOptions = AudioOptions;
 		IsCommitSupported = KeyboardHost.CanCommitText;
 	}
 
-	/// 使用全局 DI 提供兜底构造；正式 View 仍通过 `DiOrMk` 优先解析已注册依赖。
+	/// 兜底創建仍走 DI，使 View 在未直接註冊 VM 時取得相同依賴組合。
 	public static partial VmVoiceInput Mk(){
-		return new VmVoiceInput(Di.GetRSvc<IKeyboardHost>());
+		return new VmVoiceInput(
+			Di.GetRSvc<IKeyboardHost>(),
+			Di.GetRSvc<IVoiceRecognitionProvider>(),
+			Di.GetRSvc<IAudioInputSource>(),
+			Di.GetRSvc<AudioInputOptions>()
+		);
 	}
 
-	/// 在非忙碌状态应用新语言，并统一生成按钮显示文本。
-	public partial void ApplyLang(NormLangDetail Lang){
-		if(IsBusy){
-			return;
+	/// 識別期間忽略延遲語言回調，確保一輪會話參數不可變。
+	public partial void ApplyLang(INormLang Lang){
+		if(!IsBusy && Lang is not null){
+			CurrentLang = Lang;
 		}
-		CurrentLang = Lang;
-		CurrentLangDisplay = str.IsNullOrWhiteSpace(Lang.NativeName)
-			? Lang.Code
-			: $"{Lang.Code}  {Lang.NativeName}";
 	}
 
-	/// 根据当前阶段决定开始或停止；过渡阶段忽略重复点击。
+	/// 僅 Idle/Completed/Failed 可開始，僅 Recording 可請求停止。
 	public async partial Task<nil> ToggleRecording(CT Ct){
 		if(Phase == EVoiceInputPhase.Recording){
 			return await StopRecognition(Ct);
@@ -40,47 +50,162 @@ public partial class VmVoiceInput{
 		return NIL;
 	}
 
-	/// 当前没有 Provider，使用失败状态明确暴露尚未接入，而不是伪造录音成功。
+	/// 先建立遠端會話，成功後才開啓麥克風，避免未鑒權時無意義採集音頻。
 	public async partial Task<nil> StartRecognition(CT Ct){
-		Ct.ThrowIfCancellationRequested();
-		ErrorText = "語音識別 Provider 尚未接入";
-		StatusText = "暫時無法開始語音識別";
-		Phase = EVoiceInputPhase.Failed;
-		await Task.CompletedTask;
-		return NIL;
-	}
-
-	/// Provider 接入前没有可停止的录音会话；保持已有文本并回到完成状态。
-	public async partial Task<nil> StopRecognition(CT Ct){
-		Ct.ThrowIfCancellationRequested();
-		StatusText = "語音輸入已停止";
-		Phase = EVoiceInputPhase.Completed;
-		await Task.CompletedTask;
-		return NIL;
-	}
-
-	/// 在 UI 线程用稳定段与临时段快照重建草稿，避免重复追加。
-	public partial void ApplyRecognitionText(VoiceRecognitionTextUpdate Update){
-		if(!Dispatcher.UIThread.CheckAccess()){
-			var Snapshot = new VoiceRecognitionTextUpdate{
-				FinalizedText = Update.FinalizedText,
-				InterimText = Update.InterimText,
-				IsCompleted = Update.IsCompleted,
+		await SessionGate.WaitAsync(Ct);
+		try{
+			if(IsBusy){
+				return NIL;
+			}
+			ErrorText = "";
+			InterimText = "";
+			FinalizedText = "";
+			DraftText = "";
+			StatusText = "正在連接語音識別服務";
+			Phase = EVoiceInputPhase.Starting;
+			SessionCts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+			var SessionCt = SessionCts.Token;
+			var Request = new VoiceRecognitionRequest{
+				Language = CurrentLang,
+				Audio = new AudioInputOptions{
+					SampleRate = AudioOptions.SampleRate,
+					Channels = AudioOptions.Channels,
+					BitsPerSample = AudioOptions.BitsPerSample,
+					ChunkDurationMs = AudioOptions.ChunkDurationMs,
+					MaxBufferedChunks = AudioOptions.MaxBufferedChunks,
+				},
 			};
-			Dispatcher.UIThread.Post(()=>ApplyRecognitionText(Snapshot));
+			RecognitionSession = await RecognitionProvider.StartSession(Request, SessionCt);
+			AudioSession = await AudioInputSource.Start(Request.Audio, SessionCt);
+			ReadResultsTask = PumpResults(RecognitionSession, SessionCt);
+			SendAudioTask = PumpAudio(AudioSession, RecognitionSession, SessionCt);
+			// 任一后台管线意外失败时，切回 UI 线程串行结束本轮会话。
+			_ = SendAudioTask.ContinueWith(async Task=>{
+				if(Task.IsFaulted && Task.Exception is not null){
+					await SessionGate.WaitAsync();
+					try{
+						if(IsBusy){
+							await FailRecognition(Task.Exception.GetBaseException(), CancellationToken.None);
+						}
+					}finally{
+						SessionGate.Release();
+					}
+				}
+			}, TaskScheduler.Default);
+			_ = ReadResultsTask.ContinueWith(async Task=>{
+				if(Task.IsFaulted && Task.Exception is not null){
+					await SessionGate.WaitAsync();
+					try{
+						if(IsBusy){
+							await FailRecognition(Task.Exception.GetBaseException(), CancellationToken.None);
+						}
+					}finally{
+						SessionGate.Release();
+					}
+				}
+			}, TaskScheduler.Default);
+			StatusText = "正在錄音";
+			Phase = EVoiceInputPhase.Recording;
+		}catch(Exception Error){
+			await FailRecognition(Error, Ct);
+		}
+		finally{
+			SessionGate.Release();
+		}
+		return NIL;
+	}
+
+	/// 停止麥克風後發送尾包，等待服務端完成並保留最後草稿。
+	public async partial Task<nil> StopRecognition(CT Ct){
+		await SessionGate.WaitAsync(Ct);
+		try{
+			if(Phase != EVoiceInputPhase.Recording || AudioSession is null || RecognitionSession is null){
+				return NIL;
+			}
+			Phase = EVoiceInputPhase.Finalizing;
+			StatusText = "正在等待最終識別結果";
+			await AudioSession.Stop(Ct);
+			await SendAudioTask!;
+			await RecognitionSession.CompleteAudio(Ct);
+			await ReadResultsTask!;
+			StatusText = "識別完成，可修改後上屏";
+			Phase = EVoiceInputPhase.Completed;
+			await ReleaseSessionResources(false, Ct);
+		}catch(Exception Error){
+			await FailRecognition(Error, Ct);
+		}finally{
+			SessionGate.Release();
+		}
+		return NIL;
+	}
+
+	/// 在 UI 線程以快照重建草稿，避免后台 WebSocket 线程直接触碰绑定对象。
+	public partial void ApplyRecognitionText(VoiceRecognitionResult Update){
+		if(!Dispatcher.UIThread.CheckAccess()){
+			Dispatcher.UIThread.Post(()=>ApplyRecognitionText(Update));
 			return;
 		}
-
 		FinalizedText = Update.FinalizedText;
 		InterimText = Update.InterimText;
 		DraftText = FinalizedText + InterimText;
-		if(Update.IsCompleted){
-			StatusText = "識別完成，可修改後上屏";
-			Phase = EVoiceInputPhase.Completed;
+		if(Update.IsCompleted && Phase == EVoiceInputPhase.Finalizing){
+			StatusText = "正在整理最終識別結果";
 		}
 	}
 
-	/// 非忙碌时清空所有前端文本状态。
+	/// 单次消费麦克风序列并按顺序交给远端会话。
+	private async partial Task<nil> PumpAudio(IAudioInputSession AudioSession, IVoiceRecognitionSession RecognitionSession, CT Ct){
+		await foreach(var Chunk in AudioSession.ReadChunks(Ct)){
+			await RecognitionSession.SendAudio(Chunk, Ct);
+		}
+		return NIL;
+	}
+
+	/// 单次消费远端结果序列；任何管线异常都由 Start/Stop 的 await 统一处理。
+	private async partial Task<nil> PumpResults(IVoiceRecognitionSession RecognitionSession, CT Ct){
+		await foreach(var Update in RecognitionSession.ReadResults(Ct)){
+			ApplyRecognitionText(Update);
+		}
+		return NIL;
+	}
+
+	/// 取消或正常完成均幂等释放会话；取消路径向远端发送终止信号。
+	private async partial Task<nil> ReleaseSessionResources(bool CancelRemote, CT Ct){
+		var Audio = AudioSession;
+		var Recognition = RecognitionSession;
+		var Cancellation = SessionCts;
+		AudioSession = null;
+		RecognitionSession = null;
+		SessionCts = null;
+		SendAudioTask = null;
+		ReadResultsTask = null;
+		Cancellation?.Cancel();
+		if(Audio is not null){
+			await Audio.DisposeAsync();
+		}
+		if(Recognition is not null){
+			if(CancelRemote){
+				// 清理不能依赖已经被页面生命周期取消的调用令牌。
+				await Recognition.Stop(CancellationToken.None);
+			}
+			await Recognition.DisposeAsync();
+		}
+		Cancellation?.Dispose();
+		return NIL;
+	}
+
+	/// 映射异常并保留已识别文本，用户可复制、修正或立即开始下一轮。
+	private async partial Task<nil> FailRecognition(Exception Error, CT Ct){
+		ErrorText = Error is VoiceRecognitionException VoiceError
+			? VoiceError.Message
+			: "語音識別失敗，請檢查麥克風、網絡和配置";
+		StatusText = "語音識別已停止";
+		Phase = EVoiceInputPhase.Failed;
+		await ReleaseSessionResources(true, Ct);
+		return NIL;
+	}
+
+	/// 非忙碌时重置文字与阶段，避免与后台快照竞争。
 	public partial void ClearText(){
 		if(IsBusy){
 			return;
@@ -93,22 +218,25 @@ public partial class VmVoiceInput{
 		Phase = EVoiceInputPhase.Idle;
 	}
 
-	/// 二次检查能力与文本后，把用户确认的草稿原样交给宿主。
+	/// 上屏前再检查能力和文本，避免绕过按钮状态调用宿主。
 	public partial void CommitText(){
-		if(!CanCommitText){
-			return;
+		if(CanCommitText){
+			KeyboardHost.CommitText(DraftText);
 		}
-		KeyboardHost.CommitText(DraftText);
 	}
 
-	/// 取消会话时保留草稿；当前没有 Provider 资源需要额外释放。
+	/// 取消保留现有草稿，只停止音频和网络资源。
 	public async partial Task<nil> CancelRecognition(CT Ct){
-		Ct.ThrowIfCancellationRequested();
-		if(IsBusy){
-			StatusText = "語音輸入已取消";
-			Phase = EVoiceInputPhase.Idle;
+		await SessionGate.WaitAsync(Ct);
+		try{
+			if(IsBusy){
+				await ReleaseSessionResources(true, Ct);
+				StatusText = "語音輸入已取消";
+				Phase = EVoiceInputPhase.Idle;
+			}
+		}finally{
+			SessionGate.Release();
 		}
-		await Task.CompletedTask;
 		return NIL;
 	}
 }

@@ -16,7 +16,7 @@ E:\_code\_clone\rime\weasel
 
 2026_0625_160637[
 ````cs
-File: e:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Keys\SvcIme.cs
+File: e:\_code\CsRime\Ngan.Ime\Ngan.Ime.Core\proj\Ngan.Ime.Core\Keys\SvcIme.cs
 144: 	public virtual Task ConnectAsy(CT ct = default){
 145: 		IsConnected = ImeKeyProcessor is not null;
 146: 		if(IsConnected && string.IsNullOrWhiteSpace(StatusText)){
@@ -49,7 +49,7 @@ E:\_code\_clone\rime\weasel
 我按PgUp時他會進入下一頁
 按PgDn就回到上一頁
 
-File: e:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Keys\SvcIme.cs
+File: e:\_code\CsRime\Ngan.Ime\Ngan.Ime.Core\proj\Ngan.Ime.Core\Keys\SvcIme.cs
 然後當前SvcIme中 候選詞的獲取也是設計得有問題的
 明明底層引擎用的是迭代器來獲取
 但在SvcIme中卻用的是List
@@ -116,8 +116,8 @@ struct CandidateInfo {
   int highlighted;
   std::vector<Text> candies;   // ← 只有當前頁的候選，不是全部
 };
-三、Avalime 現在的真實問題
-對比 Weasel，Avalime 的問題不在於用了 List 而不是迭代器，而在於：
+三、Ngan.Ime 現在的真實問題
+對比 Weasel，Ngan.Ime 的問題不在於用了 List 而不是迭代器，而在於：
 
 問題 1：丟失了分頁元數據
 ISvcIme（SvcIme.cs:81）：
@@ -193,7 +193,7 @@ Update Todos
 
 閱讀 weasel 源碼的候選詞分頁邏輯
 
-閱讀 Avalime 底層引擎的迭代器接口
+閱讀 Ngan.Ime 底層引擎的迭代器接口
 
 分析設計問題並提出改進方案
 你說得對，讓我再深入看看。我之前只關注了 Weasel 用什麼，但沒有仔細思考 Rime C API 中那些迭代器函數的設計意圖以及 get_context() 和 candidate_list_begin/next/end 之間的關係。
@@ -205,7 +205,7 @@ Grep "candidate_list_begin|candidate_list_next|candidate_list_end" (in E:\_code\
 Read e:\_code\CsRime\CsRimeApi\proj\Rime.Api\RimeCandidateListIterator.cs
 關鍵發現！文檔裡記錄了要用迭代器。讓我看 librime 源碼和相關文檔：
 
-Read e:\_code\CsRime\Avalime\Avalime.Doc\proj\Avalime.Doc\UI\CandidateLifecycle.cs
+Read e:\_code\CsRime\Ngan.Ime\Ngan.Ime.Doc\proj\Ngan.Ime.Doc\UI\CandidateLifecycle.cs
 Read e:\_code\CsRime\CsRimeApi\proj\Rime.Api\Program.cs.txt
 Read E:\_code\_clone\rime\librime\src\rime_api.h (lines 2-101)
 Grep "candidate_list_begin|candidate_list_next|candidate_list_end|get_context|candidate_list_from_index|RimeCandidateListIterator" (in E:\_code\_clone\rime\librime\src\rime_api.h)
@@ -279,7 +279,7 @@ Weasel 用哪個	✅ 用這個	❌ 完全不用
 性能	無所謂 List/Iterator	如果全部遍歷則 Iterator 有意義
 這就是為什麼 Weasel 不用迭代器 API — 因為它會拿到全部候選而不是一頁。對於有分頁的前端，get_context() 才是正確的 API。
 
-而 Avalime 文檔 CandidateLifecycle.cs:33-37 記的設計是用 candidate_list_begin/next/end + 硬 cap 16 個 — 這其實繞過了 Rime 的分頁機制，自己手動限制數量。當前實作 AndroidRimeImeService.SyncStateFromRime() 改用 get_context() 反而是正確的方向。
+而 Ngan.Ime 文檔 CandidateLifecycle.cs:33-37 記的設計是用 candidate_list_begin/next/end + 硬 cap 16 個 — 這其實繞過了 Rime 的分頁機制，自己手動限制數量。當前實作 AndroidRimeImeService.SyncStateFromRime() 改用 get_context() 反而是正確的方向。
 
 回答你的問題
 IAsyncEnumerable<ICandidate>？不合適

@@ -9,13 +9,13 @@
 
 -T[2026_0711_193125][
 	先看skill。
-	現在我想給Avalime這個項目弄一個語音輸入的功能。
+	現在我想給Ngan.Ime這個項目弄一個語音輸入的功能。
 	現在我在
 ][]
 
 -T[2026_0711_194054][
 	先看skill;
-	看Avalime
+	看Ngan.Ime
 現在我想給輸入法加個語音輸入功能
 你先把前端做好
 我的想法是 在頂工具欄上加個語音輸入入口
@@ -37,9 +37,9 @@ UI的替換邏輯類似于剪貼板的邏輯
 
 **我看到的現狀**
 現有切換骨架已經有了，核心點在：
-[ViewIme.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/Ime/ViewIme.cs)
-[ImeUiState.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/ImeUiState.cs)
-[ViewToolBar.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/ToolBar/ViewToolBar.cs)
+[ViewIme.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/Ime/ViewIme.cs)
+[ImeUiState.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/ImeUiState.cs)
+[ViewToolBar.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/ToolBar/ViewToolBar.cs)
 
 現在 body 區已經是 `keyboard / clipboard / rimeLog` 疊層切換，所以加 `voiceInput` 是順路的。
 
@@ -90,10 +90,10 @@ UI的替換邏輯類似于剪貼板的邏輯
 沒有候選的時候顯示工具欄、有候選的時候顯示候選欄、你怎麼還能不動candidate?  方便的話preedit可以不動。也可以去掉 看你怎麼方便。
 前端代碼規範在
 ````md
-    - E:\_code\CsNgaq\Doc\Spec\Frontend.typ
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\CodeTemplate\Sample\**
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Infra\ViewModelBase.cs
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\MainView.Decl.cs
+    - E:\_code\CsNgan.Dict\Doc\Spec\Frontend.typ
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\CodeTemplate\Sample\**
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Infra\ViewModelBase.cs
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\MainView.Decl.cs
 ````
 你先給我按聲明與實現分離的步驟、先把聲明寫出來。
 
@@ -105,19 +105,19 @@ UI的替換邏輯類似于剪貼板的邏輯
 -Sesn[
 -T[2026_0720_213852][
 先看skill;
-	看Avalime
+	看Ngan.Ime
 現在我想給輸入法加個語音輸入功能。
 要支持多語言。
-參考CsNgaq詞典的的語言選擇功能。
-`E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\Dictionary\ViewDictionary.cs`
+參考CsNgan.Dict詞典的的語言選擇功能。
+`E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\Dictionary\ViewDictionary.cs`
 現在前端的聲明只寫了一小部分。
 你繼續推進。
 
 ][
 ````md
-已看完相關 skill、Avalime 文檔、現有語音聲明及 CsNgaq 參考實現。現在有一個關鍵設計點不能自行猜測，需要你確認後我才能繼續寫聲明。
+已看完相關 skill、Ngan.Ime 文檔、現有語音聲明及 CsNgan.Dict 參考實現。現在有一個關鍵設計點不能自行猜測，需要你確認後我才能繼續寫聲明。
 
-CsNgaq 的語言選擇並不是單一控件：`ViewDictionary` 會打開 `ViewNormLangPage`，其語言資料來自 `ISvcNormLang` 和詞典資料庫，另外還有可配置的快捷語言 Tag。Avalime 目前沒有相應的語言模型、目錄或服務，不能直接照搬。
+CsNgan.Dict 的語言選擇並不是單一控件：`ViewDictionary` 會打開 `ViewNormLangPage`，其語言資料來自 `ISvcNormLang` 和詞典資料庫，另外還有可配置的快捷語言 Tag。Ngan.Ime 目前沒有相應的語言模型、目錄或服務，不能直接照搬。
 
 我建議本輪需求定為：
 
@@ -131,14 +131,14 @@ CsNgaq 的語言選擇並不是單一控件：`ViewDictionary` 會打開 `ViewNo
 
 需要你裁定兩點：
 
-- 語言 UI 是否需要像 CsNgaq 一樣支持「可編輯的快捷語言 Tag」，還是只要一個當前語言按鈕，點擊後進完整列表？
+- 語言 UI 是否需要像 CsNgan.Dict 一樣支持「可編輯的快捷語言 Tag」，還是只要一個當前語言按鈕，點擊後進完整列表？
 - 本輪聲明是否要連未來的語音服務接口一起設計，例如開始錄音、停止錄音、識別結果事件和支持語言列表；還是嚴格只聲明純前端 UI？
 ````
 ]
 
 -T[2026_0720_214825][
 	先把前端畫出來。狀態啥的先不做。
-	把CsNgaq的NormLang搬過來。
+	把CsNgan.Dict的NormLang搬過來。
 
 ][
 
@@ -166,7 +166,7 @@ CsNgaq 的語言選擇並不是單一控件：`ViewDictionary` 會打開 `ViewNo
 - 顯示錄音中、識別中、錯誤等狀態。
 - 將最終識別文字通過 `IKeyboardHost.CommitText` 上屏。
 - 關閉語音頁、輸入法隱藏或宿主銷毀時，可靠停止錄音並釋放資源。
-- 保持 `Avalime.UI -> Core 抽象 <- Android/Windows 實現` 的分層。
+- 保持 `Ngan.Ime.UI -> Core 抽象 <- Android/Windows 實現` 的分層。
 
 需要你確認：
 
@@ -338,7 +338,7 @@ IKeyboardHost.CommitText
 └──────────────────────────────┘
 ```
 
-主要控件、尺寸约束和交互职责写在 [ViewVoiceInput.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/ViewVoiceInput.cs:10)。
+主要控件、尺寸约束和交互职责写在 [ViewVoiceInput.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/ViewVoiceInput.cs:10)。
 
 **状态设计**
 
@@ -351,7 +351,7 @@ IKeyboardHost.CommitText
 - `Completed`：恢复人工编辑，允许上屏。
 - `Failed`：保留已有文本和错误信息，允许修改或重试。
 
-详见 [EVoiceInputPhase.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/EVoiceInputPhase.cs:6)。
+详见 [EVoiceInputPhase.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/EVoiceInputPhase.cs:6)。
 
 **流式文本**
 
@@ -361,11 +361,11 @@ Provider 不向 UI 发送需要盲目追加的字符串，而是发送完整快�
 - `InterimText`：下一包可能整体替换的临时尾句。
 - `IsCompleted`：本轮识别是否最终完成。
 
-VM 每次使用 `FinalizedText + InterimText` 重建草稿，避免产生重复句子。契约见 [VoiceRecognitionTextUpdate.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VoiceRecognitionTextUpdate.cs:6)。
+VM 每次使用 `FinalizedText + InterimText` 重建草稿，避免产生重复句子。契约见 [VoiceRecognitionTextUpdate.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/VoiceRecognitionTextUpdate.cs:6)。
 
 **ViewModel 设计**
 
-[VmVoiceInput.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VmVoiceInput.cs:12) 已声明：
+[VmVoiceInput.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/VmVoiceInput.cs:12) 已声明：
 
 - `DraftText`、稳定文本和临时文本。
 - 状态、错误及宿主上屏能力。
@@ -383,7 +383,7 @@ VM 每次使用 `FinalizedText + InterimText` 重建草稿，避免产生重复�
 - Android 将来有有效输入连接时返回 `true`。
 - 识别结果不会因为宿主无法上屏而丢失。
 
-见 [IKeyboardHost.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/IKeyboardHost.cs:3)。
+见 [IKeyboardHost.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/IKeyboardHost.cs:3)。
 
 **语言选择**
 
@@ -395,7 +395,7 @@ VM 每次使用 `FinalizedText + InterimText` 重建草稿，避免产生重复�
 - 无匹配项时显示提示。
 - 选择与取消通过事件返回主页面。
 
-详见 [VmVoiceInputLangSelector.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VmVoiceInputLangSelector.cs:11) 和 [ViewVoiceInputLangSelector.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/ViewVoiceInputLangSelector.cs:10)。
+详见 [VmVoiceInputLangSelector.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/VmVoiceInputLangSelector.cs:11) 和 [ViewVoiceInputLangSelector.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/ViewVoiceInputLangSelector.cs:10)。
 
 当前没有运行编译：新增 partial 声明尚无对应实现，现有 `.Impl.cs` 也还未迁移到新布局；这是声明审查阶段的预期状态。
 ````

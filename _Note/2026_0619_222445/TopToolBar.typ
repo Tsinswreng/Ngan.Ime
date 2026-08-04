@@ -1,5 +1,5 @@
 2026_0619_222453[
-Avalime
+Ngan.Ime
 再弄一個工具欄。
 目前優先做安卓端的
 當沒有候選詞時、讓工具欄顯示在原本候選欄的位置。
@@ -16,8 +16,8 @@ Avalime
 M15.6,2l-1.2,3H5.6l-1.2-3C3.629,2,3,2.629,3,3.4V18.6c0,0.77,0.629,1.4,1.399,1.4h11.2c0.77,0,1.4-0.631,1.4-1.4V3.4  C17,2.629,16.369,2,15.6,2z M13.6,4l0.9-2h-2.181L11.6,0h-3.2L7.68,2H5.5l0.899,2H13.6z
 
 圖標寫法參見
-E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Icons\Icons.Decl.cs
-E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Icons\Icons.Impl.cs
+E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Icons\Icons.Decl.cs
+E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Icons\Icons.Impl.cs
 
 點擊後獲取系統歷史剪貼板、進入剪貼板頁面(直接把原來的鍵盤UI換成剪貼板UI)
 用scrollViewer 每行一條。點擊後直接上屏。
@@ -58,10 +58,10 @@ ViewIme: 整個輸入法界面。引用 以上幾個View。
 標準 Android `ClipboardManager` 通常只能穩定拿到“當前剪貼板內容”，不是完整歷史。完整歷史通常要：
 - 依賴 Android 新版系統能力，但可用性很不一致
 - 或接入你自己的歷史記錄服務
-- 或只先做 Avalime 內部自己記錄的 clipboard history
+- 或只先做 Ngan.Ime 內部自己記錄的 clipboard history
 
 所以請你確認你要哪個：
-- A. 先做“當前剪貼板 + Avalime 自己記錄的歷史”
+- A. 先做“當前剪貼板 + Ngan.Ime 自己記錄的歷史”
 - B. 必須讀系統級歷史，多數機型不保證可行也要做
 - C. 只先做當前剪貼板內容列表頁，歷史以後再補
 

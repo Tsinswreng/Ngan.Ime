@@ -1,11 +1,11 @@
 -Sesn[
 -T[2026_0722_195910][
 先看skill;
-看Avalime
+看Ngan.Ime
 現在我想給輸入法加個語音輸入功能。
 要支持多語言。
-參考CsNgaq詞典的的語言選擇功能。
-`E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\Dictionary\ViewDictionary.cs`
+參考CsNgan.Dict詞典的的語言選擇功能。
+`E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\Dictionary\ViewDictionary.cs`
 
 
 1.用http api聯網調別人的引擎。
@@ -29,7 +29,7 @@
 最好有能在線試用的。
 
 下面是我的尝试记录
-`E:\_code\CsRime\Avalime\_Note\2026_0630_082336\SttEngineExperienceRecord.typ`
+`E:\_code\CsRime\Ngan.Ime\_Note\2026_0630_082336\SttEngineExperienceRecord.typ`
 
 ][
 
@@ -41,11 +41,11 @@
 -Sesn[
 -T[2026_0726_110929][
 先看skill;
-看Avalime
+看Ngan.Ime
 現在我想給輸入法加個語音輸入功能。
 要支持多語言。
-參考CsNgaq詞典的的語言選擇功能。
-`E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\Dictionary\ViewDictionary.cs`
+參考CsNgan.Dict詞典的的語言選擇功能。
+`E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\Dictionary\ViewDictionary.cs`
 
 
 1.用http api聯網調別人的引擎。
@@ -85,11 +85,11 @@
 ````md
 我看完了。两处 `//Note` 的判断如下，同时发现几个 Decl 契约问题。
 
-- [VoiceRecognitionContracts.cs](E:/_code/CsRime/Avalime/Avalime.Core/proj/Avalime.Core/Voice/VoiceRecognitionContracts.cs:48)：接口要求 `IReadOnlyList<INormLang>`，但火山实现声明为 `IReadOnlyList<NormLangDetail>`。隐式接口实现要求属性类型匹配，这里大概率无法编译；而且语言选择页需要 `NativeName/EnglishName`，应统一使用 `IReadOnlyList<INormLangDetail>`。
-- [VmVoiceInput.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/VoiceInput/VmVoiceInput.cs:27)：VM 只注入了 Provider，没有注入 `IAudioInputSource`，因此它能建立远端会话，却无法启动麦克风并把音频送进去。需要注入音频源，或者增加一个编排两者的语音服务门面。
-- [VoiceRecognitionContracts.cs](E:/_code/CsRime/Avalime/Avalime.Core/proj/Avalime.Core/Voice/VoiceRecognitionContracts.cs:15)：新增的 `VoiceRecognitionResult` 与 UI 原有的 `VoiceRecognitionTextUpdate` 语义重复，但 `VmVoiceInput.ApplyRecognitionText` 仍接收后者。应统一为 Core 中的模型，否则实现阶段必须做没有价值的 DTO 映射。
-- [VolcengineVoiceRecognitionProvider.cs](E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Windows/Voice/VolcengineVoiceRecognitionProvider.cs:6)：火山 HTTP/WebSocket Provider 放在 `Avalime.Windows` 会导致 Android 无法直接复用。Windows 专属部分只有音频采集；火山 Provider 和配置应放进独立的跨平台程序集，例如 `Avalime.Voice.Volcengine`。
-- [AudioInputContracts.cs](E:/_code/CsRime/Avalime/Avalime.Core/proj/Avalime.Core/Voice/AudioInputContracts.cs:11)：`SampleRate` 和 `ChunkDurationMs` 改为 `i64` 没有实际收益。采样率和毫秒分片不可能接近 `i32` 上限，Windows 音频 API 通常也接收 `i32`，建议还原。
+- [VoiceRecognitionContracts.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Core/proj/Ngan.Ime.Core/Voice/VoiceRecognitionContracts.cs:48)：接口要求 `IReadOnlyList<INormLang>`，但火山实现声明为 `IReadOnlyList<NormLangDetail>`。隐式接口实现要求属性类型匹配，这里大概率无法编译；而且语言选择页需要 `NativeName/EnglishName`，应统一使用 `IReadOnlyList<INormLangDetail>`。
+- [VmVoiceInput.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/VoiceInput/VmVoiceInput.cs:27)：VM 只注入了 Provider，没有注入 `IAudioInputSource`，因此它能建立远端会话，却无法启动麦克风并把音频送进去。需要注入音频源，或者增加一个编排两者的语音服务门面。
+- [VoiceRecognitionContracts.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Core/proj/Ngan.Ime.Core/Voice/VoiceRecognitionContracts.cs:15)：新增的 `VoiceRecognitionResult` 与 UI 原有的 `VoiceRecognitionTextUpdate` 语义重复，但 `VmVoiceInput.ApplyRecognitionText` 仍接收后者。应统一为 Core 中的模型，否则实现阶段必须做没有价值的 DTO 映射。
+- [VolcengineVoiceRecognitionProvider.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Windows/Voice/VolcengineVoiceRecognitionProvider.cs:6)：火山 HTTP/WebSocket Provider 放在 `Ngan.Ime.Windows` 会导致 Android 无法直接复用。Windows 专属部分只有音频采集；火山 Provider 和配置应放进独立的跨平台程序集，例如 `Ngan.Ime.Voice.Volcengine`。
+- [AudioInputContracts.cs](E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Core/proj/Ngan.Ime.Core/Voice/AudioInputContracts.cs:11)：`SampleRate` 和 `ChunkDurationMs` 改为 `i64` 没有实际收益。采样率和毫秒分片不可能接近 `i32` 上限，Windows 音频 API 通常也接收 `i32`，建议还原。
 
 关于 `CurrentLangDisplay` 的 Note：
 
@@ -185,7 +185,7 @@ public interface IAudioInputSession : IAsyncDisposable{
 -T[2026_0726_170801][
 	再回去看一下`//Note`。
 	還有、火山引擎這個 有必要專門建一個程序集嗎?
-	還是弄Avalime.Backend 程序集、把語言服務後端代碼放裏面。
+	還是弄Ngan.Ime.Backend 程序集、把語言服務後端代碼放裏面。
 ][
 ````md
 看到了 4 个新 `//Note`。
@@ -205,18 +205,18 @@ public interface IAudioInputSession : IAsyncDisposable{
 - `MkHeader` 不再返回数组，改为 `WriteHeader(Span<byte> Destination, ...)`，避免单独分配 4 字节数组。
 - `Compress`、`Decompress` 仍需要产生一块独立、长度可变的存储。返回 `byte[]` technically 合理，但为了接口语义统一，可返回 `ReadOnlyMemory<byte>`；底层仍大概率是数组，并不会因此自动减少分配。
 
-程序集方面，我推荐改成统一的 `Avalime.Backend`，目前没有必要为火山单独建立程序集。
+程序集方面，我推荐改成统一的 `Ngan.Ime.Backend`，目前没有必要为火山单独建立程序集。
 
 建议结构：
 
 ```text
-Avalime.Core
+Ngan.Ime.Core
   Voice/
     IAudioInputSource
     IVoiceRecognitionProvider
     通用 DTO / 异常
 
-Avalime.Backend
+Ngan.Ime.Backend
   Voice/
     Volcengine/
       Provider
@@ -225,7 +225,7 @@ Avalime.Backend
       ProtocolModels
       Options
 
-Avalime.Windows
+Ngan.Ime.Windows
   Voice/
     WindowsAudioInputSource
     WindowsAudioInputSession
@@ -234,16 +234,16 @@ Avalime.Windows
 
 边界是：
 
-- `Avalime.Backend`：跨平台、非 UI 的云服务后端和以后其他语言服务。
-- `Avalime.Windows`：WASAPI、NAudio 等 Windows 专属适配。
-- `Avalime.Android`：未来只实现 Android 音频采集，直接复用 `Avalime.Backend` 的火山代码。
+- `Ngan.Ime.Backend`：跨平台、非 UI 的云服务后端和以后其他语言服务。
+- `Ngan.Ime.Windows`：WASAPI、NAudio 等 Windows 专属适配。
+- `Ngan.Ime.Android`：未来只实现 Android 音频采集，直接复用 `Ngan.Ime.Backend` 的火山代码。
 
 以后增加阿里、翻译、TTS 等，可放：
 
 ```text
-Avalime.Backend/Voice/Aliyun
-Avalime.Backend/Translation
-Avalime.Backend/TextToSpeech
+Ngan.Ime.Backend/Voice/Aliyun
+Ngan.Ime.Backend/Translation
+Ngan.Ime.Backend/TextToSpeech
 ```
 
 这样比“一家供应商一个程序集”更适合当前规模。等某个后端依赖非常重、需要独立发布或存在依赖冲突时，再拆程序集即可。
@@ -308,7 +308,5 @@ Avalime.Backend/TextToSpeech
 ][
 
 ]
-
-
 
 ]

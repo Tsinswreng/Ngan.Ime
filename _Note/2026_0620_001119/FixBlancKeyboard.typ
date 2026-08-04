@@ -1,5 +1,5 @@
 2026_0620_001435[
-一直以來Avalime 安卓端都黑屏問題。
+一直以來Ngan.Ime 安卓端都黑屏問題。
 輸入法隱藏後 再彈出 有機會觸發。
 
 出現此問題時、鍵盤UI全是黑色的、上面啥東西都沒有。
@@ -24,10 +24,10 @@ adb已連接。
 
 2026_0620_103213[
 我用了一段時間、現在又有了新的發現
-從切換輸入法開始算 就是把當前輸入法從別的輸入法切換成avalime
+從切換輸入法開始算 就是把當前輸入法從別的輸入法切換成ngan.ime
 最開始很正常、沒有黑屏也沒有卡頓。
 
-avalime本身有一個功能、就是「退格鍵上滑隱藏輸入法」
+ngan.ime本身有一個功能、就是「退格鍵上滑隱藏輸入法」
 
 後面偶發黑屏的時候、我就估摸着在退格鍵的位置上滑 隱藏輸入法、再聚焦輸入框、
 然後輸入法就又能顯示了。
@@ -43,15 +43,15 @@ avalime本身有一個功能、就是「退格鍵上滑隱藏輸入法」
 
 2026_0620_112213[
 看
-E:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Infra\Log\DelegatingLogger.cs
-E:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Infra\Log\AppLog.cs
+E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Core\proj\Ngan.Ime.Core\Infra\Log\DelegatingLogger.cs
+E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Core\proj\Ngan.Ime.Core\Infra\Log\AppLog.cs
 
 不方便依賴注入的地方 就用 AppLog.Inst 來打日誌
 方便依賴注入的話 就注 `AddSingleton<ILogger>(AppLog.Inst)`
 然後注Logger。
 
 然後在安卓啓動時 把AppLog.Inst 設成
-E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Android\AndroidLogger.cs
+E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Android\AndroidLogger.cs
 
 這樣行不行?
 

@@ -2,8 +2,8 @@
 
 在windows上 我使用的發行版是 小狼毫輸入法(weasel)
 在安卓上 我原先使用的發行版是 同文輸入法(trime)
-avalime是C\# avalonia做的rime前端
-最近我把avalime安卓端適配好了 所以在安卓端我用的發行版是avalime
+ngan.ime是C\# avalonia做的rime前端
+最近我把ngan.ime安卓端適配好了 所以在安卓端我用的發行版是ngan.ime
 
 Rime支持lua腳本插件
 
@@ -14,7 +14,7 @@ Rime支持lua腳本插件
 安卓端的前端定製化
 
 在不遠的將來 我將實現windows端前端的定製化
-把avalime適配到windows端 代替weasel
+把ngan.ime適配到windows端 代替weasel
 
 在更遠的將來 我還考慮實現後端引擎的定製化
 即不使用 rime引擎 全部改成自研。
@@ -38,7 +38,7 @@ lua側用loadlib載入原生dll 讀裏面的函數
 
 在windows上 lua能直接loadlib。
 在安卓trime上有限制 安卓對動態鏈接so庫路徑有嚴格要求
-但我現在已經換成自研的avalime了 所以也不存在這個問題了
+但我現在已經換成自研的ngan.ime了 所以也不存在這個問題了
 
 但是這樣只是跨語言ffi 高頻調用會有開銷
 C\#中不能直接訪問rime-lua中的API
@@ -100,7 +100,7 @@ librime-lua 完點源碼在
    - 不依賴 Lua 作爲主調度層
    - 可以讓 C# 直接成爲組件邏輯主體
    - Windows/Android 都能走同一體系
-   - 很適合你後面把 Avalime Windows 端也接過來
+   - 很適合你後面把 Ngan.Ime Windows 端也接過來
 
 2. **次選：改 `librime-lua`，增加 `cs_*` bridge**
    - 相當於複用 `librime-lua` 的生命週期與類型綁定結構

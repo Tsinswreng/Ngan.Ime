@@ -1,7 +1,7 @@
 2026_0627_113049[
-看Avalime
+看Ngan.Ime
 我在安卓上試驗的時候
-當我把輸入法切換成Avalime
+當我把輸入法切換成Ngan.Ime
 然後聚焦輸入框
 鍵盤要過好一會纔會彈出來
 
@@ -19,26 +19,26 @@
 
 關鍵路徑在這裡：
 
-- [AvalimeInputMethodService.cs](E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.Android\AvalimeInputMethodService.cs:55)
+- [Ngan.ImeInputMethodService.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.Android\Ngan.ImeInputMethodService.cs:55)
   `OnCreateInputView()` 會同步 `new MainView()`
-- [MainView.cs](E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.UI\Views\MainView.cs:10)
+- [MainView.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.UI\Views\MainView.cs:10)
   `MainView` 構造時立刻 `new ViewIme()`
-- [ViewIme.cs](E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.UI\Views\Ime\ViewIme.cs:24)
+- [ViewIme.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.UI\Views\Ime\ViewIme.cs:24)
   `ViewIme` 構造第一步就是 `Ctx = Di.DiOrMk<VmIme>()`
-- [VmIme.cs](E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.UI\Views\Ime\VmIme.cs:35)
+- [VmIme.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.UI\Views\Ime\VmIme.cs:35)
   `VmIme` 構造需要 `ISvcIme`
-- [AvalimeInputMethodService.cs](E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.Android\AvalimeInputMethodService.cs:213)
+- [Ngan.ImeInputMethodService.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.Android\Ngan.ImeInputMethodService.cs:213)
   `ISvcIme` 的實現是 `SvcIme`，而它依賴 `RimeSetup.Inst`
-- [RimeSetup.cs](E:\_code\CsRime\Avalime\Avalime.Rime\proj\Avalime.Rime\RimeSetup.cs:82)
+- [RimeSetup.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Rime\proj\Ngan.Ime.Rime\RimeSetup.cs:82)
   `RimeSetup` 構造函數裡同步做 `_setupRimeApi()`、`_setupRimeTraits()`、`_setupRimeSession()`
-- [RimeSetup.cs](E:\_code\CsRime\Avalime\Avalime.Rime\proj\Avalime.Rime\RimeSetup.cs:179)
+- [RimeSetup.cs](E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Rime\proj\Ngan.Ime.Rime\RimeSetup.cs:179)
   `_setupRimeSession()` 裡還同步跑了 `initialize()`、`start_maintenance()`、`join_maintenance_thread()`、`create_session()`
 
 所以現狀其實是：
 
 聚焦輸入框
 -> 系統要鍵盤 view
--> Avalime 開始同步建整棵 UI
+-> Ngan.Ime 開始同步建整棵 UI
 -> 建 UI 過程中同步實例化 `SvcIme`
 -> `SvcIme` 依賴同步初始化 `RimeSetup`
 -> `RimeSetup` 同步等 librime maintenance/session
@@ -90,7 +90,7 @@
 
 
 2026_0627_152417[
-	Avalime
+	Ngan.Ime
 	我發現一個問題、橫豎屏轉換後首次鍵盤彈出是有延遲的
 	如果我一直保持在橫屏或豎屏模式下、我隱藏又彈出鍵盤 基本看不到有大延遲
 

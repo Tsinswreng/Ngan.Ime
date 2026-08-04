@@ -1,6 +1,6 @@
 -T[2026_0710_213626][
 	先看skill。
-	你研究一下怎麼把Rime引擎的日志 讓Avalime拿到手
+	你研究一下怎麼把Rime引擎的日志 讓Ngan.Ime拿到手
 ][]
 
 
@@ -39,14 +39,14 @@ weasel 分两套日志：
 
 所以目前能成立的判断是：
 - `log_dir` 在 weasel 里只是“传给 librime 的配置”，不是 weasel 自己额外处理的日志桥
-- Avalime 现在如果想“稳定拿到 Rime 引擎日志”，不能照着 weasel 去找什么现成回调接口
+- Ngan.Ime 现在如果想“稳定拿到 Rime 引擎日志”，不能照着 weasel 去找什么现成回调接口
 - 真正可控的方向还是两条：
   - 继续拿 `set_notification_handler` 的通知流
   - 或者自己实现“读日志文件/别的输出通道，再喂给 `RimeLogStore`”
 
 现在有个疑点必须跟你确认：
 - 你要我继续去找 `rime.dll` 二进制/安装产物层面，确认它到底把日志落在哪
-- 还是你已经接受“weasel 也只是传 `log_dir`，没有现成日志桥”，让我直接给 Avalime 设计一套接日志方案
+- 还是你已经接受“weasel 也只是传 `log_dir`，没有现成日志桥”，让我直接给 Ngan.Ime 设计一套接日志方案
 ````
 ]
 
@@ -54,7 +54,7 @@ weasel 分两套日志：
 
 
 -T[2026_0710_215936][
-	Avalime Windows 我啓動之後在控制檯上能看到正常的Rime引擎的日誌。
+	Ngan.Ime Windows 我啓動之後在控制檯上能看到正常的Rime引擎的日誌。
 	Rime引擎源碼 在 `E:\_code\_clone\rime\librime`
 	看看是怎麼回事。
 ][
@@ -80,16 +80,16 @@ google::InitGoogleLogging(app_name);
 
 - 只要启用了 logging，librime 就会**无条件**设 `FLAGS_alsologtostderr = true`
 - 所以即使你传了非空 `log_dir`，日志也还是会**同时输出到 stderr**
-- Avalime Windows 是 `dotnet run` 启动的控制台进程，DLL 往 `stderr` 打的内容你自然就在终端里看到了
+- Ngan.Ime Windows 是 `dotnet run` 启动的控制台进程，DLL 往 `stderr` 打的内容你自然就在终端里看到了
 
 调用链也对得上：
 - [rime_api.cc](/E:/_code/_clone/rime/librime/src/rime_api.cc:57) 里 `RimeSetup()` 会在 `traits` 带了 `min_log_level/log_dir` 时调用 `SetupLogging(...)`
-- Avalime 这边在 [RimeSetup.cs](/E:/_code/CsRime/Avalime/Avalime.Rime/proj/Avalime.Rime/RimeSetup.cs:225) 调的是 `apiFn.setup(traits)`
-- 你在 [Avalime.Rw.jsonc](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Windows/Avalime.Rw.jsonc:9) 里配了 `log_dir`
+- Ngan.Ime 这边在 [RimeSetup.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Rime/proj/Ngan.Ime.Rime/RimeSetup.cs:225) 调的是 `apiFn.setup(traits)`
+- 你在 [Ngan.Ime.Rw.jsonc](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Windows/Ngan.Ime.Rw.jsonc:9) 里配了 `log_dir`
 - 所以 librime 已经按这条路径初始化 logging 了，只是它本来就会额外打 stderr
 
 另外我也确认了你目录里的 `.log`：
-- `D:\Program Files\Rime\Avalime\*.userdb\*.log`
+- `D:\Program Files\Rime\Ngan.Ime\*.userdb\*.log`
 - `commitHistory.ldb\*.log`
 
 这些是 leveldb/userdb 的日志，不是 glog 的引擎日志文件。也就是说：
@@ -98,8 +98,8 @@ google::InitGoogleLogging(app_name);
 
 如果你要，我下一步就继续专门查第二个问题：
 - glog 文件到底尝试写到哪
-- 为什么没在 `D:\Program Files\Rime\Avalime\Log` 里生成
-- 以及 Avalime 最稳妥该从 `stderr` 接，还是从文件接
+- 为什么没在 `D:\Program Files\Rime\Ngan.Ime\Log` 里生成
+- 以及 Ngan.Ime 最稳妥该从 `stderr` 接，还是从文件接
 ````
 ]
 
@@ -132,41 +132,41 @@ weasel 确实会把日志落文件，而且我已经在你机器上看到了：
 - [RimeWithWeasel.cpp](/E:/_code/_clone/rime/weasel/RimeWithWeasel/RimeWithWeasel.cpp:141) 把这个路径塞进 `weasel_traits.log_dir`
 - [RimeWithWeasel.cpp](/E:/_code/_clone/rime/weasel/RimeWithWeasel/RimeWithWeasel.cpp:140) 同时 `app_name = "rime.weasel"`
 
-而 Avalime 这边，我也发现了一个关键事实：
+而 Ngan.Ime 这边，我也发现了一个关键事实：
 
-它**其实也在落 glog 文件**，但不是落到你配置的 `D:\Program Files\Rime\Avalime\Log`，而是落到了 Temp：
-- `C:\Users\lenovo\AppData\Local\Temp\rime.avalime.Y7000P.lenovo.log.INFO...`
+它**其实也在落 glog 文件**，但不是落到你配置的 `D:\Program Files\Rime\Ngan.Ime\Log`，而是落到了 Temp：
+- `C:\Users\lenovo\AppData\Local\Temp\rime.ngan.ime.Y7000P.lenovo.log.INFO...`
 - `...WARNING...`
 - `...ERROR...`
 
 这说明两件事：
 
-1. Avalime 当前加载的 `rime.dll` 确实启用了 glog 文件输出，不是“完全不落盘”
+1. Ngan.Ime 当前加载的 `rime.dll` 确实启用了 glog 文件输出，不是“完全不落盘”
 2. 但它**没有按你以为的那组 traits 生效**，至少从结果看：
-   - `app_name` 没体现成 `Avalime.Windows`
-   - `log_dir` 也没体现成 `D:\Program Files\Rime\Avalime\Log`
+   - `app_name` 没体现成 `Ngan.Ime.Windows`
+   - `log_dir` 也没体现成 `D:\Program Files\Rime\Ngan.Ime\Log`
 
 这里出现了一个明显矛盾：
 
-- 你运行时复制进去的 [Avalime.Rw.jsonc](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Windows/bin/Debug/net10.0/win-x86/Avalime.Rw.jsonc) 明明写的是
-  - `app_name = "Avalime.Windows"`
-  - `log_dir = "D:\\Program Files\\Rime\\Avalime\\Log"`
-- 但实际产物却像是在按默认值/别的值走，落成了 `Temp\rime.avalime...`
+- 你运行时复制进去的 [Ngan.Ime.Rw.jsonc](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Windows/bin/Debug/net10.0/win-x86/Ngan.Ime.Rw.jsonc) 明明写的是
+  - `app_name = "Ngan.Ime.Windows"`
+  - `log_dir = "D:\\Program Files\\Rime\\Ngan.Ime\\Log"`
+- 但实际产物却像是在按默认值/别的值走，落成了 `Temp\rime.ngan.ime...`
 
 按你的规则，这里我不能带着疑问继续硬猜。我现在能给出的可能性只有这几种：
 
 1. 你当前加载的 `D:\ENV\Rime\weasel-0.15.0\rime.dll` 和 `E:\_code\_clone\rime\librime` 这份源码不是同一行为版本
-2. Avalime 传给 `RimeSetup` 的 traits 实际值和你文件里看到的不一致
-3. 这份 `rime.dll` 内部对 `app_name/log_dir` 做了别的默认化处理，导致最后仍落到 `Temp\rime.avalime`
+2. Ngan.Ime 传给 `RimeSetup` 的 traits 实际值和你文件里看到的不一致
+3. 这份 `rime.dll` 内部对 `app_name/log_dir` 做了别的默认化处理，导致最后仍落到 `Temp\rime.ngan.ime`
 
 如果你要，我下一步建议走这个顺序排：
-1. 先在 Avalime 启动时把“实际传入 librime 的 `app_name/log_dir/min_log_level`”打印死
+1. 先在 Ngan.Ime 启动时把“实际传入 librime 的 `app_name/log_dir/min_log_level`”打印死
 2. 再确认 `D:\ENV\Rime\weasel-0.15.0\rime.dll` 的来源和你本地 `librime` 源码是否同构
 3. 必要的话，用同一份源码自己编一个 `rime.dll` 复现对比
 
 你要我继续查哪条：
 - 查 `rime.dll` 版本/来源差异
-- 还是先在 Avalime 里把传给 librime 的 traits 值钉死验证
+- 还是先在 Ngan.Ime 里把传给 librime 的 traits 值钉死验证
 ````
 ]
 
@@ -233,18 +233,18 @@ logView.setLogcat(Logcat())
 - notification 不是它显示“引擎日志”的主渠道
 - 真正的实时日志页来源是 `logcat`
 
-这对 Avalime 的参考意义很直接：
+这对 Ngan.Ime 的参考意义很直接：
 
 - `weasel`：偏“文件 + stderr”
 - `trime`：偏“stderr/logcat only”
 - 两者都**不是**“从 Rime API 直接拿完整引擎日志流”
 
-所以 Avalime 如果想学 `trime`，Windows 上对应思路就是：
+所以 Ngan.Ime 如果想学 `trime`，Windows 上对应思路就是：
 - 不指望 notification
 - 直接接宿主进程的 `stderr` / console 输出流
 
 如果你要，我下一步就专门给你分析：
-- 在 Avalime Windows 里，最像 `trime` 的实现路径应该怎么接 `stderr`
+- 在 Ngan.Ime Windows 里，最像 `trime` 的实现路径应该怎么接 `stderr`
 - 还是改成像 weasel 那样稳定读 glog 文件更合适
 ````
 ]
@@ -256,7 +256,7 @@ logView.setLogcat(Logcat())
 ````md
 那就别把方案建立在 `stderr` 上。**跨 Windows 和 Android 的共同可行解，应该是“宿主层采集日志，再统一喂给 `IRimeLogSource`”**，但两端采集手段不同。
 
-**我理解的需求是**：你要一套同时适用于 Avalime Windows 和 Android 的 Rime 引擎日志接入方案，目标是 UI 里的日志页能看到真实引擎日志，而不是只看 notification。
+**我理解的需求是**：你要一套同时适用于 Ngan.Ime Windows 和 Android 的 Rime 引擎日志接入方案，目标是 UI 里的日志页能看到真实引擎日志，而不是只看 notification。
 
 **核心目标**：统一 UI 抽象，平台分别采集。不要把 UI 绑定到 Windows 控制台，也不要把 Android 绑定到 logcat 这种平台特性。
 
@@ -280,20 +280,20 @@ logView.setLogcat(Logcat())
 - 同一平台上宿主日志和引擎日志可能混在一起，需要过滤
 
 **业务影响**
-- 影响 `Avalime.Windows`、`Avalime.Android` 宿主启动
-- 影响 `Avalime.Rime` 的日志源接入方式
+- 影响 `Ngan.Ime.Windows`、`Ngan.Ime.Android` 宿主启动
+- 影响 `Ngan.Ime.Rime` 的日志源接入方式
 - UI 层改动应很小，主要复用现有 `RimeLogStore / RimeLogBuffer`
 
 我建议的设计是：
 
 **方案 A，推荐**
-- `Avalime.Core` 保持 `IRimeLogSource`
-- `Avalime.Rime` 保持 `RimeLogStore` 作为统一汇聚点
+- `Ngan.Ime.Core` 保持 `IRimeLogSource`
+- `Ngan.Ime.Rime` 保持 `RimeLogStore` 作为统一汇聚点
 - Windows 宿主新增 `WindowsRimeLogCollector`
   - 直接 tail 实际 glog 文件
   - 把新增行 append 到 `RimeLogStore`
 - Android 宿主新增 `AndroidRimeLogCollector`
-  - 读取 `logcat` 中 `rime.trime`/`rime.avalime` 相关行
+  - 读取 `logcat` 中 `rime.trime`/`rime.ngan.ime` 相关行
   - 把新增行 append 到 `RimeLogStore`
 
 优点：
@@ -375,7 +375,7 @@ subprocess("logcat", pid?.let { "--pid=$it" } ?: "", "-v", "time")
 - 读 stdout
 - 把每行文本塞进内存缓冲/UI
 
-如果要在 Avalime.Android 里照着做，最小实现会是：
+如果要在 Ngan.Ime.Android 里照着做，最小实现会是：
 
 1. 启动 librime 时把 `log_dir` 设成 `""`
 2. Android 宿主加一个 `LogcatCollector`
@@ -385,7 +385,7 @@ logcat --pid=<当前进程pid> -v time
 ```
 或更严格一点：
 ```text
-logcat -v time -s rime.avalime
+logcat -v time -s rime.ngan.ime
 ```
 前提是你确认 tag 稳定
 4. 逐行读取输出
@@ -393,11 +393,11 @@ logcat -v time -s rime.avalime
 
 要注意两个点：
 
-- `--pid` 过滤的是**整个进程**日志，不只 librime，所以可能混进 Avalime 自己的日志
+- `--pid` 过滤的是**整个进程**日志，不只 librime，所以可能混进 Ngan.Ime 自己的日志
 - 按 tag 过滤更干净，但前提是确认 Android 上 glog tag 真的是你设的 `app_name`
 
 如果你要，我下一步可以直接帮你分析：
-- Avalime.Android 里该把这个 `LogcatCollector` 挂在哪个生命周期
+- Ngan.Ime.Android 里该把这个 `LogcatCollector` 挂在哪个生命周期
 - 以及 Windows 对应该怎么做成同构接口
 ````
 ]
@@ -454,20 +454,20 @@ logcat -v time -s rime.avalime
 ]
 
 -T[2026_0710_223122][
-	那你現在用adb看我手機上的avalime 能不能看到rime引擎的日誌
+	那你現在用adb看我手機上的ngan.ime 能不能看到rime引擎的日誌
 ][
 ````md
 我用 adb 看了你手机上的现机情况。
 结论先说：
-目前我没有在 logcat 里看到 raw librime/glog 日志，只看到了普通的 Android / Avalime 应用日志。也就是说，现在还不能证明 Avalime 在 Android 上已经“拿到了 Rime 引擎原生日志”。
+目前我没有在 logcat 里看到 raw librime/glog 日志，只看到了普通的 Android / Ngan.Ime 应用日志。也就是说，现在还不能证明 Ngan.Ime 在 Android 上已经“拿到了 Rime 引擎原生日志”。
 我确认到的事实：
 设备在线：899PKZQWJ7VCBEWK
-包名：Tsinswreng.Avalime
+包名：Tsinswreng.Ngan.Ime
 当前 PID：8413
 Android 版本：13
-Avalime Android 配置里确实是：Avalime.Rw.jsonc
+Ngan.Ime Android 配置里确实是：Ngan.Ime.Rw.jsonc
 log_dir = ""
-app_name = "Tsinswreng.Avalime"
+app_name = "Tsinswreng.Ngan.Ime"
 
 这说明源码配置是按“stderr -> logcat”这条路在走，和 trime 的思路一致。
 但我实际用 adb logcat 搜了这些特征串：
@@ -479,18 +479,18 @@ opencc.cc
 core_module.cc
 rime.lua
 结果都是空。抓到的只有这类日志：
-I/Avalime ...
-D/Avalime ...
+I/Ngan.Ime ...
+D/Ngan.Ime ...
 Android 系统自己的 Activity/Looper/WindowManager 日志
 所以现在更准确的说法是：
-Avalime 自己的应用日志能在 logcat 里看到
+Ngan.Ime 自己的应用日志能在 logcat 里看到
 Rime 引擎那种 Windows 上的 glog 原生日志，目前没看到
 这里有个不确定点，我得停下来跟你确认一下：
 要不要我下一步做一次实时抓取？
 做法是：
 我先 adb logcat -c 清空缓冲
 我挂着 adb logcat 实时监听
-你在手机上手动打开 Avalime、切到输入法、随便打一段字
+你在手机上手动打开 Ngan.Ime、切到输入法、随便打一段字
 我再看启动和输入那一刻，raw librime 日志有没有冒出来
 这一步最靠谱，因为现在这次是读已有缓冲，不能完全排除“日志早被冲掉”或者“你刚才没触发到引擎初始化”的情况。
 ````
@@ -502,12 +502,12 @@ Rime 引擎那种 Windows 上的 glog 原生日志，目前没看到
 ````md
 这次可以下结论了：
 
-你手机上当前这版 Avalime，logcat 里没有 Rime 引擎的 raw 日志。
+你手机上当前这版 Ngan.Ime，logcat 里没有 Rime 引擎的 raw 日志。
 
 我看的是你 logcat -c 之后、重新打字产生的这一波新日志。结果是：
 
-能看到 Avalime 自己的日志
-例如 D/Avalime (8413): [Perf] RimeKeyProcessor process_key(...)
+能看到 Ngan.Ime 自己的日志
+例如 D/Ngan.Ime (8413): [Perf] RimeKeyProcessor process_key(...)
 说明输入过程确实发生了，Rime 也确实在工作
 但完全没看到 librime / glog 那种原生日志特征
 没有 I202...
@@ -523,22 +523,22 @@ Rime 引擎那种 Windows 上的 glog 原生日志，目前没看到
 
 Android 端配置虽然是 log_dir = ""，理论上是想走 stderr -> logcat
 但你这台设备 / 这套运行方式下，librime 写到 stderr 的内容并没有以 raw glog 行出现在 adb logcat 里
-这就意味着，Avalime 不能指望像 trime 那样，直接从系统 logcat 拿到 librime 原生日志。至少你当前这版、当前设备上不行。
+这就意味着，Ngan.Ime 不能指望像 trime 那样，直接从系统 logcat 拿到 librime 原生日志。至少你当前这版、当前设备上不行。
 
 接下来只有两条靠谱路：
 
 改 librime
 直接给 librime 加一个日志回调接口
 或者把 glog sink 接出来
-Avalime 直接收结构化日志
+Ngan.Ime 直接收结构化日志
 这是最稳的方案
-在 Avalime native/bridge 层主动接管 stderr
+在 Ngan.Ime native/bridge 层主动接管 stderr
 但 Android 上这条路未必稳定，平台差异大
 你现在这台机的实测已经说明，不能把它当可靠方案
 如果你要，我下一步可以继续两件事里的一个：
 
 我去查 trime 为什么能看到，而你这里看不到，是不是它 JNI / native 层还有额外处理
-或者我直接给你设计一套 Avalime 可控的日志方案，不再依赖 logcat 运气
+或者我直接给你设计一套 Ngan.Ime 可控的日志方案，不再依赖 logcat 运气
 ````
 ]
 -T[][][]

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<AssemblyName>Ngan.Ime.Backend</AssemblyName>
+		<RootNamespace>Ngan.Ime.Backend</RootNamespace>
+	</PropertyGroup>
+</Project>

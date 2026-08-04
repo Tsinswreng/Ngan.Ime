@@ -3,8 +3,8 @@
 D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\mod\predict3\PredictMod.ts
 
 在同文輸入法(trime)中使用這個模塊時沒有任何問題
-avalime與trime都使用相同的rime動態庫
-但在avalime中 開啓聯想詞後、起初沒有問題。
+ngan.ime與trime都使用相同的rime動態庫
+但在ngan.ime中 開啓聯想詞後、起初沒有問題。
 當我多次隱藏鍵盤又彈出鍵盤後、聯想詞上屏會越來越卡
 
 看看是怎麼回事
@@ -17,12 +17,12 @@ avalime與trime都使用相同的rime動態庫
 #[
 ````
 Rime 侧 (PredictMod)
-_init() 只在 Processor.init(env) 中调用一次（Avalime 只创建一个 Rime session）
+_init() 只在 Processor.init(env) 中调用一次（Ngan.Ime 只创建一个 Rime session）
 on_commitFn 每次 commit 都会触发（不管 predict 开关是否开启），执行 updateState + updateDynamicStorage（写 Memory）
 只有 mkEtAssignPreparedPredictCtxs（生成联想候选）受 predict 开关控制
 历史记录 bounded（CyclicArray(4)），不会无限增长
 动态词典 Memory 是持久化的，随时间使用会积累条目
-Avalime C# 侧
+Ngan.Ime C# 侧
 Rime session 在 RimeSetup 构造时创建一次，永不销毁（destroy_session 只是 TODO）
 每次键盘隐藏 → OnFinishInputView → 强制 _shouldRecreateInputView = true
 每次键盘弹出 → 重建整个 Avalonia UI（MainView → ViewIme → VmIme 等）
@@ -38,7 +38,7 @@ Rime session 在 RimeSetup 构造时创建一次，永不销毁（destroy_sessio
 
 如果关掉 predict 开关（打完字不出联想词的那种状态下打字上屏），是否也会变卡？ 这个可以帮我判断是 PredictMod 的处理变慢了、还是 UI/sync 的路径变慢了。
 
-Avalime 的 user_data_dir 配置和 Trime 是同一个目录吗？ 这会决定两边的动态词典是否共享。
+Ngan.Ime 的 user_data_dir 配置和 Trime 是同一个目录吗？ 这会决定两边的动态词典是否共享。
 
 这些问题会帮我精准定位应该在哪个环节添加诊断代码。
 ````
@@ -54,7 +54,7 @@ Avalime 的 user_data_dir 配置和 Trime 是同一个目录吗？ 这会决定�
 
 關掉聯想就不怎麼卡
 
-聯想詞的用戶詞庫 我都會定期清理。當前 Avalime的UserDataDir是直接從Trime的複製過去的、
+聯想詞的用戶詞庫 我都會定期清理。當前 Ngan.Ime的UserDataDir是直接從Trime的複製過去的、
 聯想詞用戶詞庫文件夾大小不到1M 不應該卡
 
 這個聯想詞插件在windows端的小狼毫輸入法(weasel)上也用着 也是一點問題都沒有
@@ -76,8 +76,8 @@ D:\Program Files\Rime\User_Data\_tsToLua\src\Tsinswreng\mod\predict3\PredictMod.
 
 同文輸入法(trime)和小狼毫輸入法都是rime的成熟的前端(發行版)、我在trime和weasel中中使用這個模塊時沒有任何問題
 
-avalime與trime都使用相同的rime動態庫
-但在avalime中 開啓聯想詞後、有時候聯想詞上屏會很卡 有時候又不怎麼卡
+ngan.ime與trime都使用相同的rime動態庫
+但在ngan.ime中 開啓聯想詞後、有時候聯想詞上屏會很卡 有時候又不怎麼卡
 
 具體卡的表現是 按下幾個字母按鍵 然後按空格之後、 需要等明顯的時間 纔上屏+出現聯想候選。
 候選字上屏+新的聯想候選彈出 看起來是同時發生的。
@@ -101,12 +101,12 @@ avalime與trime都使用相同的rime動態庫
 但就是這樣 每次上屏關係的時候 卡頓時間都不一樣
 有時候基本感覺不到卡頓、有時候又明顯卡頓
 
-聯想詞的用戶詞庫 我都會定期清理。當前 Avalime的UserDataDir是直接從Trime的複製過去的、
+聯想詞的用戶詞庫 我都會定期清理。當前 Ngan.Ime的UserDataDir是直接從Trime的複製過去的、
 聯想詞用戶詞庫文件夾大小不到1M 不應該卡
 
 看看是怎麼回事。
 
-主要看avalime、大概率不是插件的問題
+主要看ngan.ime、大概率不是插件的問題
 
 不要瞎猜 缺信息就自己想辦法收集信息
 

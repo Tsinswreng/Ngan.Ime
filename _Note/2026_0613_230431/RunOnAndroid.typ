@@ -17,7 +17,7 @@
 
 
 2026_0614_103437[
-E:\_code\CsRime\Avalime\.Note\TestAvln12\TestAvln12.Android\MainActivity.cs 看這裏。這裏和Avalonia 11的寫法差別好大。
+E:\_code\CsRime\Ngan.Ime\.Note\TestAvln12\TestAvln12.Android\MainActivity.cs 看這裏。這裏和Avalonia 11的寫法差別好大。
 我記得Avalonia 11 的 安卓入口的寫法是 把自己的App類作泛型參數傳進去的
 
 這裏的MainActivity是空殼 繼承的類也不是泛型類 那我是怎麼知道他要啓動哪個App的
@@ -73,7 +73,7 @@ Android 的 [Application] 屬性會在 AndroidManifest.xml 中註冊為 <applica
 
 
 2026_0615_125908[
-看Avalime及其文檔 然後幫我做一個功能  在安卓端 要能 按空格鍵 上屏候選詞
+看Ngan.Ime及其文檔 然後幫我做一個功能  在安卓端 要能 按空格鍵 上屏候選詞
 上屏是commit。 要經過引擎 也要輸出到OS 在文本輸入框中顯示。
 所有按鍵都必須經過引擎 我記得引擎有onCommit回調
 
@@ -88,7 +88,7 @@ Android 的 [Application] 屬性會在 AndroidManifest.xml 中註冊為 <applica
 打字時按下按鍵之後有明顯卡頓 然後界面纔有變化。
 這個librime的so 是我從 發佈模式編譯好的同文輸入法裏拿出來的
 在同文輸入法的前端中用一點都不卡
-但是接到Avalime中用就卡
+但是接到Ngan.Ime中用就卡
 所以基本可以推定不是後端引擎的問題
 要麼是橋接的問題 要麼是前端的問題
 你看看是怎麼回事

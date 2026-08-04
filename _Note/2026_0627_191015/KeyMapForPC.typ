@@ -6,7 +6,7 @@
 
 比如我在手機輸入法上按退格鍵、到電腦上就變成右Alt了
 
-你在Avalime工具欄上加個映射按鍵、圖標就一個「映」字
+你在Ngan.Ime工具欄上加個映射按鍵、圖標就一個「映」字
 
 開啓時爲藍色 關閉時爲白色 默認不開啓
 
@@ -65,9 +65,9 @@
 當前代碼的行為是：
 
 - 普通字母/數字、退格、方向鍵、`Home/End` 這些，走 `InputConnection.sendKeyEvent(...)`
-  - 代碼在 [AndroidOsKeyProcessor.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/AndroidOsKeyProcessor.cs:24)
+  - 代碼在 [AndroidOsKeyProcessor.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/AndroidOsKeyProcessor.cs:24)
 - 其他很多符號，走 `InputConnection.commitText(...)`
-  - 同文件 [AndroidOsKeyProcessor.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/AndroidOsKeyProcessor.cs:32)
+  - 同文件 [AndroidOsKeyProcessor.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/AndroidOsKeyProcessor.cs:32)
 
 所以你現在觀察到的現象正好對上：
 

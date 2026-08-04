@@ -3,31 +3,31 @@
 
 看
 ````yaml
-    - E:\_code\CsNgaq\Doc\Spec\Frontend.typ
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\CodeTemplate\Sample\**
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Infra\ViewModelBase.cs
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\MainView.Decl.cs
+    - E:\_code\CsNgan.Dict\Doc\Spec\Frontend.typ
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\CodeTemplate\Sample\**
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Infra\ViewModelBase.cs
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\MainView.Decl.cs
 ````
 看 `E:\_code\CsRime\SyncSkills.sh`
 
 我現在有很多個avalonia項目、他們都需要遵守大致相同的代碼規範。
-比如我在開發Avalime前端項目的時候、讓AI寫代碼的時候 我就讓AI看CsNgaq的前端的規範。
+比如我在開發Ngan.Ime前端項目的時候、讓AI寫代碼的時候 我就讓AI看CsNgan.Dict的前端的規範。
 但是這樣很麻煩。每次都要我手動說、他不是一個現成的skill、
 而且複用性不高。
 
 但是如果抽成可複用的skill的話、又會有一些問題。
-比如裏面的 ViewSample VmSamle用到了一些CsNgaq項目專有的基礎設施
+比如裏面的 ViewSample VmSamle用到了一些CsNgan.Dict項目專有的基礎設施
 如HandleErr IMk 啥的、不同項目的基礎設施可能不太一樣。
 
 你覺得怎麼做比較好?
 
 ][
 ````md
-我看完之後，結論很明確：**不要直接把 `CsNgaq` 的 sample 原樣抽成一個通用 skill**。
+我看完之後，結論很明確：**不要直接把 `CsNgan.Dict` 的 sample 原樣抽成一個通用 skill**。
 因爲你現在那套規範裡其實混了兩種東西：
 
 - 真正可跨項目複用的“規範”
-- `CsNgaq` 專有的“基礎設施實現細節”
+- `CsNgan.Dict` 專有的“基礎設施實現細節”
 
 像這些基本屬於前者，適合抽成通用 skill：
 
@@ -74,8 +74,8 @@
 
 2. 每個項目再做一個“項目適配 skill”
 例如：
-- `avalime-doc`
-- `ngaq-frontend-adapter`
+- `ngan.ime-doc`
+- `ngan.dict-frontend-adapter`
 
 它的職責是把通用 skill 裏的抽象概念，映射到本項目的具體設施。
 比如明確說：
@@ -94,7 +94,7 @@
 2. 再讀當前項目的 adapter skill
 3. 最後只讀當前項目的 sample / decl / base 類作爲具體示例
 
-這樣複用性最高，也不會被 `CsNgaq` 的私貨綁死。
+這樣複用性最高，也不會被 `CsNgan.Dict` 的私貨綁死。
 
 **我更推薦再加一個結構約定**
 
@@ -122,13 +122,13 @@
 - `項目 adapter skill` 的示例來源
 - 或“示例庫”
 
-不適合直接作爲“通用 skill 主體”，因爲它已經深度依賴 `CsNgaq.Ui` 的 DSL 和基建。
+不適合直接作爲“通用 skill 主體”，因爲它已經深度依賴 `CsNgan.Dict.Ui` 的 DSL 和基建。
 
 **我建議你接下來這麼落地**
 
 1. 先把現有 `Frontend.typ` 拆成兩份
 2. 通用規則放 `FrontendCommon.typ`
-3. `CsNgaq` 專有映射放 `FrontendProjectAdapter.typ`
+3. `CsNgan.Dict` 專有映射放 `FrontendProjectAdapter.typ`
 4. 再做一個真正可複用的 skill，只引用 `FrontendCommon.typ`
 5. 每個項目各自保留自己的 adapter skill
 

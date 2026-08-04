@@ -3,8 +3,8 @@
 首先你要準備一份Windows的配置文件
 
 參考
-E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.Android\Assets\Avalime.Ro.jsonc
-E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.Android\Assets\Avalime.Rw.jsonc
+E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.Android\Assets\Ngan.Ime.Ro.jsonc
+E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.Android\Assets\Ngan.Ime.Rw.jsonc
 
 但是要放在windows的文件夾裏
 
@@ -19,6 +19,6 @@ D:\Program Files\Rime\User_Data
 
 
 2026_0627_111243[
-avalime windows有按鍵處理的問題
+ngan.ime windows有按鍵處理的問題
 
 ]

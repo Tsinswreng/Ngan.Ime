@@ -1,7 +1,7 @@
 #[橫屏鍵盤分屏]#[
 	[2026_0627_115255,]
 
-	看avalime
+	看ngan.ime
 	當前鍵盤高度固定取屏幕高度的一半、
 	橫屏時彈出鍵盤也是這樣。
 
@@ -41,14 +41,14 @@ zxcvbnm,.'
 ````md
 **結論**
 
-能做。安卓端優先做的話，不需要大改輸入鏈，也不用碰 `Avalime.Core` / `Avalime.Rime`。改動主要集中在安卓宿主高度策略、`ImeUiState`、工具欄、以及 [`ViewKeyBoard.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.UI/Views/KeyBoard/ViewKeyBoard.cs:69) 的佈局重構。
+能做。安卓端優先做的話，不需要大改輸入鏈，也不用碰 `Ngan.Ime.Core` / `Ngan.Ime.Rime`。改動主要集中在安卓宿主高度策略、`ImeUiState`、工具欄、以及 [`ViewKeyBoard.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/KeyBoard/ViewKeyBoard.cs:69) 的佈局重構。
 
 難度我判成 `中等偏上`，但還不到“要重寫整個鍵盤”的程度。最大的原因不是功能本身，而是現在鍵盤是按“整塊單體硬編碼行佈局”寫的，分體後需要把它拆成可重組的左右兩半。現狀關鍵點如下：
 
-- 安卓鍵盤高度現在確實是直接固定成半屏，見 [`AvalimeInputMethodService.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.Android/AvalimeInputMethodService.cs:48) 和 [`AvalimeInputMethodService.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.Android/AvalimeInputMethodService.cs:159)
-- 工具欄目前只有幾個固定按鈕，直接加一個“分體/合體”按鈕即可，見 [`ViewToolBar.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.UI/Views/ToolBar/ViewToolBar.cs:28)
-- 候選欄現在默認假設“整條寬度對應 10 列鍵位”，`MinWidth = width / 10`，見 [`ViewCandidatesBar.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.UI/Views/CandidatesBar/ViewCandidatesBar.cs:43)
-- 鍵盤本體沒有方向/分體模式狀態，`ImeUiState` 可以擴這個狀態，見 [`ImeUiState.cs`](/E:/_code/CsRime/avalime/Avalime.Frontend/proj/Avalime.UI/ImeUiState.cs:34)
+- 安卓鍵盤高度現在確實是直接固定成半屏，見 [`Ngan.ImeInputMethodService.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/Ngan.ImeInputMethodService.cs:48) 和 [`Ngan.ImeInputMethodService.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/Ngan.ImeInputMethodService.cs:159)
+- 工具欄目前只有幾個固定按鈕，直接加一個“分體/合體”按鈕即可，見 [`ViewToolBar.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/ToolBar/ViewToolBar.cs:28)
+- 候選欄現在默認假設“整條寬度對應 10 列鍵位”，`MinWidth = width / 10`，見 [`ViewCandidatesBar.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/CandidatesBar/ViewCandidatesBar.cs:43)
+- 鍵盤本體沒有方向/分體模式狀態，`ImeUiState` 可以擴這個狀態，見 [`ImeUiState.cs`](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/ImeUiState.cs:34)
 
 **怎麼做**
 
@@ -208,7 +208,7 @@ zxcvbnm,.'
 
 我現在要實現分體鍵盤模式
 
-看avalime
+看ngan.ime
 現在我想爲橫屏鍵盤做適配。
 
 	原本合體鍵盤是
@@ -273,7 +273,7 @@ input欄 工具欄 候選欄也要被分開
 
 **本輪剛做的修改**
 改了：
-- [AvalimeInputMethodService.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/AvalimeInputMethodService.cs)
+- [Ngan.ImeInputMethodService.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/Ngan.ImeInputMethodService.cs)
 
 核心修改：
 - 新增 `GetCurrentInputViewHeight()`
@@ -292,50 +292,50 @@ input欄 工具欄 候選欄也要被分開
 **編譯結果**
 已通過：
 ```powershell
-dotnet build E:\_code\CsRime\Avalime\Avalime.Frontend\proj\Avalime.Android\Avalime.Android.csproj
+dotnet build E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Frontend\proj\Ngan.Ime.Android\Ngan.Ime.Android.csproj
 ```
 
 **和本問題直接相關的關鍵文件**
 普通模式 / 宿主：
-- [AvalimeInputMethodService.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/AvalimeInputMethodService.cs)
-- [ViewIme.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/Ime/ViewIme.cs)
-- [ViewKeyBoard.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/KeyBoard/ViewKeyBoard.cs)
-- [ViewKey.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/Key/ViewKey.cs)
-- [UiCfg.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/UiCfg.cs)
-- [ViewToolBar.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/ToolBar/ViewToolBar.cs)
-- [ViewCandidatesBar.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/CandidatesBar/ViewCandidatesBar.cs)
+- [Ngan.ImeInputMethodService.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/Ngan.ImeInputMethodService.cs)
+- [ViewIme.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/Ime/ViewIme.cs)
+- [ViewKeyBoard.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/KeyBoard/ViewKeyBoard.cs)
+- [ViewKey.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/Key/ViewKey.cs)
+- [UiCfg.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/UiCfg.cs)
+- [ViewToolBar.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/ToolBar/ViewToolBar.cs)
+- [ViewCandidatesBar.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/CandidatesBar/ViewCandidatesBar.cs)
 
 分體相關：
-- [SplitKeyboardOverlayManager.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.Android/SplitKeyboardOverlayManager.cs)
-- [ViewSplitKeyboardHalf.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/SplitKeyboard/ViewSplitKeyboardHalf.cs)
-- [ViewSplitTopOverlay.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/SplitKeyboard/ViewSplitTopOverlay.cs)
-- [ViewSplitTopHalf.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/Views/SplitKeyboard/ViewSplitTopHalf.cs)
-- [ImeUiState.cs](/E:/_code/CsRime/Avalime/Avalime.Frontend/proj/Avalime.UI/ImeUiState.cs)
+- [SplitKeyboardOverlayManager.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android/SplitKeyboardOverlayManager.cs)
+- [ViewSplitKeyboardHalf.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/SplitKeyboard/ViewSplitKeyboardHalf.cs)
+- [ViewSplitTopOverlay.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/SplitKeyboard/ViewSplitTopOverlay.cs)
+- [ViewSplitTopHalf.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/SplitKeyboard/ViewSplitTopHalf.cs)
+- [ImeUiState.cs](/E:/_code/CsRime/Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.UI/ImeUiState.cs)
 
 **文檔**
 已讀的對應文檔：
-- [Catalog.cs](/E:/_code/CsRime/avalime/Avalime.Doc/proj/Avalime.Doc/Catalog.cs)
-- [AndroidImeHost.cs](/E:/_code/CsRime/avalime/Avalime.Doc/proj/Avalime.Doc/Android/AndroidImeHost.cs)
-- [KeyboardUi.cs](/E:/_code/CsRime/avalime/Avalime.Doc/proj/Avalime.Doc/UI/KeyboardUi.cs)
+- [Catalog.cs](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Doc/proj/Ngan.Ime.Doc/Catalog.cs)
+- [AndroidImeHost.cs](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Doc/proj/Ngan.Ime.Doc/Android/AndroidImeHost.cs)
+- [KeyboardUi.cs](/E:/_code/CsRime/ngan.ime/Ngan.Ime.Doc/proj/Ngan.Ime.Doc/UI/KeyboardUi.cs)
 
 注意：
 - 文檔裏已經記了分體 overlay 方案，但當前運行表現仍不穩，後續如果實現變了需要同步修正文檔
 
 **git / 工作樹狀態注意**
 repo 路徑大小寫有混用：
-- 實際用過的路徑有 `E:\_code\CsRime\Avalime` 和 `E:\_code\CsRime\avalime`
+- 實際用過的路徑有 `E:\_code\CsRime\Ngan.Ime` 和 `E:\_code\CsRime\ngan.ime`
 - `git` 需要帶 safe.directory，否則會報 dubious ownership
 
 可用命令樣式：
 ```powershell
-git -C E:\_code\CsRime\Avalime -c safe.directory=E:/_code/CsRime/Avalime status --short
+git -C E:\_code\CsRime\Ngan.Ime -c safe.directory=E:/_code/CsRime/Ngan.Ime status --short
 ```
 
 當時看到的變更狀態大致有：
-- `Avalime.Frontend/proj/Avalime.Android/AvalimeInputMethodService.cs`
-- `Avalime.Frontend/proj/Avalime.Android/SplitKeyboardOverlayManager.cs`
-- `Avalime.Frontend/proj/Avalime.UI/Views/SplitKeyboard/ViewSplitKeyboardHalf.cs`
-- `Avalime.Frontend/proj/Avalime.UI/Views/SplitKeyboard/ViewSplitTopHalf.cs`
+- `Ngan.Ime.Frontend/proj/Ngan.Ime.Android/Ngan.ImeInputMethodService.cs`
+- `Ngan.Ime.Frontend/proj/Ngan.Ime.Android/SplitKeyboardOverlayManager.cs`
+- `Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/SplitKeyboard/ViewSplitKeyboardHalf.cs`
+- `Ngan.Ime.Frontend/proj/Ngan.Ime.UI/Views/SplitKeyboard/ViewSplitTopHalf.cs`
 - 以及一個筆記文件 `.Note/.../SplitKeyboard.typ`
 
 不要誤回退用戶已有更改。
@@ -461,7 +461,7 @@ git -C E:\_code\CsRime\Avalime -c safe.directory=E:/_code/CsRime/Avalime status 
 
 
 現在還發現了一個新問題
-avalime是有一個強行重口鍵盤的常駐通知的
+ngan.ime是有一個強行重口鍵盤的常駐通知的
 當出現上面的 「只能在分體模式下打字」的問題時，我點了一下常駐通知 試圖重啓鍵盤
 鍵盤確實重啓了、也能在非分體模式下打字了
 但是 ascii模式和非ascii模式下的鍵盤分別變成了這樣子

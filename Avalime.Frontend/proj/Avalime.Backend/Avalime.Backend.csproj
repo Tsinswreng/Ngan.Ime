@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-	<PropertyGroup>
-		<OutputType>Library</OutputType>
-		<AssemblyName>Avalime.Backend</AssemblyName>
-		<RootNamespace>Avalime.Backend</RootNamespace>
-	</PropertyGroup>
-</Project>

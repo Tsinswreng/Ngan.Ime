@@ -1,8 +1,8 @@
 -Sesn[
 	-T[2026_0725_141600][
 		先看skill。
-		然後看`E:\_code\CsNgaq\_Note\TryAndroidAot\Avln12NativeAot.typ`
-	然後你試着給avalime也弄一個NativeAOT的包。
+		然後看`E:\_code\CsNgan.Dict\_Note\TryAndroidAot\Avln12NativeAot.typ`
+	然後你試着給ngan.ime也弄一個NativeAOT的包。
 	注意AOT有很多種、我要的是NativeAOT。
 	這種AOT編譯出來的apk體積一定是小得多的。
 	wsl要在沙箱外纔能執行.

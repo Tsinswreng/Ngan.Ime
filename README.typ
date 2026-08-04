@@ -1,4 +1,4 @@
-= Avalime
+= Ngan.Ime
 
 IME Frontend for Rime[https://github.com/rime/librime] with Avalonia
 
@@ -8,10 +8,10 @@ IME Frontend for Rime[https://github.com/rime/librime] with Avalonia
 
 But you can still build and try it manually on Windows:
 
-see `Avalime.Rime/src/RimeSetup.cs`
+see `Ngan.Ime.Rime/src/RimeSetup.cs`
 modify the `dllPath` and `user_data_dir`  according to your actual path.
 
-in Avalime.Windows, run
+in Ngan.Ime.Windows, run
 ```bash
 dotnet run -r win-x86 # win-x86 is for weasel0.15.0, or use other runtime identifier depending on your rime.dll
 ```
@@ -21,7 +21,7 @@ AOT is also supported, just change `dotnet run` into `dotnet publish -c Release`
 
 
 
-= Avalime
+= Ngan.Ime
 
 IME Frontend for Rime with Avalonia
 
@@ -38,13 +38,13 @@ IME Frontend for Rime with Avalonia
 === 編譯與安裝
 
 ```bash
-cd Avalime.Frontend/proj/Avalime.Android
+cd Ngan.Ime.Frontend/proj/Ngan.Ime.Android
 
 # Release 編譯
 dotnet publish -c Release
 
 # 安裝到已連接的設備
-adb install -r bin/Release/net10.0-android/publish/Tsinswreng.Avalime-Signed.apk
+adb install -r bin/Release/net10.0-android/publish/Tsinswreng.Ngan.Ime-Signed.apk
 
 ```
 
@@ -55,7 +55,7 @@ Android 工程的日常編譯仍然使用 Mono runtime；NativeAOT 只通過專�
 `/mnt/d/ENV/_wsl/android-ndk-r27c`。如果本機路徑不同，可先設置環境變量：
 
 ```bash
-cd Avalime/Avalime.Frontend/proj/Avalime.Android
+cd Ngan.Ime/Ngan.Ime.Frontend/proj/Ngan.Ime.Android
 
 ANDROID_SDK_DIRECTORY=/path/to/android-sdk \\
 ANDROID_NDK_DIRECTORY=/path/to/linux-ndk \\
@@ -68,11 +68,11 @@ bash PublishNativeAot.sh
 
 === 啟用輸入法
 
-安裝後在 Android 系統設定中啟用 Avalime 輸入法：
+安裝後在 Android 系統設定中啟用 Ngan.Ime 輸入法：
 
 1. 設定 → 語言與輸入 → 虛擬鍵盤 → 管理鍵盤
-2. 開啟 Avalime
-3. 在任意輸入框中切換到 Avalime
+2. 開啟 Ngan.Ime
+3. 在任意輸入框中切換到 Ngan.Ime
 
 === 首次使用
 

@@ -1,13 +1,13 @@
 2026_0613_220817[
 先看代碼規範
 ````
-    - E:\_code\CsNgaq\.agents\skills\write-csharp-code\SKILL.md
-    - E:\_code\CsNgaq\Doc\Spec\Common.typ
-    - E:\_code\CsNgaq\Doc\Spec\Frontend.typ
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\CodeTemplate\Sample\**
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Infra\ViewModelBase.cs
-    - E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\Views\MainView.Decl.cs
-    - E:\_code\CsNgaq\Doc\Spec\IView.typ
+    - E:\_code\CsNgan.Dict\.agents\skills\write-csharp-code\SKILL.md
+    - E:\_code\CsNgan.Dict\Doc\Spec\Common.typ
+    - E:\_code\CsNgan.Dict\Doc\Spec\Frontend.typ
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\CodeTemplate\Sample\**
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Infra\ViewModelBase.cs
+    - E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\Views\MainView.Decl.cs
+    - E:\_code\CsNgan.Dict\Doc\Spec\IView.typ
 ````
 
 ````yaml
@@ -32,7 +32,7 @@ File: d:\Program Files\Rime\User_Data\TswG-3.3.10.trime.yaml
 
 然後你把
 
-E:\_code\CsRime\Avalime\proj\Avalime.UI\Views\KeyBoard\ViewKeyBoard.cs
+E:\_code\CsRime\Ngan.Ime\proj\Ngan.Ime.UI\Views\KeyBoard\ViewKeyBoard.cs
 
 的佈局和功能也改成和他的一樣。
 
@@ -63,7 +63,7 @@ ascii模式是引擎的概念 不是純前端的概念
 
 
 2026_0618_222731[
-看Avalime这个项目。
+看Ngan.Ime这个项目。
 滑動Y鍵是在ascii模式間切換。
 安卓端
 我还没打字呢 我就连接rime之后 滑了几次y键 就闪退了 看看甚么原因。
@@ -133,7 +133,7 @@ hint也改成shift的標誌、按鍵標籤改成`$`
 
 2026_0619_185816[
 `$` 鍵上滑鎖定shift未生效。沒有任何變化/效果。 你把他修好。另外、
-參考 E:\_code\CsNgaq\Ngaq.Frontend\proj\Ngaq.Ui\UiCfg.cs
+參考 E:\_code\CsNgan.Dict\Ngan.Dict.Frontend\proj\Ngan.Dict.Ui\UiCfg.cs
 你也弄個UiCfg。
 
 其中的MainColor 定義成 和 按鍵被按下時的背景色 一樣。

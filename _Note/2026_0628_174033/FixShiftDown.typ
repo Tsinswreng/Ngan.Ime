@@ -1,4 +1,4 @@
-看Avalime鍵盤
+看Ngan.Ime鍵盤
 
 退格鍵左邊 →鍵右邊的`$`鍵
 上滑後應該進入shift鎖定狀態
@@ -14,7 +14,7 @@ shift按下 -> shift擡起 -> 方向鍵按下 -> 方向鍵擡起
 
 2026_0628_180119[
 看看這個
-E:\_code\CsRime\Avalime\Avalime.Core\proj\Avalime.Core\Keys\IKeyEvent.cs
+E:\_code\CsRime\Ngan.Ime\Ngan.Ime.Core\proj\Ngan.Ime.Core\Keys\IKeyEvent.cs
 
 這裏面有一個
 `public ISet<IKeyChar> AllDownKeys{get;set;}`

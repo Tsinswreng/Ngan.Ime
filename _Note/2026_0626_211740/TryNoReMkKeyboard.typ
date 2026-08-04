@@ -34,7 +34,7 @@ File: e:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 
 我希望能複用View  怎麼解決這個問題?
 
-先別看Avalime的代碼 先只看AvlnImeDemo的 把概念驗證跑通先
+先別看Ngan.Ime的代碼 先只看AvlnImeDemo的 把概念驗證跑通先
 
 
 ]
@@ -276,7 +276,7 @@ File: e:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 2026_0626_222617[
 (重新開會話)
 
-先別看Avalime的代碼 先只看AvlnImeDemo的 把概念驗證跑通先
+先別看Ngan.Ime的代碼 先只看AvlnImeDemo的 把概念驗證跑通先
 E:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 看這個文件
 目前彈出輸入法鍵盤之後再隱藏有兩種辦法
@@ -299,7 +299,7 @@ E:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 
 2026_0626_224705[
 我現在放棄 用輸入法按鍵來隱藏鍵盤了
-現在看Avalime項目
+現在看Ngan.Ime項目
 仿照AvlnDemo的方式 不要多次重複創建View、複用同一個View、注意不要黑屏
 
 然後原本退格鍵有個功能、就是退格鍵上滑能隱藏輸入法、你把這個功能用 `#if false`關掉先、寫清原因。
@@ -315,10 +315,10 @@ E:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 看
 E:\_code\CsRime\AvlnImeDemo\AvlnImeDemo.Android\ImeInputMethodService.cs
 
-然後你再看 Avalime的代碼
+然後你再看 Ngan.Ime的代碼
 AvlnImeDemo中、當我彈出鍵盤、再隱藏鍵盤、再彈出、重複多次、目前都沒有觀察到有黑屏的問題
 
-我之前讓Avalime參照AvlnImeDemo的代碼來改過了、但現在還是有概率發生黑屏問題
+我之前讓Ngan.Ime參照AvlnImeDemo的代碼來改過了、但現在還是有概率發生黑屏問題
 
 黑屏問題就是輸入法鍵盤隱藏後再彈出、界面都是黑的、但是裏面的按鈕仍然是可點擊的
 

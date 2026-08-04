@@ -62,7 +62,7 @@
 		就是 我如何在C\#中知道Rime.dll在甚麼路徑下?
 		根據發行版的不同、甚至安裝位置的不同、rime.dll路徑是完全不一樣的。
 		比如在weasel上、我把rime裝在`D:/ENV/Rime/weasel-0.15.0/`、 rime.dll就在`D:/ENV/Rime/weasel-0.15.0/rime.dll`。
-		如果是Avalime.Android、rime.dll(librime.so)就在`/data/.../Tsinswreng.Avalime/...`裏面。
+		如果是Ngan.Ime.Android、rime.dll(librime.so)就在`/data/.../Tsinswreng.Ngan.Ime/...`裏面。
 
 
 		-H[如果用條件編譯、根據不同編譯目標硬編碼不同dll路徑][

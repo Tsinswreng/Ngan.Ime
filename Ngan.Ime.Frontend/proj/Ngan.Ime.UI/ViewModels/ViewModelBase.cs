@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ngan.Ime.Core.Infra.Log;
 using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.ViewModels;

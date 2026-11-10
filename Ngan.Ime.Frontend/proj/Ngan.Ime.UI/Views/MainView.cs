@@ -1,6 +1,5 @@
 using ViewImeControl = Ngan.Ime.UI.Views.Ime.ViewIme;
 using Avalonia.Controls;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.UI.Views;
 

@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.UI.Infra;
 using ViewCandidatesBarControl = Ngan.Ime.UI.Views.CandidatesBar.ViewCandidatesBar;
 using ViewClipboardControl = Ngan.Ime.UI.Views.Clipboard.ViewClipboard;
@@ -10,7 +9,6 @@ using ViewVoiceInputControl = Ngan.Ime.UI.Views.VoiceInput.ViewVoiceInput;
 using Avalonia.Controls;
 using System.ComponentModel;
 using Tsinswreng.Avln.Grid;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.UI.Views.Ime;
 using Ctx = VmIme;

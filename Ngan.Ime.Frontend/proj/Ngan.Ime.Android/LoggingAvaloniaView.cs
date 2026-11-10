@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Android;
 
-using Ngan.Ime.Core.Infra.Log;
 using Avalonia.Android;
 using Microsoft.Extensions.Logging;
 

@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra.Log;
 using Microsoft.Extensions.Logging;
 
 namespace Ngan.Ime.Rime;

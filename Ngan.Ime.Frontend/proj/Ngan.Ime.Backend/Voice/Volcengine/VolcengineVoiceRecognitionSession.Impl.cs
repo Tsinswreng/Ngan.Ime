@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using Ngan.Ime.Core.Voice;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.Backend.Voice.Volcengine;
 

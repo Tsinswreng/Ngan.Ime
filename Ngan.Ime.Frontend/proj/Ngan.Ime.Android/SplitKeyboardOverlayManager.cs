@@ -3,7 +3,6 @@ using Android.Graphics;
 using Android.Util;
 using Android.Runtime;
 using Android.Views;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.UI;
 using Ngan.Ime.UI.Views.SplitKeyboard;
 

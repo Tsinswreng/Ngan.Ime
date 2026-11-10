@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.UI.Views.KeyBoard;
 
 namespace Ngan.Ime.UI.Views.SplitKeyboard;

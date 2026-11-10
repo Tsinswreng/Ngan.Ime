@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<!-- 各具名腳本的 Main(Root, CancellationToken) 由 Program dispatcher 呼叫；只有 Program.Main 是 CLR entry point。 -->
+		<NoWarn>$(NoWarn);CS0028</NoWarn>
+		<!-- GenAppJsonCtx 用 Roslyn MSBuildWorkspace 分析專案，而 Roslyn 依賴大量反射與動態代碼，
+		     根本無法 NativeAOT。腳本本身只是開發期工具，故明確關掉。 -->
+		<PublishAot>false</PublishAot>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- 檔案／進程／路徑工具，與模板及其他倉庫的 Scripts 一致。 -->
+		<PackageReference Include="Tsinswreng.CsSh" Version="0.3.0-alpha" />
+		<!-- GenAppJsonCtx：以 Roslyn 載入 Ngan.Ime.Core 專案、按語義分析收集標記接口的實現者。 -->
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.8.0" />
+		<PackageReference Include="Microsoft.Build.Locator" Version="1.6.10" />
+	</ItemGroup>
+
+</Project>

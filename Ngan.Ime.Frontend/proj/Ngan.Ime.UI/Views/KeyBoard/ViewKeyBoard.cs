@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.ComponentModel;
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI;
 using Ngan.Ime.UI.Infra;

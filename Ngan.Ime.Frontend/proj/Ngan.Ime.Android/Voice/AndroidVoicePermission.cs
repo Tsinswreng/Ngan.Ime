@@ -1,7 +1,6 @@
 using Android.App;
 using Android.Content;
 using Android.Content.PM;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.Android.Voice;
 

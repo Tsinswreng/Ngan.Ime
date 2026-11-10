@@ -1,37 +1,30 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<LangVersion>latest</LangVersion>
-		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-		<PublishAot>false</PublishAot>
 		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- <ProjectReference Include="../../../../Tsinswreng.Avln.Dsl/proj/Tsinswreng.Avln.Dsl/Tsinswreng.Avln.Dsl.csproj" />
-		<ProjectReference Include="../../../../Tsinswreng.Avln.Grid/proj/Tsinswreng.Avln.Grid/Tsinswreng.Avln.Grid.csproj" /> -->
-		<PackageReference Include="Tsinswreng.CsCore"/>
-		<PackageReference Include="Tsinswreng.CsTools"/>
-		<PackageReference Include="Tsinswreng.Avln.Dsl" />
-		<PackageReference Include="Tsinswreng.Avln.Grid" />
+		<!-- 平台無關的 UI 只認抽像層（Core），不引用 Rime 與任何宿主。 -->
+		<PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.0">
+			<IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+		</PackageReference>
+
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+		<PackageReference Include="System.Reactive" Version="6.0.1" />
+
+		<!-- 逐步撤掉的 UI 糖庫；新代碼不得再依賴它（見記憶：Avln.Dsl 禁令）。
+			 版本沿用 NuGet 上既有的一版，不在此時升級，避免與撤除工作混在一起。 -->
+		<PackageReference Include="Tsinswreng.Avln.Dsl" Version="0.3.0-alpha" />
+		<PackageReference Include="Tsinswreng.Avln.Grid" Version="0.0.2-alpha" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<AvaloniaResource Include="Assets\**" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<PackageReference Include="Avalonia" />
-		<PackageReference Include="Avalonia.Themes.Fluent" />
-		<PackageReference Include="Avalonia.Fonts.Inter" />
-		<PackageReference Include="AvaloniaUI.DiagnosticsSupport">
-			<IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-		</PackageReference>
-		<PackageReference Include="CommunityToolkit.Mvvm" />
-		<PackageReference Include="System.Reactive" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection"/>
-	</ItemGroup>
-
 </Project>

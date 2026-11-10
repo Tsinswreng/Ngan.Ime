@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ngan.Ime.Core.Infra;
 using Tsinswreng.CsCfg;
 
 namespace Ngan.Ime.UI;
@@ -49,7 +48,7 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 				PersistSplitKeyboardEnabled(value);
 			}
 		}
-	} = KeysCfg.Keyboard.IsSplitEnabled.GetFrom(AppCfg.Inst);
+	} = AppCfg.Inst.Get(KeysAppCfg.Keyboard.IsSplitEnabled);
 
 	public bool IsClipboardVisible{
 		get;
@@ -69,10 +68,10 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 		get;
 		set{
 			if(SetProperty(ref field, value)){
-				PersistBoolCfg(KeysCfg.Keyboard.IsSystemKeyRemappingEnabled, value);
+				PersistBoolCfg(KeysAppCfg.Keyboard.IsSystemKeyRemappingEnabled, value);
 			}
 		}
-	} = KeysCfg.Keyboard.IsSystemKeyRemappingEnabled.GetFrom(AppCfg.Inst);
+	} = AppCfg.Inst.Get(KeysAppCfg.Keyboard.IsSystemKeyRemappingEnabled);
 
 	public bool IsRimeLogVisible{
 		get{return IsRimeLogPinnedVisible || IsInitialRimeLogVisible;}
@@ -125,7 +124,7 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 
 	/// 共享的布爾偏好持久化入口。
 	/// UI 線程只更新內存配置；真正寫盤放到後台，避免工具欄點擊被 IO 卡住。
-	static partial void PersistBoolCfg(ICfgNode<bool> Key, bool Value);
+	static partial void PersistBoolCfg(KeyNode<bool> Key, bool Value);
 
 	/// 記錄用戶對 body 頁的明確選擇，並撤銷僅用於首屏的自動日誌頁。
 	partial void MarkUserSelectedBodyPage();

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace Ngan.Ime.Core.Infra.Log;
+namespace Ngan.Ime.Infra.Log;
 
 public delegate void FnLog(LogLevel logLevel, string message);
 public delegate bool FnFilter(LogLevel logLevel);

@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI;
 using Ngan.Ime.ViewModels;

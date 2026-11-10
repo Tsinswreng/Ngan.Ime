@@ -1,5 +1,3 @@
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.UI.Infra;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;

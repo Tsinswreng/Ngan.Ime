@@ -1,7 +1,5 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Views.Candidate;

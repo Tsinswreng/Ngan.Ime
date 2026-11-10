@@ -12,8 +12,6 @@ using System.Diagnostics;
 using static Tsinswreng.CsInterop.Ptrs;
 using Tsinswreng.CsInterop;
 using Rime.Api.Types;
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Tsinswreng.CsCfg;
 using Microsoft.Extensions.Logging;
 namespace Ngan.Ime.Rime;
@@ -93,7 +91,7 @@ unsafe public class RimeSetup
 	protected zero _setupRimeApi(){
 		//traits = (RimeTraits*)AllocZeroed((nuint)SizeOf<RimeTraits>());
 		//var rimeApi = RimeApiFn.rime_get_api();
-		var dllPath = KeysCfg.Librime.DllPath.GetFrom(AppCfg.Inst) ?? "";
+		var dllPath = AppCfg.Inst.Get(KeysAppCfg.Librime.DllPath) ?? "";
 		if(string.IsNullOrWhiteSpace(dllPath)){
 			throw new InvalidOperationException("Librime.DllPath is empty");
 		}
@@ -109,19 +107,19 @@ unsafe public class RimeSetup
 
 	protected zero _setupRimeTraits(){
 		LogInfo("_setupRimeTraits: begin");
-		var sharedDataDir = KeysCfg.Librime.RimeTraits.shared_data_dir.GetFrom(AppCfg.Inst) ?? "";
-		var userDataDir = KeysCfg.Librime.RimeTraits.user_data_dir.GetFrom(AppCfg.Inst) ?? "";
+		var sharedDataDir = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.shared_data_dir) ?? "";
+		var userDataDir = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.user_data_dir) ?? "";
 		if(string.IsNullOrWhiteSpace(userDataDir)){
 			throw new InvalidOperationException("Librime.RimeTraits.user_data_dir is empty");
 		}
-		var distributionName = KeysCfg.Librime.RimeTraits.distribution_name.GetFrom(AppCfg.Inst) ?? "";
-		var distributionCodeName = KeysCfg.Librime.RimeTraits.distribution_code_name.GetFrom(AppCfg.Inst) ?? "";
-		var distributionVersion = KeysCfg.Librime.RimeTraits.distribution_version.GetFrom(AppCfg.Inst) ?? "";
-		var appName = KeysCfg.Librime.RimeTraits.app_name.GetFrom(AppCfg.Inst) ?? "rime.ngan.ime";
-		var minLogLevel = KeysCfg.Librime.RimeTraits.min_log_level.GetFrom(AppCfg.Inst);
-		var logDir = KeysCfg.Librime.RimeTraits.log_dir.GetFrom(AppCfg.Inst);
-		var prebuiltDataDir = KeysCfg.Librime.RimeTraits.prebuilt_data_dir.GetFrom(AppCfg.Inst) ?? "";
-		var stagingDir = KeysCfg.Librime.RimeTraits.staging_dir.GetFrom(AppCfg.Inst) ?? "";
+		var distributionName = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.distribution_name) ?? "";
+		var distributionCodeName = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.distribution_code_name) ?? "";
+		var distributionVersion = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.distribution_version) ?? "";
+		var appName = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.app_name) ?? "rime.ngan.ime";
+		var minLogLevel = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.min_log_level);
+		var logDir = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.log_dir);
+		var prebuiltDataDir = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.prebuilt_data_dir) ?? "";
+		var stagingDir = AppCfg.Inst.Get(KeysAppCfg.Librime.RimeTraits.staging_dir) ?? "";
 		_traits = New<RimeTraits>();
 		traits->data_size = RimeUtil.DataSize<RimeTraits>();
 		// 可選字符串字段爲空時必須保持 null。

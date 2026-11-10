@@ -1,5 +1,4 @@
 using System.Threading;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.Rime;
 

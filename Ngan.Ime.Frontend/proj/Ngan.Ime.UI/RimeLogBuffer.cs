@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using Avalonia.Threading;
-using Ngan.Ime.Core.Infra.Log;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Ngan.Ime.UI;

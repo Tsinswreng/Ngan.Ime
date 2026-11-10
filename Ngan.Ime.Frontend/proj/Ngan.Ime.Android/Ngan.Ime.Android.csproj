@@ -28,22 +28,20 @@
 		<AndroidResource Include="Icon.png">
 			<Link>Resources\drawable\Icon.png</Link>
 		</AndroidResource>
+		<AndroidResource Include="Resources\xml\ime_method.xml" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Avalonia.Android" />
-		<PackageReference Include="Xamarin.AndroidX.Core.SplashScreen" />
-		<PackageReference Include="Tsinswreng.CsTools" />
+		<PackageReference Include="Avalonia.Android" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.1" />
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- 只有 Android 宿主用到 ToolFile（把 so／配置從 assets 落地）。 -->
+		<ProjectReference Include="$(TswgLibsDir)CsTools/proj/Tsinswreng.CsTools/Tsinswreng.CsTools.csproj" />
 		<ProjectReference Include="../Ngan.Ime.UI/Ngan.Ime.UI.csproj" />
 		<ProjectReference Include="../../../Ngan.Ime.Rime/proj/Ngan.Ime.Rime/Ngan.Ime.Rime.csproj" />
 		<ProjectReference Include="../Ngan.Ime.Backend/Ngan.Ime.Backend.csproj" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<AndroidResource Include="Resources\xml\ime_method.xml" />
 	</ItemGroup>
 
 </Project>

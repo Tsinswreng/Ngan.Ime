@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Keys;
 
 namespace Ngan.Ime.UI.Views.ToolBar;

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.ViewModels;
 
 namespace Ngan.Ime.UI.Views.Clipboard;

@@ -1,5 +1,3 @@
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Fonts;
@@ -10,12 +8,12 @@ namespace Ngan.Ime.UI;
 
 public partial class UiCfg{
 	public UiCfg(){
-		BaseFontSize = KeysCfg.Keyboard.Font.BaseFontSize.GetFrom(AppCfg.Inst);
+		BaseFontSize = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.BaseFontSize);
 
 	}
 	public static UiCfg Inst => field??= new UiCfg();
 
-	[Doc(@$"#See[{nameof(KeysCfg.Keyboard.Font.BaseFontSize)}]")]
+	[Doc(@$"#See[{nameof(KeysAppCfg.Keyboard.Font.BaseFontSize)}]")]
 	public f64 BaseFontSize { get; set; } = 30.0;
 	public f64 KeyFontSize => BaseFontSize * 0.9;
 	public f64 CandidateFontSize => BaseFontSize * 0.9;
@@ -42,7 +40,7 @@ public partial class UiCfg{
 	FontFamily? _cachedKeyboardFontFamily;
 
 	FontFamily? GetKeyboardFontFamily(){
-		var fontPath = KeysCfg.Keyboard.Font.Path.GetFrom(AppCfg.Inst);
+		var fontPath = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Path);
 		if(string.IsNullOrWhiteSpace(fontPath) || !File.Exists(fontPath)){
 			_cachedFontPath = fontPath;
 			_cachedFontFamilyName = null;
@@ -50,7 +48,7 @@ public partial class UiCfg{
 			return null;
 		}
 		try{
-			var configuredFamily = KeysCfg.Keyboard.Font.Family.GetFrom(AppCfg.Inst);
+			var configuredFamily = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Family);
 			var familyName = string.IsNullOrWhiteSpace(configuredFamily)
 				? TryReadFontFamilyName(fontPath)
 				: configuredFamily;

@@ -1,5 +1,4 @@
 using Android.Views.InputMethods;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.Core.Keys;
 
 namespace Ngan.Ime.Android;

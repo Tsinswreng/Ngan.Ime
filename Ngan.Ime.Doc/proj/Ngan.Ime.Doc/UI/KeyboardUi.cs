@@ -127,7 +127,7 @@ using Tsinswreng.CsCore;
 
 #H[Rime 日誌頁][
 	`RimeSetup` 現在把引擎通知回調包成 C# 事件 `OnLog` / `OnOptionChanged`。
-	`Ngan.Ime.Core.Infra.Log.IRimeLogSource` 是 UI 看到的抽象；
+	`Ngan.Ime.Infra.Log.IRimeLogSource` 是 UI 看到的抽象；
 	宿主層（如 Android / Windows）負責把 `Ngan.Ime.Rime.RimeLogStore.Inst` 註冊爲該介面。
 	`RimeLogStore` 會先保存最近一段初始化日誌，再把新增日誌事件往外廣播。
 	`RimeLogBuffer` 僅依賴 `IRimeLogSource`：
@@ -203,7 +203,7 @@ using Tsinswreng.CsCore;
 #H[UiCfg][
 	`Ngan.Ime.UI.UiCfg` 統一保存 UI 主色配置。
 	當前 `MainColor` 與按鍵按下態背景色保持一致；`$` 鍵的 Shift 鎖定高亮也引用這個值。
-	鍵盤整體字體會讀 `KeysCfg.Keyboard.Font`。
+	鍵盤整體字體會讀 `KeysAppCfg.Keyboard.Font`。
 	`Keyboard.Font.Path` 必須指向單個字體文件；`Keyboard.Font.Family` 可選。
 	若 `Family` 有值，直接按 `file-uri#family` 的方式交給 Avalonia 解析。
 	若 `Family` 爲空，則從字體文件的 name table 中讀取 family name，再按同樣方式解析。

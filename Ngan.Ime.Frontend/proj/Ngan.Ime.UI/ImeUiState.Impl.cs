@@ -1,5 +1,3 @@
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Tsinswreng.CsCfg;
 
 namespace Ngan.Ime.UI;
@@ -97,12 +95,12 @@ public partial class ImeUiState {
 
 	static partial void PersistSplitKeyboardEnabled(bool Value) {
 		AppLog.Info($"[SplitState] PersistSplitKeyboardEnabled value={Value}");
-		PersistBoolCfg(KeysCfg.Keyboard.IsSplitEnabled, Value);
+		PersistBoolCfg(KeysAppCfg.Keyboard.IsSplitEnabled, Value);
 	}
 
-	static partial void PersistBoolCfg(ICfgNode<bool> Key, bool Value) {
+	static partial void PersistBoolCfg(KeyNode<bool> Key, bool Value) {
 		// step 1: 先更新內存中的可寫配置，保證當前 UI 能立即看到新值。
-		AppCfg.Inst.Set(Key, Value);
+		AppCfg.Inst.SetNoSave(Key, Value);
 
 		// step 2: 寫盤放到後台並串行化，避免 UI 線程被 IO 卡住。
 		_ = Task.Run(() => {

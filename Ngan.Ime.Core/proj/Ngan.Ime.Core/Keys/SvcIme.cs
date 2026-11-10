@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 using System.Threading.Channels;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.Core.Ime;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Tsinswreng.CsPage;

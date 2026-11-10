@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.ViewModels;
 using Avalonia.Media;

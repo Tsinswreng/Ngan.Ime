@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.UI.Infra;
 using Avalonia.Controls;
 using System.ComponentModel;

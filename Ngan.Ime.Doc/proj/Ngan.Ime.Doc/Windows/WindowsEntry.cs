@@ -4,25 +4,30 @@ using Tsinswreng.CsCore;
 
 [Doc($$"""
 #H[用途][
-	Windows 入口仿照 Android 宿主，先初始化雙源配置，再組裝 DI，最後啟動 Avalonia desktop lifetime。
+	Windows 桌面宿主入口。它只做四件事：定日誌去向、定儲存區根目錄、接配置、裝配容器；
+	具體服務清單分屬各層的 `DiXxx`，入口不再逐項列出。
 ]
 
 #H[入口行為][
 	`Program.Main()`：
-	- 從輸出目錄讀取 `Ngan.Ime.Ro.jsonc` / `Ngan.Ime.Rw.jsonc`
-	- 將 `AppLog` 寫入輸出目錄的 `Ngan.Ime.Windows.log`，以保留沒有終端的桌面啟動、Rime 與語音診斷資料；不記錄配置憑據或音頻內容
-	- 把 `RoCfg` / `RwCfg` 掛到 `AppCfg.Inst`
-	- 再把 Windows 本機的 `Librime.DllPath`、`user_data_dir`、`distribution_code_name` 覆寫到可寫配置層
-	- 註冊 `RimeSetup.Inst`，讓桌面端 `SvcIme` 和 `RimeKeyProcessor` 共用同一個 Rime session
-	- 註冊 `IOsKeyProcessor`
-	- 註冊桌面宿主 `IKeyboardHost`、`IClipboardService`
-	- 註冊 `IImeKeyProcessor -> RimeKeyProcessor`
-	- 註冊 `ImeUiState`
-	- 註冊 `ISvcIme -> Ngan.Ime.Rime.SvcIme`
-	- `Di.SvcP = provider`
+	- 建立 `ServiceCollection`，先 `SetupCore()`，再 `AddAppLog(MkrLogger.ConsoleEtFile(...))`：
+	  桌面視窗常無終端，故日誌同時寫 `logs/Ngan.Ime.Windows.log`（路徑由 `I_GetBaseDir` 決定）
+	- 註冊 `I_GetBaseDir` 為 `AppDirBaseDirMgr`（可執行檔目錄）
+	- `AppCfg.Inst.Setup(AppDirBaseDirMgr.Inst)` 接上雙源配置（出廠只讀 ＋ 日常可寫），並 `SetupCfg` 註冊四種寬度
+	- 依序裝配 `SetupRime()`（RimeSetup／日誌源／按鍵處理器／SvcIme）、
+	  `SetupWindows()`（`IOsKeyProcessor`、鍵盤宿主與剪貼簿的過渡實現）、`SetupUi()`（各 ViewModel）
+	- `WindowsVoiceComposition.AddWindowsVoiceInput(...)` 接上 WASAPI 與火山識別
+	- 在配置缺失時補上本機 Rime 路徑（`DllPath`、`user_data_dir`、`distribution_code_name`、`app_name`）；
+	  顯式配置優先，不覆蓋用戶設定
+	- `Di.SvcProvider = provider`
 	- `StartWithClassicDesktopLifetime(...)`
 ]
 
+#H[與舊版差異][
+	- 不再有 `InitCfg()`：配置檔的接法收在 `AppCfg.Setup(I_GetBaseDir)`，桌面與 Android 共用同一套
+	- 不再要求 `Ngan.Ime.Ro.jsonc` 必須存在：缺檔即空源，取值走鍵上宣告的默認值
+	- `WindowsFileLogger` 已由 `Ngan.Ime.Infra.Log.FileLogger`（經 `MkrLogger.ConsoleEtFile`）取代
+]
 """)]
 file class _{
 }

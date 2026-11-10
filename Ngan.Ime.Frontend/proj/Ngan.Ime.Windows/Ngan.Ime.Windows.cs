@@ -1,140 +1,84 @@
 namespace Ngan.Ime.Windows;
 
-using System;
-using System.IO;
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
-using Ngan.Ime.Core.Keys;
 using Ngan.Ime.Rime;
 using Ngan.Ime.UI;
-using Ngan.Ime.UI.Views.CandidatesBar;
-using Ngan.Ime.UI.Views.Clipboard;
-using Ngan.Ime.UI.Views.Ime;
-using Ngan.Ime.UI.Views.Input;
-using Ngan.Ime.UI.Views.Key;
-using Ngan.Ime.UI.Views.KeyBoard;
-using Ngan.Ime.UI.Views.RimeLog;
-using Ngan.Ime.UI.Views.ToolBar;
-using Ngan.Ime.UI.Views.VoiceInput;
 using Ngan.Ime.Windows.Voice;
 using Avalonia;
 using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCfg;
+using Tsinswreng.CsKeyNode;
 
-
+/// Windows 桌面宿主入口。
+/// 入口只做四件事：定日誌去向、定儲存區根目錄、接配置、裝配容器。
+/// 具體註冊分屬各層的 DiXxx，這裡不再列舉服務。
 sealed class Program{
+	/// 本機 Rime 的默認位置；只在配置沒有給值時才使用。
 	const str RimeDllPath = @"D:\ENV\Rime\weasel-0.15.0\rime.dll";
+	/// 本機 Rime 用戶資料的默認位置；同上。
 	const str UserDataDir = @"D:\Program Files\Rime\User_Data";
+	/// 本宿主在日誌與配置裡的自稱。
+	const str AppName = "Ngan.Ime.Windows";
 
 	[STAThread]
-	public static void Main(string[] args){
-		// Desktop 視窗通常沒有附著終端；所有背景語音錯誤必須落到可直接讀取的本機檔案。
-		AppLog.Inst.InnerLogger = new WindowsFileLogger(Path.Combine(AppContext.BaseDirectory, "Ngan.Ime.Windows.log"));
-		InitCfg();
+	public static void Main(str[] Args){
+		// 1: 建立容器並定下日誌去向。桌面視窗通常沒有附著終端，
+		//    故主控台＋檔案雙寫；檔案落在儲存區的 logs/ 下。
+		var Svc = new ServiceCollection();
+		Svc.SetupCore();
+		Svc.AddAppLog(MkrLogger.ConsoleEtFile(AppName));
+
+		// 2: 儲存區根目錄＝可執行檔目錄（不是當前工作目錄）。
+		Svc.AddSingleton<I_GetBaseDir>(AppDirBaseDirMgr.Inst);
+
+		// 3: 配置必須早於任何取配置的地方：引擎、語音、界面字體都讀它。
+		AppCfg.Inst.Setup(AppDirBaseDirMgr.Inst);
+		Svc.SetupCfg(AppCfg.Inst);
+
+		// 4: 各層裝配。Rime 由 DiRime 負責，Windows 只補本端實現。
+		Svc.SetupRime();
+		Svc.SetupWindows();
+		Svc.SetupUi();
+		WindowsVoiceComposition.AddWindowsVoiceInput(Svc);
+
+		// 5: 宿主在配置缺失時補上本機默認值；顯式配置優先，不覆蓋用戶設定。
 		SetupWindowsCfg();
-		var services = new ServiceCollection();
-		WindowsVoiceComposition.AddWindowsVoiceInput(services);
-		// Windows 桌面端也直接走 Rime 真實實現，避免 UI 啟動後再落回無法工作的 stub 組合。
-		services.AddSingleton<RimeSetup>(_ => RimeSetup.Inst);
-		// Rime 日誌頁依賴抽象日誌源；Windows 宿主需要和 Android 一樣顯式暴露同一份 RimeLogStore。
-		services.AddSingleton<IRimeLogSource>(_ => RimeLogStore.Inst);
-		services.AddSingleton<
-			IOsKeyProcessor
-			, WindowsKeyProcessor
-		>();
-		services.AddSingleton<IImeKeyProcessor, RimeKeyProcessor>();
-		services.AddSingleton<IKeyboardHost, StubKeyboardHost>();
-		services.AddSingleton<IClipboardService, StubClipboardService>();
-		services.AddSingleton<ImeUiState>();
-		services.AddSingleton<ILogger>(_ => AppLog.Inst);
 
-		// SvcIme 依賴 RimeSetup 與 IImeKeyProcessor；兩者都要在 desktop 入口顯式註冊。
-		services.AddSingleton<
-			ISvcIme
-				, SvcIme
-		>();
+		var Provider = Svc.BuildServiceProvider();
+		Di.SvcProvider = Provider;
 
-		services.AddSingleton<RimeLogBuffer>();
-		services.AddTransient<VmIme>();
-		services.AddTransient<VmToolBar>();
-		services.AddTransient<VmCandidatesBar>();
-		services.AddTransient<VmInput>();
-		services.AddTransient<VmClipboard>();
-		services.AddTransient<VmRimeLog>();
-		services.AddTransient<VmKey>();
-		services.AddTransient<VmKeyBoard>();
-		services.AddTransient<VmVoiceInput>();
-		services.AddTransient<VmVoiceInputLangSelector>();
-
-		var provider = services.BuildServiceProvider();
-		BuildAvaloniaApp()
-		.AfterSetup(e=>Di.SvcProvider = provider)
-		.StartWithClassicDesktopLifetime(args);
+		BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
 	}
 
 	/// <summary>
-	/// 按 Android 入口同樣的雙源配置流程初始化 Windows 端配置。
-	/// Ro 只負責給出 Rw 配置路徑，Rw 承載實際可寫配置內容。
-	/// </summary>
-	static void InitCfg(){
-		var baseDir = AppContext.BaseDirectory;
-		var roCfgPath = Path.Combine(baseDir, "Ngan.Ime.Ro.jsonc");
-		var dfltRwCfgPath = Path.Combine(baseDir, "Ngan.Ime.Rw.jsonc");
-
-		if(!File.Exists(roCfgPath)){
-			throw new FileNotFoundException("Windows ro config not found", roCfgPath);
-		}
-
-		var dualSrcCfg = AppCfg.Inst;
-		var roCfg = new JsonFileCfgAccessor();
-		dualSrcCfg.RoCfg = roCfg;
-		roCfg.FromFile(roCfgPath);
-
-		var rwCfgPath = KeysCfg.RwCfgPath.GetFrom(dualSrcCfg) ?? dfltRwCfgPath;
-		if(!Path.IsPathRooted(rwCfgPath)){
-			rwCfgPath = Path.Combine(baseDir, rwCfgPath);
-		}
-		if(!File.Exists(rwCfgPath)){
-			throw new FileNotFoundException("Windows rw config not found", rwCfgPath);
-		}
-
-		var rwCfg = new JsonFileCfgAccessor();
-		dualSrcCfg.RwCfg = rwCfg;
-		rwCfg.FromFile(rwCfgPath);
-	}
-
-	/// <summary>
-	/// Windows 端在啟動時把本機實際 Rime 路徑寫回可寫配置層，
+	/// Windows 端在啟動時把本機實際 Rime 路徑補進可寫配置層，
 	/// 但仍以顯式配置優先，避免宿主默認值把用戶配置覆蓋掉。
 	/// </summary>
 	static void SetupWindowsCfg(){
-		EnsureCfgOrDefault(KeysCfg.Librime.DllPath, RimeDllPath);
-		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
-		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.distribution_code_name, "Tsinswreng.Ngan.Ime.Windows");
-		EnsureCfgOrDefault(KeysCfg.Librime.RimeTraits.app_name, nameof(Ngan.Ime.Windows));
+		EnsureCfgOrDefault(KeysAppCfg.Librime.DllPath, RimeDllPath);
+		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
+		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.distribution_code_name, AppName);
+		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.app_name, AppName);
 	}
 
 	/// <summary>
 	/// 宿主只在配置缺失時補默認值；一旦配置文件已明確給值，就完全尊重配置。
 	/// </summary>
-	static void EnsureCfgOrDefault(ICfgNode<str> Key, str DefaultValue){
-		var Cur = Key.GetFrom(AppCfg.Inst) ?? "";
+	static void EnsureCfgOrDefault(KeyNode<str> Key, str DefaultValue){
+		var Cur = AppCfg.Inst.Get(Key) ?? "";
 		if(!string.IsNullOrWhiteSpace(Cur)){
 			return;
 		}
-		AppCfg.Inst.Set(Key, DefaultValue);
+		AppCfg.Inst.SetNoSave(Key, DefaultValue);
 	}
 
 	public static AppBuilder BuildAvaloniaApp(){
-		var options = new FontManagerOptions {
-		DefaultFamilyName = "孤鹜 筑紫明朝",
-		FontFallbacks = new[] { new FontFallback { FontFamily = "Microsoft YaHei" } }
-	};
+		var Options = new FontManagerOptions {
+			DefaultFamilyName = "孤鹜 筑紫明朝",
+			FontFallbacks = new[] { new FontFallback { FontFamily = "Microsoft YaHei" } }
+		};
 		return AppBuilder.Configure<App>()
 			.UsePlatformDetect()
-			.With(options)
+			.With(Options)
 			.LogToTrace();
 	}
 

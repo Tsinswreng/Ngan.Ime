@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace Ngan.Ime.Core.Infra.Log;
+namespace Ngan.Ime.Infra.Log;
 
 /// <summary>
 /// 向 UI 暴露 Rime 日誌流的抽象。

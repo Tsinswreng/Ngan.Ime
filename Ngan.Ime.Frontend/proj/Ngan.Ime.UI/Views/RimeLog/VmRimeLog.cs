@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.ViewModels;
 
 namespace Ngan.Ime.UI.Views.RimeLog;

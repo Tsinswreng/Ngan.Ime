@@ -1,6 +1,5 @@
 using Android.Content;
 using Ngan.Ime.Backend.Voice.Volcengine;
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.UI.Views.VoiceInput;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,29 +11,29 @@ public static partial class AndroidVoiceComposition{
 	/// 配置映射與 Windows 保持一致，Android 只替換平台音頻來源。
 	public static partial VolcengineVoiceRecognitionOptions ReadVolcengineOptions(){
 		return new VolcengineVoiceRecognitionOptions{
-			ApiKey = KeysCfg.VoiceInput.Volcengine.ApiKey.GetFrom(AppCfg.Inst) ?? "",
-			AppId = KeysCfg.VoiceInput.Volcengine.AppId.GetFrom(AppCfg.Inst) ?? "",
-			AccessToken = KeysCfg.VoiceInput.Volcengine.AccessToken.GetFrom(AppCfg.Inst) ?? "",
-			Endpoint = KeysCfg.VoiceInput.Volcengine.Endpoint.GetFrom(AppCfg.Inst) ?? "",
-			ResourceId = KeysCfg.VoiceInput.Volcengine.ResourceId.GetFrom(AppCfg.Inst) ?? "",
-			ModelName = KeysCfg.VoiceInput.Volcengine.ModelName.GetFrom(AppCfg.Inst) ?? "",
-			ConnectTimeout = TimeSpan.FromMilliseconds(KeysCfg.VoiceInput.Volcengine.ConnectTimeoutMs.GetFrom(AppCfg.Inst)),
-			FinalResultTimeout = TimeSpan.FromMilliseconds(KeysCfg.VoiceInput.Volcengine.FinalResultTimeoutMs.GetFrom(AppCfg.Inst)),
-			MaxServerMessageBytes = checked((i32)KeysCfg.VoiceInput.Volcengine.MaxServerMessageBytes.GetFrom(AppCfg.Inst)),
-			EnablePunctuation = KeysCfg.VoiceInput.Volcengine.EnablePunctuation.GetFrom(AppCfg.Inst),
-			EnableInverseTextNormalization = KeysCfg.VoiceInput.Volcengine.EnableInverseTextNormalization.GetFrom(AppCfg.Inst),
-			ShowUtterances = KeysCfg.VoiceInput.Volcengine.ShowUtterances.GetFrom(AppCfg.Inst),
+			ApiKey = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.ApiKey) ?? "",
+			AppId = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.AppId) ?? "",
+			AccessToken = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.AccessToken) ?? "",
+			Endpoint = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.Endpoint) ?? "",
+			ResourceId = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.ResourceId) ?? "",
+			ModelName = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.ModelName) ?? "",
+			ConnectTimeout = TimeSpan.FromMilliseconds(AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.ConnectTimeoutMs)),
+			FinalResultTimeout = TimeSpan.FromMilliseconds(AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.FinalResultTimeoutMs)),
+			MaxServerMessageBytes = checked((i32)AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.MaxServerMessageBytes)),
+			EnablePunctuation = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.EnablePunctuation),
+			EnableInverseTextNormalization = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.EnableInverseTextNormalization),
+			ShowUtterances = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Volcengine.ShowUtterances),
 		};
 	}
 
 	/// Android AudioRecord 直接產生配置要求的 PCM，不做平台重採樣。
 	public static partial AudioInputOptions ReadAudioOptions(){
 		return new AudioInputOptions{
-			SampleRate = KeysCfg.VoiceInput.Audio.SampleRate.GetFrom(AppCfg.Inst),
-			Channels = KeysCfg.VoiceInput.Audio.Channels.GetFrom(AppCfg.Inst),
-			BitsPerSample = KeysCfg.VoiceInput.Audio.BitsPerSample.GetFrom(AppCfg.Inst),
-			ChunkDurationMs = KeysCfg.VoiceInput.Audio.ChunkDurationMs.GetFrom(AppCfg.Inst),
-			MaxBufferedChunks = KeysCfg.VoiceInput.Audio.MaxBufferedChunks.GetFrom(AppCfg.Inst),
+			SampleRate = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Audio.SampleRate),
+			Channels = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Audio.Channels),
+			BitsPerSample = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Audio.BitsPerSample),
+			ChunkDurationMs = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Audio.ChunkDurationMs),
+			MaxBufferedChunks = AppCfg.Inst.Get(KeysAppCfg.VoiceInput.Audio.MaxBufferedChunks),
 		};
 	}
 

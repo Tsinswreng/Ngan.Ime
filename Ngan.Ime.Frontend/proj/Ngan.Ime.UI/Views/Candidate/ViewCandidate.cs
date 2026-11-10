@@ -4,11 +4,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Styling;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.UI.Infra;
 using System.ComponentModel;
 using Ctx = VmCandidate;
-using Ngan.Ime.Core.Infra;
 
 public class ViewCandidate : AppViewBase<Ctx>
 	, IDisposable

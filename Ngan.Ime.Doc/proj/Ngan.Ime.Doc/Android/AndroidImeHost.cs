@@ -76,11 +76,17 @@ using Tsinswreng.CsCore;
 ]
 
 #H[依賴注入與日誌][
-	Android 端在 `InputMethodService.OnCreate()` 組裝 `ServiceCollection`，並寫入全局 `Di.SvcProvider`。
-	`Di` 是當前全局 DI 中心；UI / Core 側若拿服務，統一通過 `Di.GetRSvc<T>()`。
-	`ISvcIme` 在 Android 端不再直接使用空殼基類，而是註冊 `Ngan.Ime.Rime.SvcIme`。
-	這樣 `Ngan.Ime.UI` 仍只依賴 `Ngan.Ime.Core`，但真正的 Rime 連接、狀態同步與 option 切換由 `Ngan.Ime.Rime` 層實現。
-	`ILogger` 也註冊爲 `AppLog.Inst`，方便不便注入的地方與可注入的地方共用同一條日誌出口。
+	`Application` 與 `InputMethodService.OnCreate()` 各建一個容器，但兩者的服務清單都由 `DiXxx` 提供，不再各貼一份：
+	- `SetupCore()`：JSON 序列化門面
+	- `AddAppLog(new AndroidLogger(...))`：日誌內層走 logcat，並把 `ILogger` 接到同一個門面
+	- `AddSingleton<I_GetBaseDir>(ExternalFilesBaseDirMgr.Inst)`：儲存區＝外部私有目錄
+	- `SetupCfg(AppCfg.Inst)`：配置門面按四種寬度註冊
+	- `SetupRime()`：`RimeSetup`、`IRimeLogSource`、`IImeKeyProcessor`、`ISvcIme`
+	- `SetupAndroid()`、`SetupUi()`
+	- 鍵盤宿主與剪貼簿需要執行期實例，故各自註冊（IME 服務用 `() => this`）
+
+	配置在 `Application` 建構子接好（`AppCfg.Inst.Setup(ExternalFilesBaseDirMgr.Inst)`），
+	早於任何取配置的地方；`Di.SvcProvider` 由各自入口賦值。
 	`AppLog.Inst.InnerLogger` 在 Android `Application` 啟動時切到 `AndroidLogger`，Release 也可直接進 logcat。
 ]
 

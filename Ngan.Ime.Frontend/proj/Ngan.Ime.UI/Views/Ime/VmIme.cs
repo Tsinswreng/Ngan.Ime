@@ -1,6 +1,4 @@
 using Ngan.Ime.Core.Keys;
-using Ngan.Ime.Core.Infra;
-using Ngan.Ime.Core.Infra.Log;
 using Ngan.Ime.ViewModels;
 using Avalonia.Threading;
 using System.ComponentModel;

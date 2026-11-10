@@ -1,5 +1,4 @@
 using Ngan.Ime.Core.Keys;
-using Ngan.Ime.Core.Infra.Log;
 using Microsoft.Extensions.DependencyInjection;
 using Rime.Api;
 using Tsinswreng.CsInterop;

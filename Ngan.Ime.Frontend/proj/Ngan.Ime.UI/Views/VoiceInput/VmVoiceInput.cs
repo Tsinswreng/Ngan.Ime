@@ -1,4 +1,3 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.Core.Language;
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.ViewModels;

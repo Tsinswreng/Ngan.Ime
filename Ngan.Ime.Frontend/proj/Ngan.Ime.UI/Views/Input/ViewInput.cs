@@ -1,9 +1,7 @@
-using Ngan.Ime.Core.Infra;
 using Ngan.Ime.UI.Infra;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Media;
-using Ngan.Ime.Core.Infra.Log;
 
 namespace Ngan.Ime.UI.Views.Input;
 using Ctx = VmInput;

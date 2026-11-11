@@ -13,14 +13,18 @@ using Tsinswreng.CsKeyNode;
 /// 具體註冊分屬各層的 DiXxx，這裡不再列舉服務。
 sealed class Program{
 	/// 本機 Rime 的默認位置；只在配置沒有給值時才使用。
-	const str RimeDllPath = @"D:\ENV\Rime\weasel-0.15.0\rime.dll";
+	static readonly str RimeDllPath = Environment.GetEnvironmentVariable("NGAN_RIME_DLL") ?? @"D:\ENV\Rime\weasel-0.15.0\rime.dll";
 	/// 本機 Rime 用戶資料的默認位置；同上。
-	const str UserDataDir = @"D:\Program Files\Rime\User_Data";
+	static readonly str UserDataDir = Environment.GetEnvironmentVariable("NGAN_RIME_USER_DATA") ?? @"D:\Program Files\Rime\User_Data";
 	/// 本宿主在日誌與配置裡的自稱。
 	const str AppName = "Ngan.Ime.Windows";
 
 	[STAThread]
 	public static void Main(str[] Args){
+		// --tsf：以 TSF 常駐模式啟動（不開主視窗，只跑管道伺服器與候選窗）。
+		if(Args.Contains("--tsf")){
+			Ngan.Ime.UI.App.DaemonMode = true;
+		}
 		// 1: 建立容器並定下日誌去向。桌面視窗通常沒有附著終端，
 		//    故主控台＋檔案雙寫；檔案落在儲存區的 logs/ 下。
 		var Svc = new ServiceCollection();
@@ -45,6 +49,9 @@ sealed class Program{
 
 		var Provider = Svc.BuildServiceProvider();
 		Di.SvcProvider = Provider;
+
+		// TSF 宿主：接受系統 IME 轉來的按鍵，交給 Rime 並顯示候選窗。
+		Tsf.TsfHostServer.Start();
 
 		BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
 	}
@@ -78,6 +85,7 @@ sealed class Program{
 		};
 		return AppBuilder.Configure<App>()
 			.UsePlatformDetect()
+			.WithInterFont()
 			.With(Options)
 			.LogToTrace();
 	}

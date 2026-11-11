@@ -16,8 +16,15 @@ public class RimeKeyCharConverter{
 		}
 		mask |= GetModifierMask(keyEvent.KeyBoardState);
 		var effectiveKey = ApplyShiftToKeyChar(keyEvent.KeyChar, keyEvent.KeyBoardState);
-		var keyCode = (i32)Lower_KeyCode[effectiveKey];//TODO handle err
-		return (keyCode, mask);
+		// 外部宿主（例如 TSF）可能送來不在靜態 KeyChars 表裡的 KeyChar 實例；
+		// 這時退回用字元本身的 ASCII 大寫碼，避免整個按鍵被丟棄。
+		if(!Lower_KeyCode.TryGetValue(effectiveKey, out var keyCode)){
+			var name = effectiveKey.Name;
+			keyCode = name.Length == 1 && name[0] < 0x80
+				? char.ToUpperInvariant(name[0])
+				: 0;
+		}
+		return ((i32)keyCode, mask);
 	}
 
 	static i32 GetModifierMask(IKeyBoardState? keyBoardState){

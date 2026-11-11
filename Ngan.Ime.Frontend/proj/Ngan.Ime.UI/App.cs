@@ -9,6 +9,9 @@ namespace Ngan.Ime.UI;
 
 public partial class App : Application
 {
+	/// <summary>TSF 常駐模式：不建立主視窗，關閉視窗也不會結束行程。</summary>
+	public static bool DaemonMode { get; set; }
+
 	/// 初始化 Ngan.Ime 的全局控件樣式。
 	///
 	/// 當前主要統一 Button 的普通背景與鼠標懸停邊框：普通狀態保持穩定深色背景，
@@ -23,6 +26,10 @@ public partial class App : Application
 
 	public override void OnFrameworkInitializationCompleted(){
 		if(ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop){
+			if(DaemonMode){
+				desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+				return;
+			}
 // #if DEBUG
 // 			this.AttachDeveloperTools();
 // #endif

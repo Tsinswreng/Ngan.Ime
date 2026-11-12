@@ -90,9 +90,10 @@ internal static partial class DeployWinVm{
 				case "startvm": O.StartVm = true; break;
 				case "opennotepad": O.OpenNotepad = true; break;
 				case "skipsmoke": O.SkipSmoke = true; break;
+				case "restartexplorer": O.RestartExplorer = true; break;
 				case "dryrun": O.DryRun = true; break;
 				case "help": case "h":
-					Console.Error.WriteLine("用法: dotnet run --project proj/Ngan.Ime.Frontend/Ngan.Ime.Scripts -- DeployWinVm [-Fast] [-NoBuild] [-StartVm] [-OpenNotepad] [-SkipSmoke] [-DryRun]");
+					Console.Error.WriteLine("用法: dotnet run --project proj/Ngan.Ime.Frontend/Ngan.Ime.Scripts -- DeployWinVm [-Fast] [-NoBuild] [-StartVm] [-OpenNotepad] [-SkipSmoke] [-RestartExplorer] [-DryRun]");
 					Environment.Exit(0);
 					break;
 				default:
@@ -442,6 +443,7 @@ internal static partial class DeployWinVm{
 			"TaskPrefix=" + O.TaskPrefix,
 			"OpenNotepad=" + (O.OpenNotepad ? "1" : "0"),
 			"SkipSmoke=" + (O.SkipSmoke ? "1" : "0"),
+			"RestartExplorer=" + (O.RestartExplorer ? "1" : "0"),
 		};
 		return string.Join("\n", Lines) + "\n";
 	}
@@ -549,6 +551,36 @@ New-PsTask -Name ($Cfg.TaskPrefix + '-InstallUser') -ScriptPath $UserPs1 -UserId
 Start-ScheduledTask -TaskName ($Cfg.TaskPrefix + '-InstallUser')
 Start-Sleep -Seconds 4
 Log ('install-user.log：' + ((Get-Content $UserLog -Encoding utf8 -ErrorAction SilentlyContinue) -join ' | '))
+
+# ---- 5.5 讓新註冊的 TSF 生效 ----
+# TSF 是「行程載入時」決定的：已開着的記事本／explorer 會繼續用舊 DLL 的邏輯
+# （症狀就是方向鍵、Escape 這些新加的路由看起來沒生效）。故這裡結束測試用的記事本，
+# 並把仍持有舊版 DLL 的行程列出來，讓使用者知道要重開哪些。
+$CurTsf = (Get-Item $TsfDll).FullName
+Get-Process -Name 'notepad' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+if($Cfg.RestartExplorer -eq '1'){
+    Log '重啟 explorer（-RestartExplorer）'
+    Get-Process -Name 'explorer' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process -FilePath 'C:\Windows\explorer.exe'
+    Start-Sleep -Seconds 3
+}
+$Stale = @()
+foreach($P in (Get-Process -ErrorAction SilentlyContinue)){
+    try {
+        foreach($M in $P.Modules){
+            if($M.ModuleName -like 'Ngan.Ime.Tsf*' -and $M.FileName -ne $CurTsf){
+                $Stale += ($P.ProcessName + '(' + $P.Id + ')->' + (Split-Path $M.FileName -Leaf))
+                break
+            }
+        }
+    } catch { }
+}
+if($Stale.Count -gt 0){
+    Log ('仍載入舊版 TSF（需重開才會用新邏輯）：' + (($Stale | Select-Object -Unique) -join ', '))
+} else {
+    Log '沒有行程載入舊版 TSF'
+}
 
 # ---- 6 以桌面使用者身分常駐啟動宿主 ----
 $HostExe = Join-Path $HostDir 'Ngan.Ime.Windows.exe'

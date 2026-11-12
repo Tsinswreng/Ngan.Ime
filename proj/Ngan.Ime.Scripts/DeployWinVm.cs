@@ -96,6 +96,9 @@ internal sealed partial class WinVmOpts{
 	/// true 時部署完在桌面開一個記事本，方便立刻測試。
 	public bool OpenNotepad{get;set;}
 
+	/// true 時連 explorer 一起重啟（保險，但桌面會閃一下）。
+	public bool RestartExplorer{get;set;}
+
 	/// true 時跳過管道煙霧測試。
 	public bool SkipSmoke{get;set;}
 

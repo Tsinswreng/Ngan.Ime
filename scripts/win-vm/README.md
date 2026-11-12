@@ -72,3 +72,8 @@ guest 端需要先有一次性的目錄與 Rime 資源（`C:\NganImeVm\rime\rime
 - 宿主的 TSF 管道是「一請求一連線」，同一條連線送第二個請求會得到「管道已中斷」。
 - guest 端 `.ps1` 必須存成 **帶 BOM 的 UTF-8**：Windows PowerShell 5.1 對無 BOM 的
   檔案用 ANSI 解碼，中文註釋會變成亂碼並吞掉引號，整份腳本語法錯誤。
+
+- *TSF 是「行程載入時」決定的*：重新註冊新 DLL 之後，已經開着的記事本／explorer 仍然跑舊 DLL
+  （症狀：新加的路由看起來完全沒生效，例如方向鍵、Escape）。`DeployWinVm` 會結束 notepad、
+  並列出仍持有舊 DLL 的行程；必要時加 `-RestartExplorer` 連 explorer 一起重啟。
+  測試前請重開記事本。

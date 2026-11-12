@@ -9,7 +9,7 @@ namespace Ngan.Ime.Android;
 /// 分體懸浮鍵盤依賴 overlay 權限。
 /// Android 這個權限不是普通 runtime permission，需要跳系統設置頁授權。
 /// </summary>
-public static class AvalimeOverlayPermission
+public static class ImeOverlayPermission
 {
 	public static bool CanDraw(Context Context)
 	{

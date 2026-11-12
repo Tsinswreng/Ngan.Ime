@@ -6,22 +6,25 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- 平台無關的 UI 只認抽像層（Core），不引用 Rime 與任何宿主。 -->
+		<!-- 界面一律用 Avalonia.Markup.Declarative 的純 C# 聲明式寫法；
+		     生成器（Roslyn4 版）提供 .Text(vm, x=>x.X) 這類強型別鏈式方法。 -->
 		<PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
 		<PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
 		<PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
-		<PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.0">
+		<PackageReference Include="Avalonia.Markup.Declarative" Version="$(MarkupDeclarativeVersion)" />
+		<PackageReference Include="MarkupDeclarative.Roslyn4" Version="$(MarkupDeclarativeGeneratorVersion)" PrivateAssets="all" />
+		<PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
 			<IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
 			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
 		</PackageReference>
 
-		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-		<PackageReference Include="System.Reactive" Version="6.0.1" />
+		<!-- ViewModel 基類（ObservableObject）：只出現在界面層，Core 不依賴它。 -->
+		<!-- 與本地 Tsinswreng.Avln.Grid 宣告的下限一致（8.4.2），否則 NU1605 降級。 -->
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 
-		<!-- 逐步撤掉的 UI 糖庫；新代碼不得再依賴它（見記憶：Avln.Dsl 禁令）。
-			 版本沿用 NuGet 上既有的一版，不在此時升級，避免與撤除工作混在一起。 -->
-		<PackageReference Include="Tsinswreng.Avln.Dsl" Version="0.3.0-alpha" />
-		<PackageReference Include="Tsinswreng.Avln.Grid" Version="0.0.2-alpha" />
+		<!-- 本地 Avln.Grid：提供自動落號的 StackGrid；走專案引用而非 NuGet，
+		     避免本地庫改動後界面還用舊 DLL。 -->
+		<ProjectReference Include="$(TswgLibsDir)Avln.Grid/proj/Tsinswreng.Avln.Grid/Tsinswreng.Avln.Grid.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

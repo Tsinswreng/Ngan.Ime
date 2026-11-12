@@ -1,65 +1,57 @@
-using Ngan.Ime.Core.Language;
-using Ngan.Ime.Core.Voice;
-using Ngan.Ime.ViewModels;
-
 namespace Ngan.Ime.UI.Views.VoiceInput;
 
-/// 語音輸入頁的 ViewModel 聲明與前端狀態設計。
-///
-/// # 職責邊界
-/// - 保存用戶選擇的識別語言與可編輯文本草稿。
-/// - 接收供應商無關的流式文本快照，將穩定段和臨時段合成到文本框。
-/// - 控制錄音、等待尾包、完成、錯誤等前端階段及按鈕可用條件。
-/// - 僅在用戶主動點擊“上屏”後，才把最終草稿交給 `IKeyboardHost`。
-/// - 不直接引用火山引擎 API、WebSocket、Windows 錄音 API 或 Android 麥克風 API。
-///
-/// # 文本衝突策略
-/// 錄音和等待尾包期間，識別服務可能反覆改寫臨時尾句，因此文本框只讀；
-/// 識別完成或失敗後恢復人工編輯。這避免“用戶剛修改文字，下一個流式包又覆蓋修改”的競態。
-public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
-	/// 把用户确认后的草稿提交到当前平台输入目标的宿主抽象。
-	/// VM 只依赖此跨平台接口；Windows/Android 的具体提交方式留在各自宿主程序集。
+using Avalonia.Media;
+using Ngan.Ime.Core.Language;
+using Ngan.Ime.Core.Voice;
+using Ngan.Ime.UI.Infra;
+using Tsinswreng.CsCore;
+
+[Doc($$"""
+語音輸入頁的 ViewModel：協調「音頻採集 → 遠端識別 → 草稿 → 上屏」四件事。
+
+*職責邊界*：本類只依賴 Core 的抽象（{{nameof(IAudioInputSource)}}／{{nameof(IVoiceRecognitionProvider)}}），
+不認識火山協議，也不認識 Windows／Android 的錄音 API；換供應商或換平臺都不必改這裡。
+
+*階段機*：Idle → Starting → Recording → Finalizing → Completed／Failed。
+「忙碌」期間草稿只讀，避免流式結果覆蓋使用者正在改的字；
+`CancelRecognition` 與「失敗」是兩條路：取消不顯示錯誤。
+
+*錯誤文案*：庫層的 {{nameof(VoiceRecognitionException)}} 只帶分類（`Kind`）與英文診斷訊息；
+面向使用者的中文在這裡依 `Kind` 映射，故庫不必為 UI 背文案。
+
+#Eg[
+	```cs
+	await Vm.ToggleRecording(Ct); // 開始／結束／取消，依當前階段自動判斷
+	```
+]
+""")]
+public partial class VmVoiceInput : AppVmBase, IMk<VmVoiceInput>, IDisposable{
+
+	[Doc("上屏目標（宿主能力）。")]
 	readonly IKeyboardHost KeyboardHost;
 
-	/// 供應商無關的流式語音識別入口；Windows 注入火山實現，Android 未來替換為平台適配實現。
+	[Doc("識別服務供應商。")]
 	readonly IVoiceRecognitionProvider RecognitionProvider;
 
-	/// 當前平台的實時麥克風音頻來源；Windows 注入 WASAPI 實現，Android 後續注入平台錄音實現。
+	[Doc("音頻輸入源（麥克風）。")]
 	readonly IAudioInputSource AudioInputSource;
 
-	/// 當前平臺的 PCM 格式與分片配置；一輪會話開始後使用其快照，不受配置文件後續修改影響。
+	[Doc("本輪的音頻格式快照；會話開始後不受配置變更影響。")]
 	readonly AudioInputOptions AudioOptions;
 
-	/// 串行化開始、停止、取消及失敗清理，防止多條 UI/生命週期回調同時替換會話資源。
+	[Doc("串行化開始／停止／取消／失敗清理。")]
 	readonly SemaphoreSlim SessionGate = new(1, 1);
 
-	/// 當前正在使用的麥克風會話；非忙碌狀態下必須為 null。
+	[Doc("當前麥克風會話；非忙碌時為 null。")]
 	IAudioInputSession? AudioSession;
 
-	/// 當前正在使用的遠端識別會話；非忙碌狀態下必須為 null。
+	[Doc("當前識別會話；非忙碌時為 null。")]
 	IVoiceRecognitionSession? RecognitionSession;
 
-	/// 控制本輪音頻發送和結果讀取兩條後台管線的取消源。
+	[Doc("本輪會話的取消源；用於「取消」與管線異常時的統一收束。")]
 	CancellationTokenSource? SessionCts;
 
-	/// 持續從麥克風讀取分片並發送到 Provider 的後台任務。
-	Task<nil>? SendAudioTask;
-
-	/// 持續讀取 Provider 文本快照並更新 UI 的後台任務。
-	Task<nil>? ReadResultsTask;
-
-	/// 建立语音输入 VM 并读取当前宿主的上屏能力。
-	/// 后续接入识别 Provider 时，在此构造函数继续注入抽象，不允许 VM 反查全局 DI。
-	public partial VmVoiceInput(
-		IKeyboardHost KeyboardHost
-		, IVoiceRecognitionProvider RecognitionProvider
-		, IAudioInputSource AudioInputSource
-		, AudioInputOptions AudioOptions
-	);
-
-	/// 當前語音識別語言。
-	/// 使用 BCP 47 完整標籤區分地區變體，例如 `zh-CN`、`zh-TW`、`en-US`、`es-MX`。
-	/// 切換語言只影響下一次識別；正在錄音時語言按鈕應禁用，避免中途改變 Provider 參數。
+	[Doc("當前識別語言；語言在會話建立時固定。")]
 	public INormLang CurrentLang{
 		get;
 		set{
@@ -67,15 +59,13 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 				OnPropertyChanged(nameof(CurrentLangDisplay));
 			}
 		}
-	} = new NormLangDetail(){
+	} = new NormLangDetail{
 		Code = "zh-CN",
 		NativeName = "中文（中國）",
 		EnglishName = "Chinese (China)",
 	};
 
-	/// 當前語言按鈕的單行顯示文字。
-	/// 此值由 `CurrentLang` 即時計算，不保存第二份可變狀態，避免語言身份與顯示文字失去同步。
-	/// 當語言同時實現 `INormLangDetail` 時附帶本地名稱，否則只顯示標準代碼。
+	[Doc("語言按鈕的單行顯示：代碼 ＋ 本地名稱。")]
 	public str CurrentLangDisplay{
 		get{
 			if(CurrentLang is INormLangDetail Detail && !str.IsNullOrWhiteSpace(Detail.NativeName)){
@@ -85,8 +75,7 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 		}
 	}
 
-	/// 當前識別會話所處的前端階段。
-	/// setter 需要同步通知所有派生可用性屬性及錄音按鈕視覺屬性。
+	[Doc("前端階段。")]
 	public EVoiceInputPhase Phase{
 		get;
 		set{
@@ -94,16 +83,18 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 				OnPropertyChanged(nameof(IsRecording));
 				OnPropertyChanged(nameof(IsBusy));
 				OnPropertyChanged(nameof(CanSelectLang));
-				OnPropertyChanged(nameof(CanEditDraft));
+				OnPropertyChanged(nameof(IsDraftReadOnly));
 				OnPropertyChanged(nameof(CanClearText));
 				OnPropertyChanged(nameof(CanCommitText));
+				OnPropertyChanged(nameof(RecordButtonEnabled));
+				OnPropertyChanged(nameof(RecordButtonBackground));
+				OnPropertyChanged(nameof(RecordButtonBorderBrush));
+				OnPropertyChanged(nameof(RecordIconBrush));
 			}
 		}
 	} = EVoiceInputPhase.Idle;
 
-	/// 文本框展示與人工編輯的完整草稿。
-	/// 流式識別時由 `ApplyRecognitionText` 使用穩定段和臨時段重建；完成後允許用戶任意修改。
-	/// 点击“上屏”使用此屬性，而不是直接使用 Provider 的原始結果。
+	[Doc("面板中的完整草稿；上屏用它，而不是供應商原始結果。")]
 	public str DraftText{
 		get;
 		set{
@@ -114,29 +105,25 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 		}
 	} = "";
 
-	/// Provider 已確認、不會再修改的文本快照。
-	/// 此值主要供流式合併與診斷使用；View 的主文本框仍綁定 `DraftText`。
+	[Doc("供應商已確認的穩定文本。")]
 	public str FinalizedText{
 		get;
-		set{SetProperty(ref field, value);}
+		set{ SetProperty(ref field, value); }
 	} = "";
 
-	/// Provider 當前可能在下一包被替換的臨時尾句。
-	/// UI 可在未來選擇以不同顏色展示，但第一版先與穩定文本合併顯示在同一文本框中。
+	[Doc("供應商可能替換的臨時尾句。")]
 	public str InterimText{
 		get;
-		set{SetProperty(ref field, value);}
+		set{ SetProperty(ref field, value); }
 	} = "";
 
-	/// 頁面當前狀態提示，例如“正在連接”“正在錄音”“正在等待最終結果”。
-	/// 正常狀態與錯誤詳情分開，避免錯誤消失後仍殘留在主要操作提示中。
+	[Doc("頁面狀態提示。")]
 	public str StatusText{
 		get;
-		set{SetProperty(ref field, value);}
-	} = "點擊開始語音輸入";
+		set{ SetProperty(ref field, value); }
+	} = Todo.I18n("點擊開始語音輸入");
 
-	/// 最近一次錄音或識別錯誤的可讀信息。
-	/// 錯誤發生後保留已識別文本；開始新會話時清空此值。
+	[Doc("最近一次錯誤的用戶可讀文案；空表示沒有錯誤。")]
 	public str ErrorText{
 		get;
 		set{
@@ -146,102 +133,129 @@ public partial class VmVoiceInput : ViewModelBase, IMk<VmVoiceInput>{
 		}
 	} = "";
 
-	/// 當前宿主是否真正支持把文字提交到外部輸入目標。
-	/// Windows 原型宿主目前返回 `false`，因此上屏按鈕禁用；Android 適配完成後返回 `true`。
+	[Doc("宿主是否支援把文字提交到外部輸入目標。")]
 	public bool IsCommitSupported{
 		get;
 		set{
 			if(SetProperty(ref field, value)){
 				OnPropertyChanged(nameof(CanCommitText));
+				OnPropertyChanged(nameof(ShowCommitUnsupported));
 			}
 		}
-	} = false;
-
-	/// 錄音按鈕是否處於錄音高亮狀態。
-	/// View 使用此屬性把按鈕背景從白色切換為 `UiCfg.MainColor`。
-	public bool IsRecording{
-		get{return Phase == EVoiceInputPhase.Recording;}
 	}
 
-	/// 是否正在執行不可重入的語音操作。
-	/// `Starting`、`Recording`、`Finalizing` 均視為忙碌，防止同時開始多個會話。
-	public bool IsBusy{
-		get{return Phase is EVoiceInputPhase.Starting or EVoiceInputPhase.Recording or EVoiceInputPhase.Finalizing;}
+	[Doc("是否正在錄音。")]
+	public bool IsRecording => Phase == EVoiceInputPhase.Recording;
+
+	[Doc("是否正在執行不可重入的語音操作。")]
+	public bool IsBusy => Phase is EVoiceInputPhase.Starting or EVoiceInputPhase.Recording or EVoiceInputPhase.Finalizing;
+
+	[Doc("語言選擇是否可用。")]
+	public bool CanSelectLang => !IsBusy;
+
+	[Doc("草稿是否只讀（忙碌時只讀，避免流式結果覆蓋人工編輯）。")]
+	public bool IsDraftReadOnly => IsBusy;
+
+	[Doc("清空是否可用。")]
+	public bool CanClearText => !IsBusy && !str.IsNullOrWhiteSpace(DraftText);
+
+	[Doc("上屏是否可用。")]
+	public bool CanCommitText => IsCommitSupported && !IsBusy && !str.IsNullOrWhiteSpace(DraftText);
+
+	[Doc("是否顯示「本宿主不支援上屏」提示。")]
+	public bool ShowCommitUnsupported => !IsCommitSupported;
+
+	[Doc("錄音按鈕是否可點：Starting 階段不可點，Finalizing 可點（當作取消）。")]
+	public bool RecordButtonEnabled => Phase is not EVoiceInputPhase.Starting;
+
+	[Doc("錄音按鈕背景：錄音中為主色，否則黑色。")]
+	public IBrush RecordButtonBackground => IsRecording ? UiCfg.Inst.MainColor : Brushes.Black;
+
+	[Doc("錄音按鈕邊框：錄音中為主色，否則白色。")]
+	public IBrush RecordButtonBorderBrush => IsRecording ? UiCfg.Inst.MainColor : Brushes.White;
+
+	[Doc("麥克風圖標填色：錄音中為黑色，否則白色。")]
+	public IBrush RecordIconBrush => IsRecording ? Brushes.Black : Brushes.White;
+
+	[Doc("是否顯示錯誤區。")]
+	public bool HasError => !str.IsNullOrWhiteSpace(ErrorText);
+
+	[Doc("建立並讀取宿主的上屏能力。")]
+	public VmVoiceInput(
+		IKeyboardHost KeyboardHost
+		,IVoiceRecognitionProvider RecognitionProvider
+		,IAudioInputSource AudioInputSource
+		,AudioInputOptions AudioOptions
+	){
+		this.KeyboardHost = KeyboardHost;
+		this.RecognitionProvider = RecognitionProvider;
+		this.AudioInputSource = AudioInputSource;
+		this.AudioOptions = AudioOptions;
+		IsCommitSupported = KeyboardHost.CanCommitText;
+		base.Init();
 	}
 
-	/// 語言選擇入口是否可用。
-	/// 正在識別時禁用；完成、失敗或空閒時均可為下一次會話選擇語言。
-	public bool CanSelectLang{
-		get{return !IsBusy;}
+	[Doc("兜底建立：無依賴（設計器預覽用）。")]
+	protected VmVoiceInput(){
+		KeyboardHost = default!;
+		RecognitionProvider = default!;
+		AudioInputSource = default!;
+		AudioOptions = new AudioInputOptions();
+		base.Init();
 	}
 
-	/// 文本框是否允許人工修改。
-	/// 流式更新期間只讀，完成或失敗後可修改識別結果，再由用戶決定是否上屏。
-	public bool CanEditDraft{
-		get{return !IsBusy;}
+	[Doc("兜底建立。")]
+	public static VmVoiceInput Mk(){
+		return new VmVoiceInput();
 	}
 
-	/// 清空按鈕是否可用。
-	/// 忙碌時禁止清空，避免下一個识别包又把文本补回来；非忙碌且草稿非空时可用。
-	public bool CanClearText{
-		get{return !IsBusy && !str.IsNullOrWhiteSpace(DraftText);}
-	}
-
-	/// 上屏按鈕是否可用。
-	/// 必須同時滿足宿主支持上屏、會話不忙碌且草稿非空；Windows 原型因此會自然保持禁用。
-	public bool CanCommitText{
-		get{return IsCommitSupported && !IsBusy && !str.IsNullOrWhiteSpace(DraftText);}
-	}
-
-	/// 是否顯示錯誤區。
-	public bool HasError{
-		get{return !str.IsNullOrWhiteSpace(ErrorText);}
-	}
-
-	/// 語音頁 VM 的兜底創建路徑。
-	public static partial VmVoiceInput Mk();
-
-	/// 接收語言選擇頁返回的標準化語言；顯示文字由只讀派生屬性自動更新。
-	/// 正在識別時即使收到延遲回調也應忽略，保證一輪會話的語言參數不變。
+	[Doc("套用語言；忙碌時忽略延遲回調。")]
 	public partial void ApplyLang(INormLang Lang);
 
-	/// 由錄音按鈕觸發開始、結束錄音或取消等待動作。
-	/// 錄音中點擊正常結束錄音並等待最終結果；僅在等待最終結果時再次點擊才取消會話。
+	[Doc("依當前階段開始／結束／取消一輪會話。")]
 	public partial Task<nil> ToggleRecording(CT Ct);
 
-	/// 開始一次新識別會話。
-	/// 實現順序應為：清錯誤與舊臨時段 → 進入 Starting → 啟動 Provider → 進入 Recording。
+	[Doc("給按鈕用的安全入口：啟動會話並把例外交給 HandleErr。")]
+	public void ToggleRecordingSafely(){
+		Fire(ToggleRecording(default));
+	}
+
+	[Doc("開始一輪識別：清狀態 → 建遠端會話 → 開麥克風 → 起兩條管線。")]
 	public partial Task<nil> StartRecognition(CT Ct);
 
-	/// 停止採集音頻並等待 Provider 返回最後穩定文本。
-	/// 此方法不應直接把文字上屏；完成後僅進入 `Completed` 並開放人工編輯。
+	[Doc("停止採集、發尾包、等待最終結果。")]
 	public partial Task<nil> StopRecognition(CT Ct);
 
-	/// 接收 Provider 的流式文本快照。
-	/// 每次使用 `FinalizedText + InterimText` 重建 `DraftText`，而不是盲目追加響應文本。
+	[Doc("套用供應商的流式快照（切回 UI 線程）。")]
 	public partial void ApplyRecognitionText(VoiceRecognitionResult Update);
 
-	/// 循環讀取麥克風分片並按原始時序發送；音頻序列只允許在此消費一次。
-	private partial Task<nil> PumpAudio(IAudioInputSession AudioSession, IVoiceRecognitionSession RecognitionSession, CT Ct);
-
-	/// 循環讀取遠端結果，將 Core 文本快照切換到 UI 線程應用。
-	private partial Task<nil> PumpResults(IVoiceRecognitionSession RecognitionSession, CT Ct);
-
-	/// 正常停止或取消後統一釋放音頻、網絡、取消源及後台任務引用。
-	private partial Task<nil> ReleaseSessionResources(bool CancelRemote, CT Ct);
-
-	/// 把設備、網絡、鑒權或協議異常映射成保留已有文本的 Failed 狀態。
-	private partial Task<nil> FailRecognition(Exception Error, CT Ct);
-
-	/// 清空草稿、穩定段、臨時段與錯誤信息。
-	/// 忙碌狀態下不執行，避免破壞正在進行的會話資料。
+	[Doc("清空草稿與錯誤（忙碌時不做事）。")]
 	public partial void ClearText();
 
-	/// 將用戶確認後的 `DraftText` 提交給宿主輸入目標。
-	/// Windows 宿主不支持時保持禁用；實現仍需二次檢查能力和空文本，不能只依賴按鈕狀態。
+	[Doc("把草稿交給宿主上屏。")]
 	public partial void CommitText();
 
-	/// 語音頁退出、輸入法隱藏或宿主釋放時取消當前會話並回收資源。
-	/// 取消不等同於清空，已經取得的文本仍保留供用戶處理。
+	[Doc("取消當前會話；保留已取得的文本。")]
 	public partial Task<nil> CancelRecognition(CT Ct);
+
+	[Doc("循環讀取麥克風分片並依序送出。")]
+	private partial Task<nil> PumpAudio(IAudioInputSession AudioSession, IVoiceRecognitionSession RecognitionSession, CT Ct);
+
+	[Doc("循環讀取識別結果並套用到界面。")]
+	private partial Task<nil> PumpResults(IVoiceRecognitionSession RecognitionSession, CT Ct);
+
+	[Doc("看守兩條管線：任一失敗就在鎖內統一收束成 Failed。")]
+	private partial Task<nil> WatchPipelinesAsy(Task<nil> SendTask, Task<nil> ReadTask);
+
+	[Doc("冪等釋放音頻、網絡、取消源與任務引用。")]
+	private partial Task<nil> ReleaseSessionResources(bool CancelRemote, CT Ct);
+
+	[Doc("把異常映射成保留既有文本的 Failed 狀態。")]
+	private partial Task<nil> FailRecognition(Exception Error, CT Ct);
+
+	[Doc("依錯誤分類產生使用者可讀文案。")]
+	private static partial str MkErrText(Exception Error);
+
+	[Doc("解除資源（取消在途會話並釋放閘門）。")]
+	public partial void Dispose();
 }

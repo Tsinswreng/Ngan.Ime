@@ -1,207 +1,197 @@
-using Avalonia;
-using Avalonia.Media;
-using Avalonia.Media.Fonts;
-using System.Text;
-using Tsinswreng.CsCfg;
-using Tsinswreng.CsCore;
 namespace Ngan.Ime.UI;
 
+using Avalonia.Media;
+using Avalonia.Media.Fonts;
+using Tsinswreng.CsCore;
+
+[Doc($$"""
+界面主題常量的唯一出處：字級、尺寸、顏色、鍵盤字體。
+
+*為何是靜態單例*：這些值被幾十個視圖在建構期讀取，注入只會讓每個 View 多一個參數；
+它們是「主題常量」而非「服務」，故靜態是合理形態。真正有 IO 的字體解析被拆到
+{{nameof(UiCfg.FontFamily)}} 的快取與 {{nameof(Ngan.Ime.UI.Infra.FontNameReader)}}，本類只做快取與配置讀取。
+
+*配置何時讀*：第一次存取時才讀（延遲），故「誰先誰後」不再影響結果；
+先前在建構子讀 `KeysAppCfg.Keyboard.Font.BaseFontSize`，若 `UiCfg` 早於 `AppCfg.Setup` 被碰到，
+字級會永久凍結在默認值。現在提供 {{nameof(Reload)}} 供設定頁改完後重讀。
+
+*字級比例*：全部由 {{nameof(BaseFontSize)}} 按固定比例推出，避免各處各寫一個魔法數。
+
+#Eg[
+	```cs
+	f64 KeySize = UiCfg.Inst.KeyFontSize;
+	IBrush Main = UiCfg.Inst.MainColor;
+	```
+]
+""")]
 public partial class UiCfg{
-	public UiCfg(){
-		BaseFontSize = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.BaseFontSize);
 
+	[Doc("全局單例；第一次取用時建立（此時不讀配置）。")]
+	public static UiCfg Inst => field ??= new UiCfg();
+
+	[Doc("配置讀取鎖；Reload 與延遲初始化都可能從不同線程第一次觸發。")]
+	readonly Lock CfgLock = new();
+
+	[Doc("配置是否已讀過。")]
+	bool CfgLoaded;
+
+	[Doc("基準字級（px）；由配置 `Keyboard/Font/BaseFontSize` 提供，第一次取用時才讀。")]
+	public f64 BaseFontSize{
+		get{
+			EnsureCfgLoaded();
+			return BaseFontSizeField;
+		}
+		private set{ BaseFontSizeField = value; }
 	}
-	public static UiCfg Inst => field??= new UiCfg();
 
-	[Doc(@$"#See[{nameof(KeysAppCfg.Keyboard.Font.BaseFontSize)}]")]
-	public f64 BaseFontSize { get; set; } = 30.0;
+	[Doc("基準字級的實際值；只由 EnsureCfgLoaded 與 Reload 改寫。")]
+	f64 BaseFontSizeField = 32.0;
+
+	[Doc("鍵帽字級。")]
 	public f64 KeyFontSize => BaseFontSize * 0.9;
+
+	[Doc("候選詞字級。")]
 	public f64 CandidateFontSize => BaseFontSize * 0.9;
+
+	[Doc("候選註釋字級。")]
 	public f64 CandidateCommentFontSize => BaseFontSize * 0.38;
+
+	[Doc("候選註釋列高度。")]
 	public f64 CandidateCommentHeight => BaseFontSize * 0.66;
+
+	[Doc("候選文字列高度（頂欄高度減去註釋列）。")]
 	public f64 CandidateTextHeight => TopBarHeight - CandidateCommentHeight;
+
+	[Doc("不顯示註釋時的頂欄高度。")]
 	public f64 TopBarHeightNoComment => CandidateTextHeight;
+
+	[Doc("預編輯列高度。")]
 	public f64 PreeditHeight => BaseFontSize * 1.12;
+
+	[Doc("預編輯字級。")]
 	public f64 PreeditFontSize => BaseFontSize * 0.6;
+
+	[Doc("功能鍵（123／qwe 等）字級。")]
 	public f64 ActionKeyFontSize => BaseFontSize * 0.72;
+
+	[Doc("鍵帽角落提示字級。")]
 	public f64 HintFontSize => BaseFontSize * 0.46;
+
+	[Doc("顯示註釋時的頂欄高度（候選／工具欄共用）。")]
 	public f64 TopBarHeight => BaseFontSize * 1.66;
+
+	[Doc("工具欄字級。")]
 	public f64 TopBarFontSize => BaseFontSize * 0.72;
-	public FontFamily? KeyboardFontFamily => GetKeyboardFontFamily();
-	public IBrush MainColor { get; set; } = SolidColorBrush.Parse("#4DB6AC");
-	public IBrush KeyBgColor { get; set; } = SolidColorBrush.Parse("#000000");
-	public IBrush CandidateBgColor { get; set; } = SolidColorBrush.Parse("#1E2A32");
-	public IBrush GapLineBrush { get; set; } = SolidColorBrush.Parse("#253238");
-	public IBrush CandidateGapBrush { get; set; } = SolidColorBrush.Parse("#ffffff");
+
+	[Doc("主色：工具欄啟用態、高亮邊框、錄音態。")]
+	public IBrush MainColor{get;set;} = SolidColorBrush.Parse("#4DB6AC");
+
+	[Doc("鍵盤底色（鍵與鍵之間的縫也是這個色）。")]
+	public IBrush KeyBgColor{get;set;} = SolidColorBrush.Parse("#000000");
+
+	[Doc("候選欄底色。")]
+	public IBrush CandidateBgColor{get;set;} = SolidColorBrush.Parse("#1E2A32");
+
+	[Doc("分隔線顏色（鍵盤縫、工具欄邊框）。")]
+	public IBrush GapLineBrush{get;set;} = SolidColorBrush.Parse("#253238");
+
+	[Doc("候選之間的分隔線顏色。")]
+	public IBrush CandidateGapBrush{get;set;} = SolidColorBrush.Parse("#FFFFFF");
+
+	[Doc("鍵盤字體集合的註冊鍵；同一行程只註冊一次。")]
 	static readonly Uri KeyboardFontCollectionKey = new("fonts:keyboard");
 
-	string? _cachedFontPath;
-	string? _cachedFontFamilyName;
-	FontFamily? _cachedKeyboardFontFamily;
+	[Doc("上次解析的字體檔路徑；用於快取判斷。")]
+	str? CachedFontPath;
 
-	FontFamily? GetKeyboardFontFamily(){
-		var fontPath = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Path);
-		if(string.IsNullOrWhiteSpace(fontPath) || !File.Exists(fontPath)){
-			_cachedFontPath = fontPath;
-			_cachedFontFamilyName = null;
-			_cachedKeyboardFontFamily = null;
-			return null;
-		}
-		try{
-			var configuredFamily = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Family);
-			var familyName = string.IsNullOrWhiteSpace(configuredFamily)
-				? TryReadFontFamilyName(fontPath)
-				: configuredFamily;
-			if(
-				string.Equals(_cachedFontPath, fontPath, StringComparison.Ordinal)
-				&& string.Equals(_cachedFontFamilyName, familyName, StringComparison.Ordinal)
-			){
-				return _cachedKeyboardFontFamily;
-			}
-			if(string.IsNullOrWhiteSpace(familyName)){
-				_cachedFontPath = fontPath;
-				_cachedFontFamilyName = null;
-				_cachedKeyboardFontFamily = null;
+	[Doc("上次解析的家族名；用於快取判斷。")]
+	str? CachedFontFamilyName;
+
+	[Doc("上次解析出的字體；null 表示不可用。")]
+	FontFamily? CachedFontFamily;
+
+	[Doc($$"""
+	鍵盤字體；配置沒填或解析不到時為 null（視圖據此用系統默認字體）。
+
+	*快取*：路徑與家族名都沒變就回上次結果，**不再碰檔案系統**。
+	舊版每次 get 都 `AppCfg.Get` ＋ `File.Exists`，建一次鍵盤（約 120 顆鍵）就是 120 次檔案查詢。
+	""")]
+	public FontFamily? FontFamily{
+		get{
+			EnsureCfgLoaded();
+			var FontPath = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Path);
+			if(string.IsNullOrWhiteSpace(FontPath) || !File.Exists(FontPath)){
+				CachedFontPath = FontPath;
+				CachedFontFamilyName = null;
+				CachedFontFamily = null;
 				return null;
 			}
-			RegisterKeyboardFontCollection(fontPath);
-			var fontFamily = FontFamily.Parse($"{KeyboardFontCollectionKey}#{familyName}");
-			var typeface = new Typeface(fontFamily);
-			if(!FontManager.Current.TryGetGlyphTypeface(typeface, out _)){
-				_cachedFontPath = fontPath;
-				_cachedFontFamilyName = familyName;
-				_cachedKeyboardFontFamily = null;
-				return null;
-			}
-			_cachedFontPath = fontPath;
-			_cachedFontFamilyName = familyName;
-			_cachedKeyboardFontFamily = fontFamily;
-			return fontFamily;
-		}catch(Exception ex){
-			AppLog.Error(ex, "[KeyboardFont] GetKeyboardFontFamily failed");
-		}
-		_cachedFontPath = fontPath;
-		_cachedFontFamilyName = null;
-		_cachedKeyboardFontFamily = null;
-		return null;
-	}
-
-	static void RegisterKeyboardFontCollection(string fontPath){
-		var source = new Uri(fontPath, UriKind.Absolute);
-		FontManager.Current.AddFontCollection(new EmbeddedFontCollection(KeyboardFontCollectionKey, source));
-	}
-
-	static string? TryReadFontFamilyName(string fontPath){
-		try{
-			using var fs = File.OpenRead(fontPath);
-			using var br = new BinaryReader(fs, Encoding.BigEndianUnicode, leaveOpen: false);
-			var scalerType = ReadU32BE(br);
-			if(scalerType == 0x74746366){
-				return null;
-			}
-			var numTables = ReadU16BE(br);
-			br.BaseStream.Seek(6, SeekOrigin.Current);
-			u32 nameOffset = 0;
-			u32 nameLength = 0;
-			for(var i = 0; i < numTables; i++){
-				var tag = ReadU32BE(br);
-				_ = ReadU32BE(br);
-				var offset = ReadU32BE(br);
-				var length = ReadU32BE(br);
-				if(tag == 0x6E616D65){
-					nameOffset = offset;
-					nameLength = length;
+			try{
+				var ConfiguredFamily = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Family);
+				var FamilyName = string.IsNullOrWhiteSpace(ConfiguredFamily)
+					? FontNameReader.TryReadFamilyName(FontPath)
+					: ConfiguredFamily;
+				if(
+					string.Equals(CachedFontPath, FontPath, StringComparison.Ordinal)
+					&& string.Equals(CachedFontFamilyName, FamilyName, StringComparison.Ordinal)
+				){
+					return CachedFontFamily;
 				}
-			}
-			if(nameOffset == 0 || nameLength == 0){
+				CachedFontPath = FontPath;
+				CachedFontFamilyName = FamilyName;
+				CachedFontFamily = null;
+				if(string.IsNullOrWhiteSpace(FamilyName)){
+					return null;
+				}
+				RegisterFontCollection(FontPath);
+				var Family = FontFamily.Parse($"{KeyboardFontCollectionKey}#{FamilyName}");
+				if(!FontManager.Current.TryGetGlyphTypeface(new Typeface(Family), out _)){
+					AppLog.Warn($"[Font] 字體集合註冊後仍取不到字形：{FamilyName}（{FontPath}）");
+					return null;
+				}
+				CachedFontFamily = Family;
+				return Family;
+			}catch(Exception Ex){
+				AppLog.Error(Ex, "[Font] 解析鍵盤字體失敗");
+				CachedFontFamilyName = null;
+				CachedFontFamily = null;
 				return null;
 			}
-			br.BaseStream.Seek(nameOffset, SeekOrigin.Begin);
-			var format = ReadU16BE(br);
-			var count = ReadU16BE(br);
-			var stringOffset = ReadU16BE(br);
-			if(format > 1){
-				return null;
-			}
-			var storageStart = nameOffset + stringOffset;
-			string? family = null;
-			string? anyUnicode = null;
-			string? anyEnglish = null;
-			for(var i = 0; i < count; i++){
-				var platformId = ReadU16BE(br);
-				var encodingId = ReadU16BE(br);
-				var languageId = ReadU16BE(br);
-				var nameId = ReadU16BE(br);
-				var length = ReadU16BE(br);
-				var offset = ReadU16BE(br);
-				if(nameId is not 1 and not 16){
-					continue;
-				}
-				var pos = br.BaseStream.Position;
-				br.BaseStream.Seek(storageStart + offset, SeekOrigin.Begin);
-				var bytes = br.ReadBytes(length);
-				br.BaseStream.Seek(pos, SeekOrigin.Begin);
-				var text = DecodeNameRecord(platformId, encodingId, bytes);
-				if(string.IsNullOrWhiteSpace(text)){
-					continue;
-				}
-				text = text.Trim();
-				if(nameId == 1){
-					family ??= text;
-					if(platformId == 3){
-						anyUnicode ??= text;
-						if(languageId is 0x0409 or 0){
-							anyEnglish ??= text;
-						}
-					}
-				}
-			}
-			return anyEnglish ?? anyUnicode ?? family;
-		}catch(Exception ex){
-			AppLog.Error(ex, "[KeyboardFont] TryReadFontFamilyName failed");
-			return null;
 		}
 	}
 
-	static string? DecodeNameRecord(u16 platformId, u16 encodingId, byte[] bytes){
-		if(bytes.Length == 0){
-			return null;
-		}
-		try{
-			if(platformId == 0 || platformId == 3){
-				return Encoding.BigEndianUnicode.GetString(bytes);
+	[Doc("延遲讀配置：只在第一次需要字級時讀一次。")]
+	void EnsureCfgLoaded(){
+		lock(CfgLock){
+			if(CfgLoaded){
+				return;
 			}
-			if(platformId == 1){
-				return Encoding.UTF8.GetString(bytes);
-			}
-			if(platformId == 2 && encodingId == 1){
-				return Encoding.BigEndianUnicode.GetString(bytes);
-			}
-			return Encoding.UTF8.GetString(bytes);
-		}catch{
-			return null;
+			BaseFontSizeField = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.BaseFontSize);
+			CfgLoaded = true;
 		}
 	}
 
-	static u16 ReadU16BE(BinaryReader br){
-		var bytes = br.ReadBytes(2);
-		if(bytes.Length < 2){
-			throw new EndOfStreamException();
+	[Doc("設定頁改完字級／字體後呼叫：丟棄字級快取與字體快取，下次取用時重讀。")]
+	public void Reload(){
+		lock(CfgLock){
+			CfgLoaded = false;
+			CachedFontPath = null;
+			CachedFontFamilyName = null;
+			CachedFontFamily = null;
 		}
-		if(BitConverter.IsLittleEndian){
-			Array.Reverse(bytes);
-		}
-		return BitConverter.ToUInt16(bytes, 0);
 	}
 
-	static u32 ReadU32BE(BinaryReader br){
-		var bytes = br.ReadBytes(4);
-		if(bytes.Length < 4){
-			throw new EndOfStreamException();
+	[Doc("把字體檔註冊成 Avalonia 字體集合；同一行程以同一鍵重複註冊時直接略過。")]
+	static void RegisterFontCollection(str FontPath){
+		// 只註冊一次：Avalonia 對同一鍵重複 AddFontCollection 的行為沒有保證，
+		// 而每次重算字體都註冊一遍是最容易踩到的冗餘。
+		if(RegisteredFontPaths.Contains(FontPath)){
+			return;
 		}
-		if(BitConverter.IsLittleEndian){
-			Array.Reverse(bytes);
-		}
-		return BitConverter.ToUInt32(bytes, 0);
+		RegisteredFontPaths.Add(FontPath);
+		FontManager.Current.AddFontCollection(new EmbeddedFontCollection(KeyboardFontCollectionKey, new Uri(FontPath, UriKind.Absolute)));
 	}
+
+	[Doc("已註冊過的字體檔集合；避免重複 AddFontCollection。")]
+	static readonly HashSet<str> RegisteredFontPaths = new(StringComparer.OrdinalIgnoreCase);
 }

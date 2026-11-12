@@ -1,7 +1,9 @@
 namespace Ngan.Ime.Core.Keys;
 
-[Doc(@$"按鍵狀態 記錄某按鍵是否被按下")]
+using Tsinswreng.CsCore;
+
+[Doc(@$"按鍵狀態：某個鍵此刻是否被按下。實現是無變化的值，共享實例見 {nameof(KeyStates)}。")]
 public interface IKeyState{
-	[Doc(@$"是否被按下")]
+	[Doc("true 表示按下；false 表示擡起。")]
 	public bool IsKeyDown{get;set;}
 }

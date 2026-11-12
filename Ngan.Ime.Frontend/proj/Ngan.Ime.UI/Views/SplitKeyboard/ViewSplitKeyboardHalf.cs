@@ -1,84 +1,88 @@
+namespace Ngan.Ime.UI.Views.SplitKeyboard;
+
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Ngan.Ime.UI.Views.KeyBoard;
+using Tsinswreng.CsCore;
 
-namespace Ngan.Ime.UI.Views.SplitKeyboard;
+[Doc($$"""
+分體鍵盤的一側：內嵌一份「兩倍寬」的完整鍵盤，再由容器裁出左半或右半。
 
-/// <summary>
-/// 分體懸浮窗中的單側鍵盤。
-/// 這裡不重新實現半套鍵盤，而是放入一個“兩倍寬”的完整鍵盤，
-/// 再用容器裁剪只露出左半或右半。
-/// 這樣現有按鍵、長按、滑動與數字層邏輯都可直接復用。
-/// </summary>
-public class ViewSplitKeyboardHalf : UserControl
-	, IDisposable
-{
-	readonly ViewKeyBoard _keyboard;
-	readonly SplitKeyboardSide _side;
-	readonly Grid _root = new();
-	double _lastSyncedWidth;
-	double _lastSyncedHeight;
+*為何不另寫一套半鍵盤*：按鍵、手勢、數字層全部已在 {{nameof(ViewKeyBoard)}}；
+用裁切複用同一份視圖，行為自然一致。代價是記憶體裡有一份完整鍵盤的控件樹，
+但分體模式本來就要顯示其中一半，這比維護兩套鍵盤邏輯便宜。
 
+*狀態一致*：布局狀態（數字層、Shift 鎖定）在共享的 `ImeUiState` 裡，
+故左右半邊與主鍵盤永遠同步（舊版各自持有一份，切層時互不知道）。
+
+#Eg[
+	```cs
+	var Half = new ViewSplitKeyboardHalf(SplitKeyboardSide.Left);
+	```
+]
+""")]
+public partial class ViewSplitKeyboardHalf : UserControl, IDisposable{
+
+	[Doc("本側鍵盤。")]
+	public ViewKeyBoard? _Keyboard;
+
+	[Doc("裁切容器。")]
+	public Grid? _Root;
+
+	[Doc("本側標識。")]
+	readonly SplitKeyboardSide Side;
+
+	[Doc("上次套用的寬度；避免每幀重設尺寸。")]
+	f64 LastWidth;
+
+	[Doc("上次套用的高度。")]
+	f64 LastHeight;
+
+	[Doc("建立並放入完整鍵盤。")]
 	public ViewSplitKeyboardHalf(SplitKeyboardSide Side){
-		_side = Side;
-		_keyboard = new ViewKeyBoard();
-		AppLog.Info($"[SplitHalf:{_side}] ctor keyboardView#{_keyboard.GetHashCode()}");
-		Render();
-	}
-
-	void Render()
-	{
+		this.Side = Side;
+		_Keyboard = new ViewKeyBoard();
+		_Root = new Grid();
 		ClipToBounds = true;
 		HorizontalAlignment = HorizontalAlignment.Stretch;
 		VerticalAlignment = VerticalAlignment.Stretch;
-		_root.ClipToBounds = true;
-		_root.HorizontalAlignment = HorizontalAlignment.Stretch;
-		_root.VerticalAlignment = VerticalAlignment.Stretch;
-		Content = _root;
-		_root.Children.Add(_keyboard);
-		_keyboard.HorizontalAlignment = _side == SplitKeyboardSide.Left
+		_Root.ClipToBounds = true;
+		_Root.Children.Add(_Keyboard);
+		_Keyboard.HorizontalAlignment = Side == SplitKeyboardSide.Left
 			? HorizontalAlignment.Left
 			: HorizontalAlignment.Right;
-		_keyboard.VerticalAlignment = VerticalAlignment.Stretch;
+		_Keyboard.VerticalAlignment = VerticalAlignment.Stretch;
+		Content = _Root;
 		SizeChanged += OnSizeChanged;
-		LayoutUpdated += OnLayoutUpdated;
 	}
 
-	/// <summary>
-	/// overlay 的寬度是目標半邊寬度，而內部完整鍵盤需要拉成兩倍寬。
-	/// 左側貼左對齊即可露出前半；右側貼右對齊即可露出後半。
-	/// </summary>
-	void OnSizeChanged(object? Sender, SizeChangedEventArgs E)
-	{
-		var width = Bounds.Width;
-		var height = Bounds.Height;
-		if(width <= 0){
-			AppLog.Warn($"[SplitHalf:{_side}] SizeChanged width<=0 bounds={Bounds}");
+	[Doc("把內層鍵盤拉成兩倍寬，讓裁切後剛好露出一半。")]
+	void OnSizeChanged(obj? Sender, SizeChangedEventArgs Args){
+		var Width = Bounds.Width;
+		var Height = Bounds.Height;
+		if(Width <= 0){
 			return;
 		}
-		if(Math.Abs(width - _lastSyncedWidth) < 0.5 && Math.Abs(height - _lastSyncedHeight) < 0.5){
+		if(Math.Abs(Width - LastWidth) < 0.5 && Math.Abs(Height - LastHeight) < 0.5){
 			return;
 		}
-		_lastSyncedWidth = width;
-		_lastSyncedHeight = height;
-		_keyboard.Width = width * 2;
-		if(height > 0){
-			// `ViewKeyBoard` 內部使用星號行高；
-			// overlay 場景下若外層不給明確高度，Avalonia 量測時可能只留下最後一排可見區域。
-			_keyboard.Height = height;
+		LastWidth = Width;
+		LastHeight = Height;
+		if(_Keyboard is null){
+			return;
 		}
-		AppLog.Info($"[SplitHalf:{_side}] SizeChanged bounds={Bounds} keyboardWidth={_keyboard.Width} keyboardHeight={_keyboard.Height} rootBounds={_root.Bounds}");
+		_Keyboard.Width = Width * 2;
+		// 分體 overlay 的高度由宿主給定；星號行高需要明確高度才不會只剩最後一排。
+		if(Height > 0){
+			_Keyboard.Height = Height;
+		}
 	}
 
-	void OnLayoutUpdated(object? Sender, EventArgs E)
-	{
-		AppLog.Debug($"[SplitHalf:{_side}] LayoutUpdated self={Bounds} root={_root.Bounds} keyboard={_keyboard.Bounds} desired={_keyboard.DesiredSize}");
-	}
-
-	public void Dispose()
-	{
+	[Doc("解除事件並釋放鍵盤視圖。")]
+	public void Dispose(){
 		SizeChanged -= OnSizeChanged;
-		LayoutUpdated -= OnLayoutUpdated;
-		_keyboard.Dispose();
+		_Keyboard?.Dispose();
+		_Keyboard = null;
+		GC.SuppressFinalize(this);
 	}
 }

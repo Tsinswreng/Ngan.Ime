@@ -5,12 +5,11 @@
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
+	<!-- 文檔專案只引用「能被文檔描述」的庫；不引用 Exe／AOT 宿主（會觸發 NETSDK1150 與不必要的發布設定）。 -->
 	<ItemGroup>
-		<ProjectReference Include="..\..\..\Ngan.Ime.Frontend\proj\Ngan.Ime.Core\Ngan.Ime.Core.csproj" />
-		<ProjectReference Include="..\..\..\Ngan.Ime.Frontend\proj\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
+		<ProjectReference Include="..\..\..\Ngan.Ime.Core\proj\Ngan.Ime.Core\Ngan.Ime.Core.csproj" />
+		<ProjectReference Include="..\..\..\Ngan.Ime.Rime\proj\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
 		<ProjectReference Include="..\..\..\Ngan.Ime.Frontend\proj\Ngan.Ime.UI\Ngan.Ime.UI.csproj" />
-		<ProjectReference Include="..\..\..\Ngan.Ime.Frontend\proj\Ngan.Ime.Windows\Ngan.Ime.Windows.csproj" />
 		<ProjectReference Include="..\..\..\Ngan.Ime.Frontend\proj\Ngan.Ime.Backend\Ngan.Ime.Backend.csproj" />
 	</ItemGroup>
-
 </Project>

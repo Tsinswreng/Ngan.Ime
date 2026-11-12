@@ -22,7 +22,7 @@ public static class DiCfg {
 	[Doc($$"""
 	把一個配置門面註冊成四種寬度，全部指向同一個實例。
 	#Prm[{{nameof(Cfg)}}][已接好源的門面；尚未呼叫 Setup 的門面也能註冊，只是空的。]
-	#Rtn[同一個 {nameof(IServiceCollection)}，便於串接。]
+	#Rtn[同一個 {{nameof(IServiceCollection)}}，便於串接。]
 	""")]
 	public static IServiceCollection SetupCfg(
 		this IServiceCollection z

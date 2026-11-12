@@ -1,4 +1,4 @@
-namespace AvlnImeDemo.Tsf.Native;
+namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.Collections.Generic;

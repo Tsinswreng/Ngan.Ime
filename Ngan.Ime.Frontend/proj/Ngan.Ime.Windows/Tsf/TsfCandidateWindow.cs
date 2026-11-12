@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using System;
 using System.Collections.Generic;

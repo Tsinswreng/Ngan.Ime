@@ -5,29 +5,58 @@ using Tsinswreng.CsCore;
 using Tsinswreng.CsLog;
 
 [Doc($$"""
-全局日誌門面：不方便依賴注入的地方（視圖、靜態工具、啟動早期）直接調 {nameof(AppLog)}.Inst。
+全局日誌門面：不方便依賴注入的地方（視圖、靜態工具、啟動早期）直接調 {{nameof(AppLog)}}.Inst。
 
-它自己不產生任何輸出，只把呼叫轉發給內層實現 {nameof(IDelegatingLogger.InnerLogger)}；
+它自己不產生任何輸出，只把呼叫轉發給內層實現 {{nameof(IDelegatingLogger.InnerLogger)}}；
 內層實現由各宿主在入口處指定：Windows 是「主控台 ＋ 檔案」雙寫、Android 進 logcat。
 
-*為何不用依賴注入*：{nameof(AppLog)}.Inst 必須在容器建立之前就能用——啟動失敗往往就發生在建容器途中。
-兩者並不衝突：注入用的 {nameof(ILogger)} 與泛型版也被 {nameof(DiLog)} 接到同一個門面上。
+*為何不用依賴注入*：{{nameof(AppLog)}}.Inst 必須在容器建立之前就能用——啟動失敗往往就發生在建容器途中。
+兩者並不衝突：注入用的 {{nameof(ILogger)}} 與泛型版也被 {{nameof(DiLog)}} 接到同一個門面上。
+
+*等級過濾放在門面上*：這樣「直接調門面」與「注入取得的日誌」共用同一道閘，
+不會出現一邊關了 Debug、另一邊還在寫檔的情況。宿主在讀完配置後覆寫 {{nameof(MinLevel)}}。
 
 #Eg[
 	```cs
+	AppLog.Inst.InnerLogger = MkrLogger.ConsoleEtFile("Ngan.Ime.Windows");
+	AppLog.Inst.MinLevel = LogLevel.Information;
 	AppLog.Info("配置載入完成");
-	AppLog.Error(Ex, "配置載入失敗");
 	```
 ]
 """)]
 public class AppLog:DelegatingLogger {
 	[Doc("全局單例；第一次取用時才建立，故不依賴任何啟動順序。")]
 	public static AppLog Inst => field??=new AppLog();
+
+	[Doc($$"""
+	低於此等級的日誌一律丟棄；默認 {{nameof(LogLevel.Trace)}}（全收），故不設定時行為與舊版一致。
+	宿主讀完配置後依 `KeysAppCfg.Log.MinLevel` 覆寫。
+	""")]
+	public LogLevel MinLevel{get;set;} = LogLevel.Trace;
+
+	[Doc("等級低於門檻就不啟用；其餘交給內層實現判斷。")]
+	public override bool IsEnabled(LogLevel LogLevel){
+		return LogLevel >= MinLevel && base.IsEnabled(LogLevel);
+	}
+
+	[Doc("等級低於門檻就整條丟棄，連格式化都不做；否則轉發給內層實現。")]
+	public override void Log<TState>(
+		LogLevel LogLevel
+		,EventId EventId
+		,TState State
+		,Exception? Exception
+		,Func<TState, Exception?, str> Formatter
+	){
+		if(LogLevel < MinLevel){
+			return;
+		}
+		base.Log(LogLevel, EventId, State, Exception, Formatter);
+	}
 }
 
 
 [Doc($$"""
-{nameof(AppLog)} 的便捷寫法：省去每次都寫
+{{nameof(AppLog)}} 的便捷寫法：省去每次都寫
 `Inst.Log(level, 0, msg, null, static (s, _) => s?.ToString() ?? "")`。
 
 #Eg[

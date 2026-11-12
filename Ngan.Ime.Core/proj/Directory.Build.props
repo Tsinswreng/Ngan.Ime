@@ -21,8 +21,6 @@
 		<PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
-		<!-- ObservableObject：Core 的 SvcIme 已用它做屬性通知，UI 端靠傳遞依賴取得。 -->
-		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
 	</ItemGroup>
 
 	<!-- ── 本地基礎庫 ──

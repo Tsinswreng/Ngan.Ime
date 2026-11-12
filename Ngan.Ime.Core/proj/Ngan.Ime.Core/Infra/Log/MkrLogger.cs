@@ -10,8 +10,8 @@ using Tsinswreng.CsCore;
 各入口各寫一遍就是各漏一個；集中之後要加 sink（檔案、結構化、遠端）也只改這裡。
 
 *兩種口味*：
-- {nameof(Console)}：只有主控台。Linux 有終端、Browser 的 stdout 被導向開發者工具 Console。
-- {nameof(ConsoleEtFile)}：主控台 ＋ 應用儲存區下的檔案。桌面雙擊啟動（WinExe）沒有終端，
+- {{nameof(Console)}}：只有主控台。Linux 有終端、Browser 的 stdout 被導向開發者工具 Console。
+- {{nameof(ConsoleEtFile)}}：主控台 ＋ 應用儲存區下的檔案。桌面雙擊啟動（WinExe）沒有終端，
   只看主控台等於什麼都看不到，故桌面端用這個。
 
 Android 走 logcat（見 `AndroidLogger`），因為它本身就是行動端的「控制台」。

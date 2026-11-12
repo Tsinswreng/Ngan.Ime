@@ -1,37 +1,68 @@
-using Microsoft.Extensions.Logging;
-
 namespace Ngan.Ime.Rime;
 
-/// 保存最近一段 Rime 日誌，供稍後纔建立的 UI 直接回放。
-/// 這樣即使 librime 在鍵盤 UI 出現前已開始預熱，日誌頁仍能看到初始化過程。
-public class RimeLogStore : IRimeLogSource {
+using Microsoft.Extensions.Logging;
+using Ngan.Ime.Infra.Log;
+using Tsinswreng.CsCore;
+
+[Doc($$"""
+保存最近一段 Rime 日誌，供稍後纔建立的界面直接回放。
+
+*為何要有它*：librime 在鍵盤界面出現之前就開始初始化，那些日誌若只進 ILogger 就再也看不到；
+故這裡留一份固定長度的環形緩衝，界面建立時先回放再訂閱。
+
+*為何固定 200 行*：日誌頁只是「最近發生了什麼」的窗口，不是歸檔；
+真正的歸檔在檔案 sink（`FileLogger`）。上限同時保護記憶體。
+
+*AOT*：只用 List<str> 與鎖，不反射。
+
+#Eg[
+	```cs
+	foreach(var Line in RimeLogStore.Inst.Snapshot()){ /* 回放 */ }
+	```
+]
+""")]
+public class RimeLogStore : IEngineLogSource {
+
+	[Doc("最多保留的行數。")]
+	public const i32 MaxLines = 200;
+
+	[Doc("環形緩衝的鎖；引擎回調線程與界面線程都會碰它。")]
 	static readonly Lock StoreLock = new();
-	static readonly List<string> Lines = [];
-	const i32 MaxLines = 200;
+
+	[Doc("緩衝本體；只在 StoreLock 內增刪。")]
+	static readonly List<str> Lines = [];
+
+	[Doc("全局單例；引擎與界面共用同一份緩衝。")]
 	public static RimeLogStore Inst { get; } = new();
 
-	public event EventHandler<RimeLogEntryEventArgs>? OnLogAppended;
+	[Doc("新日誌追加事件。")]
+	public event EventHandler<EngineLogEntryEventArgs>? OnLogAppended;
 
-	/// 收下一條新的 Rime 日誌，並維持固定長度的環形緩衝。
-	public void Append(LogLevel Level, str Message) {
-		var line = $"[{Level}] {Message}";
-		lock (StoreLock) {
-			Lines.Add(line);
-			while (Lines.Count > MaxLines) {
+	[Doc($$"""
+	收下一條新日誌，並維持固定長度的環形緩衝。
+	#Prm[{{nameof(Level)}}][等級。]
+	#Prm[{{nameof(Message)}}][原始訊息。]
+	""")]
+	public void Append(LogLevel Level, str Message){
+		var Line = $"[{Level}] {Message}";
+		lock(StoreLock){
+			Lines.Add(Line);
+			// 一次可能超出多行（例如批量回放），故用 while 而不是 if。
+			while(Lines.Count > MaxLines){
 				Lines.RemoveAt(0);
 			}
 		}
-		OnLogAppended?.Invoke(this, new RimeLogEntryEventArgs {
+		OnLogAppended?.Invoke(this, new EngineLogEntryEventArgs{
 			Level = Level,
 			Message = Message,
-			FormattedLine = line,
+			FormattedLine = Line,
 		});
 	}
 
-	/// 取得當前日誌快照，供 UI 初次建立時批量回放。
-	public IReadOnlyList<str> Snapshot() {
-		lock (StoreLock) {
-			return Lines.ToArray();
+	[Doc("取得當前日誌快照（副本）；界面拿到後可安全遍歷。")]
+	public IReadOnlyList<str> Snapshot(){
+		lock(StoreLock){
+			return [.. Lines];
 		}
 	}
 }

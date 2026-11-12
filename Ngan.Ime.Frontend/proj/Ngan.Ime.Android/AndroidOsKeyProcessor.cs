@@ -1,238 +1,244 @@
+using Android.Views;
 using Android.Views.InputMethods;
 using Ngan.Ime.Core.Keys;
+using Tsinswreng.CsCore;
+using AKey = Android.Views.Keycode;
 
 namespace Ngan.Ime.Android;
 
-public class AndroidOsKeyProcessor : IOsKeyProcessor
-{
-	readonly Func<IInputConnection?> _getInputConnection;
 
-	public AndroidOsKeyProcessor(Func<IInputConnection?> getInputConnection){
-		_getInputConnection = getInputConnection;
-	}
+[Doc($$"""
+把「引擎未處理的按鍵」送進 Android 的 `InputConnection`。
 
+*三條路徑*（依宿主實際行為擇一）：
+1. Shift ＋ 導航鍵 → 翻譯成真實的 Shift 按下／導航／Shift 擡起序列（某些宿主不認 metaState 的選區語義）；
+2. 英數字符 → 直接 `CommitText`（部分遠端輸入框不支援 `sendKeyEvent` 注入字符，但接受文字提交）；
+3. 其餘有 Keycode 的鍵 → `sendKeyEvent`；最後才退回文字提交。
+
+*鍵名*：一律比對 {{nameof(KeyChars)}} 的實例（值語義，按名字相等），不再寫 `"Backspace"` 這類字面量；
+改名時編譯器會抓到。
+
+*AOT*：映射是靜態字典，無反射。
+
+#Eg[
+	```cs
+	await Processor.OnKeyEvents(Unhandled, Ct);
+	```
+]
+""")]
+public class AndroidOsKeyProcessor : IOsKeyProcessor{
+
+	[Doc("取當前輸入連接；null 表示沒有活動編輯框（什麼都不送）。")]
+	readonly Func<IInputConnection?> GetInputConnection;
+
+	[Doc("錯誤事件；本實現目前不主動觸發，保留供宿主統一掛接。")]
 	public event ErrHandler? OnErr;
 
-	public Task<IRespOnKeyEvent> OnKeyEvents(IEnumerable<IKeyEvent> keyEvents, CT Ct){
-		var ic = _getInputConnection();
-		if(ic is null) return Task.FromResult<IRespOnKeyEvent>(new RespOnKeyEvent());
+	[Doc("建立處理器。")]
+	public AndroidOsKeyProcessor(Func<IInputConnection?> GetInputConnection){
+		this.GetInputConnection = GetInputConnection;
+	}
 
-		foreach(var keyEvent in keyEvents){
-			var name = keyEvent.KeyChar.Name;
-			var metaState = ToAndroidMetaState(keyEvent.KeyBoardState);
-			AppLog.Debug($"[IME] OsKeyProcessor forwarding: {name} {(keyEvent.KeyState.IsKeyDown ? "Down" : "Up")}");
-			var effectiveKey = ApplyShiftToKeyChar(keyEvent.KeyChar, keyEvent.KeyBoardState);
-			var effectiveName = effectiveKey.Name;
-			var androidKey = MapToAndroidKey(effectiveName);
-
-			if(androidKey is not null && ShouldSendAsShiftNavigationSequence(keyEvent)){
-				SendShiftNavigationSequence(ic, androidKey.Value, keyEvent.KeyState.IsKeyDown);
-				continue;
-			}
-
-
-			// 直接上屏的字母和數字優先走 commitText。
-			// UU遠程遠程控制輸入框不可靠支持 sendKeyEvent 的字符注入，
-			// 但對 commitText 的文本提交語義支持更穩定。
-			if(keyEvent.KeyState.IsKeyDown && ShouldCommitDirectText(effectiveName, metaState)){
-				var text = KeyNameToText(effectiveName);
-				if(text is not null){
-					ic.CommitText(text, 1);
-					continue;
-				}
-			}
-
-			if(androidKey is not null && (metaState != global::Android.Views.MetaKeyStates.None || ShouldSendAsKeyEvent(effectiveName))){
-				var action = keyEvent.KeyState.IsKeyDown
-					? global::Android.Views.KeyEventActions.Down
-					: global::Android.Views.KeyEventActions.Up;
-				ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, action, androidKey.Value, 0, metaState));
-			}else if(keyEvent.KeyState.IsKeyDown){
-				var text = KeyNameToText(effectiveName);
-				if(text is not null){
-					ic.CommitText(text, 1);
-				}
-			}
+	[Doc("逐鍵依三條路徑送出。")]
+	public Task<IRespOnKeyEvent> OnKeyEvents(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
+		var Ic = GetInputConnection();
+		if(Ic is null){
+			return Task.FromResult<IRespOnKeyEvent>(new RespOnKeyEvent());
+		}
+		foreach(var One in KeyEvents){
+			Ct.ThrowIfCancellationRequested();
+			SendOne(Ic, One);
 		}
 		return Task.FromResult<IRespOnKeyEvent>(new RespOnKeyEvent());
 	}
 
-	static bool ShouldCommitDirectText(string name, global::Android.Views.MetaKeyStates metaState){
-		if(metaState != global::Android.Views.MetaKeyStates.None){
-			return false;
-		}
+	[Doc("送一顆鍵：依鍵與修飾鍵狀態挑路徑。")]
+	void SendOne(IInputConnection Ic, IKeyEvent One){
+		var Meta = ToMetaState(One.KeyBoardState);
+		var EffectiveKey = ApplyShift(One.KeyChar, One.KeyBoardState);
+		var AndroidKey = MapToKeycode(EffectiveKey);
+		var IsDown = One.KeyState.IsKeyDown;
 
-		return name.Length == 1 && char.IsAsciiLetterOrDigit(name[0]);
-	}
-
-	static global::Android.Views.MetaKeyStates ToAndroidMetaState(IKeyBoardState? keyBoardState){
-		if(keyBoardState is null){
-			return global::Android.Views.MetaKeyStates.None;
-		}
-
-		var metaState = global::Android.Views.MetaKeyStates.None;
-		if(keyBoardState.IsKeyDown(KeyChars.Ctrl_L) || keyBoardState.IsKeyDown(KeyChars.Ctrl_R)){
-			metaState |= global::Android.Views.MetaKeyStates.CtrlOn | global::Android.Views.MetaKeyStates.CtrlLeftOn;
-		}
-		if(keyBoardState.IsKeyDown(KeyChars.Shift_L) || keyBoardState.IsKeyDown(KeyChars.Shift_R)){
-			metaState |= global::Android.Views.MetaKeyStates.ShiftOn;
-		}
-		if(keyBoardState.IsKeyDown(KeyChars.Alt_L) || keyBoardState.IsKeyDown(KeyChars.Alt_R)){
-			metaState |= global::Android.Views.MetaKeyStates.AltOn;
-		}
-		if(keyBoardState.IsKeyDown(KeyChars.Meta_L)){
-			metaState |= global::Android.Views.MetaKeyStates.MetaOn;
-		}
-		return metaState;
-	}
-
-	/// <summary>
-	/// 與 RimeKeyCharConverter 保持同一套抽象：Shift 是否按下只來自 KeyBoardState.AllDownKeys。
-	/// Android fallback 在需要輸出可打印鍵時，自行根據該狀態推導出對應的大寫/符號鍵值。
-	/// </summary>
-	static IKeyChar ApplyShiftToKeyChar(IKeyChar keyChar, IKeyBoardState? keyBoardState){
-		if(keyBoardState is null){
-			return keyChar;
-		}
-		if(!(keyBoardState.IsKeyDown(KeyChars.Shift_L) || keyBoardState.IsKeyDown(KeyChars.Shift_R))){
-			return keyChar;
-		}
-		if(ShiftKeyMap.TryGetValue(keyChar, out var shifted)){
-			return shifted;
-		}
-		return keyChar;
-	}
-
-	/// <summary>
-	/// 某些 Android 宿主對「方向鍵/Home/End + metaState=Shift」不會產生選區語義，
-	/// 必須翻譯成真實的修飾鍵事件序列。
-	/// 上層抽象仍只傳遞 AllDownKeys；這裏是 Android 落地層把該抽象轉成宿主真正能吃的事件。
-	/// </summary>
-	static bool ShouldSendAsShiftNavigationSequence(IKeyEvent keyEvent){
-		var keyBoardState = keyEvent.KeyBoardState;
-		if(keyBoardState is null){
-			return false;
-		}
-		if(!(keyBoardState.IsKeyDown(KeyChars.Shift_L) || keyBoardState.IsKeyDown(KeyChars.Shift_R))){
-			return false;
-		}
-		return keyEvent.KeyChar.Name is "Home" or "End" or "Left" or "Right" or "Up" or "Down";
-	}
-
-	static void SendShiftNavigationSequence(IInputConnection inputConnection, global::Android.Views.Keycode navigationKey, bool isKeyDown){
-		if(isKeyDown){
-			inputConnection.SendKeyEvent(new global::Android.Views.KeyEvent(
-				0, 0, global::Android.Views.KeyEventActions.Down, global::Android.Views.Keycode.ShiftLeft, 0
-			));
-			inputConnection.SendKeyEvent(new global::Android.Views.KeyEvent(
-				0, 0, global::Android.Views.KeyEventActions.Down, navigationKey, 0
-			));
+		if(AndroidKey is not null && IsShiftNavigation(One)){
+			SendShiftNavigation(Ic, AndroidKey.Value, IsDown);
 			return;
 		}
 
-		inputConnection.SendKeyEvent(new global::Android.Views.KeyEvent(
-			0, 0, global::Android.Views.KeyEventActions.Up, navigationKey, 0
-		));
-		inputConnection.SendKeyEvent(new global::Android.Views.KeyEvent(
-			0, 0, global::Android.Views.KeyEventActions.Up, global::Android.Views.Keycode.ShiftLeft, 0
-		));
+		// 英數字符優先走文字提交：對遠端輸入框最可靠。
+		if(IsDown && Meta == MetaKeyStates.None && IsPlainText(EffectiveKey)){
+			var Text = KeyText(EffectiveKey);
+			if(Text is not null){
+				Ic.CommitText(Text, 1);
+				return;
+			}
+		}
+
+		if(AndroidKey is not null && (Meta != MetaKeyStates.None || ShouldSendAsKeyEvent(EffectiveKey))){
+			var Action = IsDown ? KeyEventActions.Down : KeyEventActions.Up;
+			Ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, Action, AndroidKey.Value, 0, Meta));
+			return;
+		}
+
+		if(IsDown){
+			var Text = KeyText(EffectiveKey);
+			if(Text is not null){
+				Ic.CommitText(Text, 1);
+			}
+		}
 	}
 
-	static readonly IReadOnlyDictionary<IKeyChar, IKeyChar> ShiftKeyMap = new Dictionary<IKeyChar, IKeyChar>{
-		{KeyChars.a, KeyChars.A}, {KeyChars.b, KeyChars.B}, {KeyChars.c, KeyChars.C}, {KeyChars.d, KeyChars.D}, {KeyChars.e, KeyChars.E}, {KeyChars.f, KeyChars.F}, {KeyChars.g, KeyChars.G}, {KeyChars.h, KeyChars.H}, {KeyChars.i, KeyChars.I}, {KeyChars.j, KeyChars.J}, {KeyChars.k, KeyChars.K}, {KeyChars.l, KeyChars.L}, {KeyChars.m, KeyChars.M},
-		{KeyChars.n, KeyChars.N}, {KeyChars.o, KeyChars.O}, {KeyChars.p, KeyChars.P}, {KeyChars.q, KeyChars.Q}, {KeyChars.r, KeyChars.R}, {KeyChars.s, KeyChars.S}, {KeyChars.t, KeyChars.T}, {KeyChars.u, KeyChars.U}, {KeyChars.v, KeyChars.V}, {KeyChars.w, KeyChars.W}, {KeyChars.x, KeyChars.X}, {KeyChars.y, KeyChars.Y}, {KeyChars.z, KeyChars.Z},
-		{KeyChars.D1, KeyChars.Exclamation}, {KeyChars.D2, KeyChars.At}, {KeyChars.D3, KeyChars.HashTag}, {KeyChars.D4, KeyChars.Dollar}, {KeyChars.D5, KeyChars.Percent}, {KeyChars.D6, KeyChars.Caret}, {KeyChars.D7, KeyChars.Ampersand}, {KeyChars.D8, KeyChars.Asterisk}, {KeyChars.D9, KeyChars.Paren_L}, {KeyChars.D0, KeyChars.Paren_R},
-		{KeyChars.Minus, KeyChars.Underscore}, {KeyChars.Equal, KeyChars.Plus},
-		{KeyChars.SquareBracket_L, KeyChars.Braces_L}, {KeyChars.SquareBracket_R, KeyChars.Braces_R},
-		{KeyChars.Semicolon, KeyChars.Colon}, {KeyChars.Apostrophe, KeyChars.Quote},
-		{KeyChars.Comma, KeyChars.Less}, {KeyChars.Period, KeyChars.Greater}, {KeyChars.Slash, KeyChars.Question}, {KeyChars.Grave, KeyChars.Tilde},
-	};
-
-	static bool ShouldSendAsKeyEvent(string name){
-		return name is "Backspace" or "Enter" or "Tab" or "Home" or "End" or "Left" or "Right" or "Up" or "Down"
-			or "Shift_L" or "Shift_R" or "Ctrl_L" or "Ctrl_R" or "Alt_L" or "Alt_R" or "Meta_L"
-			|| name.Length == 1 && char.IsAsciiLetterOrDigit(name[0]);
+	[Doc("由鍵盤狀態推出 Android 的 metaState。")]
+	static MetaKeyStates ToMetaState(IKeyBoardState? Board){
+		if(Board is null){
+			return MetaKeyStates.None;
+		}
+		var Meta = MetaKeyStates.None;
+		if(Board.IsKeyDown(KeyChars.Ctrl_L) || Board.IsKeyDown(KeyChars.Ctrl_R)){
+			Meta |= MetaKeyStates.CtrlOn | MetaKeyStates.CtrlLeftOn;
+		}
+		if(Board.IsKeyDown(KeyChars.Shift_L) || Board.IsKeyDown(KeyChars.Shift_R)){
+			Meta |= MetaKeyStates.ShiftOn;
+		}
+		if(Board.IsKeyDown(KeyChars.Alt_L) || Board.IsKeyDown(KeyChars.Alt_R)){
+			Meta |= MetaKeyStates.AltOn;
+		}
+		if(Board.IsKeyDown(KeyChars.Meta_L)){
+			Meta |= MetaKeyStates.MetaOn;
+		}
+		return Meta;
 	}
 
-	// 將 IKeyChar.Name 映射到 Android Keycode
-	static global::Android.Views.Keycode? MapToAndroidKey(string name) => name switch {
-		"A" or "a" => global::Android.Views.Keycode.A,
-		"B" or "b" => global::Android.Views.Keycode.B,
-		"C" or "c" => global::Android.Views.Keycode.C,
-		"D" or "d" => global::Android.Views.Keycode.D,
-		"E" or "e" => global::Android.Views.Keycode.E,
-		"F" or "f" => global::Android.Views.Keycode.F,
-		"G" or "g" => global::Android.Views.Keycode.G,
-		"H" or "h" => global::Android.Views.Keycode.H,
-		"I" or "i" => global::Android.Views.Keycode.I,
-		"J" or "j" => global::Android.Views.Keycode.J,
-		"K" or "k" => global::Android.Views.Keycode.K,
-		"L" or "l" => global::Android.Views.Keycode.L,
-		"M" or "m" => global::Android.Views.Keycode.M,
-		"N" or "n" => global::Android.Views.Keycode.N,
-		"O" or "o" => global::Android.Views.Keycode.O,
-		"P" or "p" => global::Android.Views.Keycode.P,
-		"Q" or "q" => global::Android.Views.Keycode.Q,
-		"R" or "r" => global::Android.Views.Keycode.R,
-		"S" or "s" => global::Android.Views.Keycode.S,
-		"T" or "t" => global::Android.Views.Keycode.T,
-		"U" or "u" => global::Android.Views.Keycode.U,
-		"V" or "v" => global::Android.Views.Keycode.V,
-		"W" or "w" => global::Android.Views.Keycode.W,
-		"X" or "x" => global::Android.Views.Keycode.X,
-		"Y" or "y" => global::Android.Views.Keycode.Y,
-		"Z" or "z" => global::Android.Views.Keycode.Z,
-		"0" => global::Android.Views.Keycode.Num0,
-		"1" => global::Android.Views.Keycode.Num1,
-		"2" => global::Android.Views.Keycode.Num2,
-		"3" => global::Android.Views.Keycode.Num3,
-		"4" => global::Android.Views.Keycode.Num4,
-		"5" => global::Android.Views.Keycode.Num5,
-		"6" => global::Android.Views.Keycode.Num6,
-		"7" => global::Android.Views.Keycode.Num7,
-		"8" => global::Android.Views.Keycode.Num8,
-		"9" => global::Android.Views.Keycode.Num9,
-		"Backspace" => global::Android.Views.Keycode.Del,
-		"Enter" => global::Android.Views.Keycode.Enter,
-		"Tab" => global::Android.Views.Keycode.Tab,
-		"Shift_L" => global::Android.Views.Keycode.ShiftLeft,
-		"Shift_R" => global::Android.Views.Keycode.ShiftRight,
-		"Ctrl_L" => global::Android.Views.Keycode.CtrlLeft,
-		"Ctrl_R" => global::Android.Views.Keycode.CtrlRight,
-		"Alt_L" => global::Android.Views.Keycode.AltLeft,
-		"Alt_R" => global::Android.Views.Keycode.AltRight,
-		"Meta_L" => global::Android.Views.Keycode.MetaLeft,
-		"Home" => global::Android.Views.Keycode.MoveHome,
-		"End" => global::Android.Views.Keycode.MoveEnd,
-		"Left" => global::Android.Views.Keycode.DpadLeft,
-		"Right" => global::Android.Views.Keycode.DpadRight,
-		"Up" => global::Android.Views.Keycode.DpadUp,
-		"Down" => global::Android.Views.Keycode.DpadDown,
-		_ => null
+	[Doc("Shift 按下時把可打印鍵換成上檔字符；其餘原樣。")]
+	static IKeyChar ApplyShift(IKeyChar Key, IKeyBoardState? Board){
+		if(Board is null || !(Board.IsKeyDown(KeyChars.Shift_L) || Board.IsKeyDown(KeyChars.Shift_R))){
+			return Key;
+		}
+		return ShiftMap.GetValueOrDefault(Key, Key);
+	}
+
+	[Doc("是否為「Shift ＋ 導航鍵」：這類組合必須翻譯成真實的修飾鍵序列。")]
+	static bool IsShiftNavigation(IKeyEvent One){
+		var Board = One.KeyBoardState;
+		if(Board is null || !(Board.IsKeyDown(KeyChars.Shift_L) || Board.IsKeyDown(KeyChars.Shift_R))){
+			return false;
+		}
+		var Key = One.KeyChar;
+		return Key.Equals(KeyChars.Home) || Key.Equals(KeyChars.End)
+			|| Key.Equals(KeyChars.Left) || Key.Equals(KeyChars.Right)
+			|| Key.Equals(KeyChars.Up) || Key.Equals(KeyChars.Down);
+	}
+
+	[Doc("送出 Shift 按下 → 導航鍵 → Shift 擡起。")]
+	static void SendShiftNavigation(IInputConnection Ic, AKey NavigationKey, bool IsDown){
+		if(IsDown){
+			Ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, KeyEventActions.Down, AKey.ShiftLeft, 0));
+			Ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, KeyEventActions.Down, NavigationKey, 0));
+			return;
+		}
+		Ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, KeyEventActions.Up, NavigationKey, 0));
+		Ic.SendKeyEvent(new global::Android.Views.KeyEvent(0, 0, KeyEventActions.Up, AKey.ShiftLeft, 0));
+	}
+
+	[Doc("是否為可直接提交的英數字符。")]
+	static bool IsPlainText(IKeyChar Key){
+		var Text = KeyText(Key);
+		return Text is not null && Text.Length == 1 && char.IsAsciiLetterOrDigit(Text[0]);
+	}
+
+	[Doc("是否應該用 sendKeyEvent 而非文字提交（功能鍵與修飾鍵）。")]
+	static bool ShouldSendAsKeyEvent(IKeyChar Key){
+		return Key.Equals(KeyChars.Backspace) || Key.Equals(KeyChars.Enter) || Key.Equals(KeyChars.Tab)
+			|| Key.Equals(KeyChars.Home) || Key.Equals(KeyChars.End)
+			|| Key.Equals(KeyChars.Left) || Key.Equals(KeyChars.Right)
+			|| Key.Equals(KeyChars.Up) || Key.Equals(KeyChars.Down)
+			|| Key.Equals(KeyChars.Shift_L) || Key.Equals(KeyChars.Shift_R)
+			|| Key.Equals(KeyChars.Ctrl_L) || Key.Equals(KeyChars.Ctrl_R)
+			|| Key.Equals(KeyChars.Alt_L) || Key.Equals(KeyChars.Alt_R)
+			|| Key.Equals(KeyChars.Meta_L);
+	}
+
+	[Doc("鍵 → Android Keycode；沒有對應鍵時回 null。")]
+	static AKey? MapToKeycode(IKeyChar Key){
+		return Keycodes.GetValueOrDefault(Key);
+	}
+
+	[Doc("鍵 → 要提交的文字；功能鍵回 null。")]
+	static str? KeyText(IKeyChar Key){
+		return Texts.GetValueOrDefault(Key);
+	}
+
+	[Doc("下檔 → 上檔字符映射。")]
+	static readonly IReadOnlyDictionary<IKeyChar, IKeyChar> ShiftMap = new Dictionary<IKeyChar, IKeyChar>{
+		[KeyChars.LowerA] = KeyChars.A, [KeyChars.LowerB] = KeyChars.B, [KeyChars.LowerC] = KeyChars.C,
+		[KeyChars.LowerD] = KeyChars.D, [KeyChars.LowerE] = KeyChars.E, [KeyChars.LowerF] = KeyChars.F,
+		[KeyChars.LowerG] = KeyChars.G, [KeyChars.LowerH] = KeyChars.H, [KeyChars.LowerI] = KeyChars.I,
+		[KeyChars.LowerJ] = KeyChars.J, [KeyChars.LowerK] = KeyChars.K, [KeyChars.LowerL] = KeyChars.L,
+		[KeyChars.LowerM] = KeyChars.M, [KeyChars.LowerN] = KeyChars.N, [KeyChars.LowerO] = KeyChars.O,
+		[KeyChars.LowerP] = KeyChars.P, [KeyChars.LowerQ] = KeyChars.Q, [KeyChars.LowerR] = KeyChars.R,
+		[KeyChars.LowerS] = KeyChars.S, [KeyChars.LowerT] = KeyChars.T, [KeyChars.LowerU] = KeyChars.U,
+		[KeyChars.LowerV] = KeyChars.V, [KeyChars.LowerW] = KeyChars.W, [KeyChars.LowerX] = KeyChars.X,
+		[KeyChars.LowerY] = KeyChars.Y, [KeyChars.LowerZ] = KeyChars.Z,
+		[KeyChars.D1] = KeyChars.Exclamation, [KeyChars.D2] = KeyChars.At, [KeyChars.D3] = KeyChars.HashTag,
+		[KeyChars.D4] = KeyChars.Dollar, [KeyChars.D5] = KeyChars.Percent, [KeyChars.D6] = KeyChars.Caret,
+		[KeyChars.D7] = KeyChars.Ampersand, [KeyChars.D8] = KeyChars.Asterisk,
+		[KeyChars.D9] = KeyChars.Paren_L, [KeyChars.D0] = KeyChars.Paren_R,
+		[KeyChars.Minus] = KeyChars.Underscore, [KeyChars.Equal] = KeyChars.Plus,
+		[KeyChars.SquareBracket_L] = KeyChars.Braces_L, [KeyChars.SquareBracket_R] = KeyChars.Braces_R,
+		[KeyChars.Semicolon] = KeyChars.Colon, [KeyChars.Apostrophe] = KeyChars.Quote,
+		[KeyChars.Comma] = KeyChars.Less, [KeyChars.Period] = KeyChars.Greater,
+		[KeyChars.Slash] = KeyChars.Question, [KeyChars.Grave] = KeyChars.Tilde,
 	};
 
-	// 將 IKeyChar.Name 轉換為要 commit 的文字
-	static string? KeyNameToText(string name) => name switch {
-		"" => null,
-		" " => " ",
-		"Backspace" => null,
-		"Enter" => null,
-		"Tab" => null,
-		"Shift_L" => null,
-		"Shift_R" => null,
-		"Ctrl_L" => null,
-		"Ctrl_R" => null,
-		"Alt_L" => null,
-		"Alt_R" => null,
-		"Meta_L" => null,
-		"Fn" => null,
-		"CapsLock" => null,
-		"Home" => null,
-		"End" => null,
-		"Left" => null,
-		"Right" => null,
-		"Up" => null,
-		"Down" => null,
-		_ => name
-	};
+	[Doc("鍵 → Android Keycode 映射表。")]
+	static readonly IReadOnlyDictionary<IKeyChar, AKey> Keycodes = MkKeycodes();
+
+	[Doc("建立 Keycode 表。")]
+	static Dictionary<IKeyChar, AKey> MkKeycodes(){
+		return new Dictionary<IKeyChar, AKey>{
+			[KeyChars.A] = AKey.A, [KeyChars.B] = AKey.B, [KeyChars.C] = AKey.C, [KeyChars.D] = AKey.D,
+			[KeyChars.E] = AKey.E, [KeyChars.F] = AKey.F, [KeyChars.G] = AKey.G, [KeyChars.H] = AKey.H,
+			[KeyChars.I] = AKey.I, [KeyChars.J] = AKey.J, [KeyChars.K] = AKey.K, [KeyChars.L] = AKey.L,
+			[KeyChars.M] = AKey.M, [KeyChars.N] = AKey.N, [KeyChars.O] = AKey.O, [KeyChars.P] = AKey.P,
+			[KeyChars.Q] = AKey.Q, [KeyChars.R] = AKey.R, [KeyChars.S] = AKey.S, [KeyChars.T] = AKey.T,
+			[KeyChars.U] = AKey.U, [KeyChars.V] = AKey.V, [KeyChars.W] = AKey.W, [KeyChars.X] = AKey.X,
+			[KeyChars.Y] = AKey.Y, [KeyChars.Z] = AKey.Z,
+			[KeyChars.LowerA] = AKey.A, [KeyChars.LowerB] = AKey.B, [KeyChars.LowerC] = AKey.C,
+			[KeyChars.LowerD] = AKey.D, [KeyChars.LowerE] = AKey.E, [KeyChars.LowerF] = AKey.F,
+			[KeyChars.LowerG] = AKey.G, [KeyChars.LowerH] = AKey.H, [KeyChars.LowerI] = AKey.I,
+			[KeyChars.LowerJ] = AKey.J, [KeyChars.LowerK] = AKey.K, [KeyChars.LowerL] = AKey.L,
+			[KeyChars.LowerM] = AKey.M, [KeyChars.LowerN] = AKey.N, [KeyChars.LowerO] = AKey.O,
+			[KeyChars.LowerP] = AKey.P, [KeyChars.LowerQ] = AKey.Q, [KeyChars.LowerR] = AKey.R,
+			[KeyChars.LowerS] = AKey.S, [KeyChars.LowerT] = AKey.T, [KeyChars.LowerU] = AKey.U,
+			[KeyChars.LowerV] = AKey.V, [KeyChars.LowerW] = AKey.W, [KeyChars.LowerX] = AKey.X,
+			[KeyChars.LowerY] = AKey.Y, [KeyChars.LowerZ] = AKey.Z,
+			[KeyChars.D0] = AKey.Num0, [KeyChars.D1] = AKey.Num1, [KeyChars.D2] = AKey.Num2,
+			[KeyChars.D3] = AKey.Num3, [KeyChars.D4] = AKey.Num4, [KeyChars.D5] = AKey.Num5,
+			[KeyChars.D6] = AKey.Num6, [KeyChars.D7] = AKey.Num7, [KeyChars.D8] = AKey.Num8,
+			[KeyChars.D9] = AKey.Num9,
+			[KeyChars.Backspace] = AKey.Del, [KeyChars.Enter] = AKey.Enter, [KeyChars.Tab] = AKey.Tab,
+			[KeyChars.Space] = AKey.Space,
+			[KeyChars.Shift_L] = AKey.ShiftLeft, [KeyChars.Shift_R] = AKey.ShiftRight,
+			[KeyChars.Ctrl_L] = AKey.CtrlLeft, [KeyChars.Ctrl_R] = AKey.CtrlRight,
+			[KeyChars.Alt_L] = AKey.AltLeft, [KeyChars.Alt_R] = AKey.AltRight,
+			[KeyChars.Meta_L] = AKey.MetaLeft,
+			[KeyChars.Home] = AKey.MoveHome, [KeyChars.End] = AKey.MoveEnd,
+			[KeyChars.Left] = AKey.DpadLeft, [KeyChars.Right] = AKey.DpadRight,
+			[KeyChars.Up] = AKey.DpadUp, [KeyChars.Down] = AKey.DpadDown,
+		};
+	}
+
+	[Doc("鍵 → 提交文字；只有可打印鍵有值。")]
+	static readonly IReadOnlyDictionary<IKeyChar, str> Texts = MkTexts();
+
+	[Doc("建立文字表：直接用鍵名（空格就是一個空格），功能鍵不列。")]
+	static Dictionary<IKeyChar, str> MkTexts(){
+		var Map = new Dictionary<IKeyChar, str>();
+		foreach(var Key in KeyChars.All){
+			var Name = Key.Name;
+			if(Name.Length == 1){
+				Map[Key] = Name;
+			}
+		}
+		return Map;
+	}
 }

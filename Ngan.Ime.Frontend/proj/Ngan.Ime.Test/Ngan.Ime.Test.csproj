@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<PublishAot>false</PublishAot>
+	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- 測試宿主跑在桌面 TFM 上，故直接引用 Core；Rime 的 C API 封裝留給需要真實引擎的用例。 -->
-		<ProjectReference Include="../../../Ngan.Ime.Core/proj/Ngan.Ime.Core/Ngan.Ime.Core.csproj"/>
-		<ProjectReference Include="../../../../CsRimeApi/proj/Rime.Api/Rime.Api.csproj"/>
+		<ProjectReference Include="../../../Ngan.Ime.Core/proj/Ngan.Ime.Core/Ngan.Ime.Core.csproj" />
+		<ProjectReference Include="../../../Ngan.Ime.Rime/proj/Ngan.Ime.Rime/Ngan.Ime.Rime.csproj" />
+		<ProjectReference Include="../Ngan.Ime.UI/Ngan.Ime.UI.csproj" />
+		<ProjectReference Include="../Ngan.Ime.Backend/Ngan.Ime.Backend.csproj" />
 	</ItemGroup>
-
 </Project>

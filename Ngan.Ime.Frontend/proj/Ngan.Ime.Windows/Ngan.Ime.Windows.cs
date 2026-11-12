@@ -1,93 +1,82 @@
 namespace Ngan.Ime.Windows;
 
+using Ngan.Ime.Infra.Log;
 using Ngan.Ime.Rime;
 using Ngan.Ime.UI;
 using Ngan.Ime.Windows.Voice;
 using Avalonia;
-using Avalonia.Media;
-using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsKeyNode;
+using Tsinswreng.CsCore;
 
-/// Windows 桌面宿主入口。
-/// 入口只做四件事：定日誌去向、定儲存區根目錄、接配置、裝配容器。
-/// 具體註冊分屬各層的 DiXxx，這裡不再列舉服務。
+[Doc($$"""
+Windows 桌面宿主入口。
+
+*流程*：組合根（{{nameof(AppComposition)}}）建立容器 → 補本機配置默認值 →
+啟動 TSF 管道宿主 → 開桌面主視窗（`--tsf` 時不開，只常駐）。
+
+*配置默認值*：本機 Rime 路徑可由環境變數 `NGAN_RIME_DLL`／`NGAN_RIME_USER_DATA` 覆蓋，
+其次才是下面的默認常量；**顯式配置永遠優先**（`AppCfg.SetDefaultIfBlank` 只補空值）。
+
+#Eg[
+	```sh
+	Ngan.Ime.Windows.exe --tsf
+	```
+]
+""")]
 sealed class Program{
-	/// 本機 Rime 的默認位置；只在配置沒有給值時才使用。
-	static readonly str RimeDllPath = Environment.GetEnvironmentVariable("NGAN_RIME_DLL") ?? @"D:\ENV\Rime\weasel-0.15.0\rime.dll";
-	/// 本機 Rime 用戶資料的默認位置；同上。
-	static readonly str UserDataDir = Environment.GetEnvironmentVariable("NGAN_RIME_USER_DATA") ?? @"D:\Program Files\Rime\User_Data";
-	/// 本宿主在日誌與配置裡的自稱。
+
+	[Doc("本機 Rime 動態庫的默認位置；只在配置與環境變數都沒給時使用。")]
+	const str DfltRimeDllPath = @"D:\ENV\Rime\weasel-0.15.0\rime.dll";
+
+	[Doc("本機 Rime 用戶資料的默認位置；同上。")]
+	const str DfltUserDataDir = @"D:\Program Files\Rime\User_Data";
+
+	[Doc("本宿主在日誌與配置裡的自稱。")]
 	const str AppName = "Ngan.Ime.Windows";
 
+	[Doc("解析環境變數覆蓋後的 Rime 動態庫路徑。")]
+	static str RimeDllPath => Environment.GetEnvironmentVariable("NGAN_RIME_DLL") ?? DfltRimeDllPath;
+
+	[Doc("解析環境變數覆蓋後的 Rime 用戶資料目錄。")]
+	static str UserDataDir => Environment.GetEnvironmentVariable("NGAN_RIME_USER_DATA") ?? DfltUserDataDir;
+
+	[Doc("裝配、補配置、啟動 TSF 與 Avalonia。")]
 	[STAThread]
 	public static void Main(str[] Args){
-		// --tsf：以 TSF 常駐模式啟動（不開主視窗，只跑管道伺服器與候選窗）。
 		if(Args.Contains("--tsf")){
-			Ngan.Ime.UI.App.DaemonMode = true;
+			App.DaemonMode = true;
 		}
-		// 1: 建立容器並定下日誌去向。桌面視窗通常沒有附著終端，
-		//    故主控台＋檔案雙寫；檔案落在儲存區的 logs/ 下。
-		var Svc = new ServiceCollection();
-		Svc.SetupCore();
-		Svc.AddAppLog(MkrLogger.ConsoleEtFile(AppName));
-
-		// 2: 儲存區根目錄＝可執行檔目錄（不是當前工作目錄）。
-		Svc.AddSingleton<I_GetBaseDir>(AppDirBaseDirMgr.Inst);
-
-		// 3: 配置必須早於任何取配置的地方：引擎、語音、界面字體都讀它。
-		AppCfg.Inst.Setup(AppDirBaseDirMgr.Inst);
-		Svc.SetupCfg(AppCfg.Inst);
-
-		// 4: 各層裝配。Rime 由 DiRime 負責，Windows 只補本端實現。
-		Svc.SetupRime();
-		Svc.SetupWindows();
-		Svc.SetupUi();
-		WindowsVoiceComposition.AddWindowsVoiceInput(Svc);
-
-		// 5: 宿主在配置缺失時補上本機默認值；顯式配置優先，不覆蓋用戶設定。
-		SetupWindowsCfg();
-
-		var Provider = Svc.BuildServiceProvider();
-		Di.SvcProvider = Provider;
-
-		// TSF 宿主：接受系統 IME 轉來的按鍵，交給 Rime 並顯示候選窗。
-		Tsf.TsfHostServer.Start();
-
+		AppComposition.MkServices(new HostBootstrap{
+			AppName = AppName,
+			BaseDir = AppDirBaseDirMgr.Inst,
+			// 桌面視窗通常沒有附著終端，故主控台＋檔案雙寫（檔案落在儲存區的 logs/）。
+			Logger = MkrLogger.ConsoleEtFile(AppName),
+			SetupEngine = Svc => Svc.SetupRime(),
+			SetupHost = Svc => {
+				Svc.SetupWindows();
+				WindowsVoiceComposition.AddWindowsVoiceInput(Svc);
+			},
+			AfterBuild = _ => {
+				SetupWindowsCfg();
+				// TSF 宿主：接受系統輸入法轉來的按鍵，交給 Rime 並顯示候選窗。
+				Tsf.TsfHostServer.Start();
+			},
+		});
 		BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
 	}
 
-	/// <summary>
-	/// Windows 端在啟動時把本機實際 Rime 路徑補進可寫配置層，
-	/// 但仍以顯式配置優先，避免宿主默認值把用戶配置覆蓋掉。
-	/// </summary>
+	[Doc("把本機實際路徑補進可寫配置層；仍以顯式配置優先。")]
 	static void SetupWindowsCfg(){
-		EnsureCfgOrDefault(KeysAppCfg.Librime.DllPath, RimeDllPath);
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.distribution_code_name, AppName);
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.app_name, AppName);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.DllPath, RimeDllPath);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.user_data_dir, UserDataDir);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.distribution_code_name, AppName);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.app_name, AppName);
 	}
 
-	/// <summary>
-	/// 宿主只在配置缺失時補默認值；一旦配置文件已明確給值，就完全尊重配置。
-	/// </summary>
-	static void EnsureCfgOrDefault(KeyNode<str> Key, str DefaultValue){
-		var Cur = AppCfg.Inst.Get(Key) ?? "";
-		if(!string.IsNullOrWhiteSpace(Cur)){
-			return;
-		}
-		AppCfg.Inst.SetNoSave(Key, DefaultValue);
-	}
-
+	[Doc("Avalonia 建置器；設計器也會呼叫，故不要移除。")]
 	public static AppBuilder BuildAvaloniaApp(){
-		var Options = new FontManagerOptions {
-			DefaultFamilyName = "孤鹜 筑紫明朝",
-			FontFallbacks = new[] { new FontFallback { FontFamily = "Microsoft YaHei" } }
-		};
 		return AppBuilder.Configure<App>()
 			.UsePlatformDetect()
 			.WithInterFont()
-			.With(Options)
 			.LogToTrace();
 	}
-
 }

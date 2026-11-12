@@ -1,201 +1,81 @@
-using Ngan.Ime.UI.Infra;
+namespace Ngan.Ime.UI.Views.Key;
+
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Media;
-using Avalonia.Styling;
 using Avalonia.Threading;
+using Ngan.Ime.UI.Infra;
+using Ngan.Ime.UI.Views.KeyBoard;
+using Tsinswreng.CsCore;
 
-namespace Ngan.Ime.UI.Views.Key;
-using Ctx = VmKey;
+[Doc($$"""
+單顆虛擬鍵的視圖。
 
-public class ViewKey : AppViewBase<Ctx>
-{
-	public ViewKey(){
-		Ctx = Di.DiOrMk<Ctx>();
-		Style();
-		Render();
-	}
+*交互*：按下 → 計時（400ms 長按）；移動超過閾值 → 取消長按、放開時判方向；
+放開 → 沒觸發長按就當點擊。長按若 `IsRepeat` 為真，進入每 50ms 連發（退格）。
+閾值與時長都是常量（{nameof(SwipeThreshold)}／{nameof(LongPressMs)}／{nameof(RepeatIntervalMs)}），
+不在事件處理器裡寫裸數字。
 
-	public class Cls{
-		public const str HintLabel = nameof(HintLabel);
-		public const str Label = nameof(Label);
+*樣式*：鍵帽底色與文字色都綁定 ViewModel，Shift 鎖定高亮由 ViewModel 改色；
+本視圖不直接讀 `UiCfg` 的顏色（只讀字體與字級）。
+
+#Eg[
+	```cs
+	var View = new ViewKey{ ViewModel = Vm };
+	Panel.Children.Add(View);
+	```
+]
+""")]
+public partial class ViewKey : AppViewBase<VmKey>, IDisposable{
+
+	[Doc("樣式類名常量；禁止用字符串字面量硬編碼類名。")]
+	public static partial class Cls{
+		[Doc("鍵外框。")]
 		public const str KeyBorder = nameof(KeyBorder);
+		[Doc("鍵帽主文字。")]
+		public const str Label = nameof(Label);
+		[Doc("鍵帽角落提示。")]
+		public const str Hint = nameof(Hint);
 	}
 
-	static class TswG{
-		public static readonly SolidColorBrush KeyText = Brush("#E0E0E0");
-		public static SolidColorBrush GapLine => (SolidColorBrush)UiCfg.Inst.GapLineBrush;
-		public static readonly SolidColorBrush HintText = Brush("#BDBDBD");
-		public static readonly CornerRadius Round = new(0);
-		public static readonly Thickness KeyMargin = new(0);
-		public static readonly Thickness BorderThick = new(0.5);
-	}
+	[Doc("滑動判定閾值（px）；超過就視為滑動手勢而不是點擊。")]
+	public const f64 SwipeThreshold = 20;
 
-	const double SwipeThreshold = 20;
-	const int LongPressMs = 400;
-	const int RepeatIntervalMs = 50;
+	[Doc("長按判定時長（ms）。")]
+	public const i32 LongPressMs = 400;
 
-	static SolidColorBrush Brush(str Hex)=>SolidColorBrush.Parse(Hex);
+	[Doc("連發間隔（ms）。")]
+	public const i32 RepeatIntervalMs = 50;
 
-	void Style(){
-		Styles.A(
-			Sty.Is<Control>()
-			.Set(CornerRadiusProperty, TswG.Round)
-		).A(
-			Sty.Is<Border>(x=>x.Class(Cls.KeyBorder))
-			.Set(MarginProperty, TswG.KeyMargin)
-			.Set(PaddingProperty, new Thickness(0))
-			.Set(BackgroundProperty, UiCfg.Inst.KeyBgColor)
-			.Set(BorderBrushProperty, TswG.GapLine)
-			.Set(BorderThicknessProperty, TswG.BorderThick)
-		).A(
-			Sty.Is<Control>(x=>x.Class(Cls.Label))
-			.Set(MinHeightProperty, 0.0)
-			.Set(MinWidthProperty, 0.0)
-			.Set(HorizontalAlignmentProperty, HAlign.Center)
-			.Set(VerticalAlignmentProperty, VAlign.Center)
-			.Set(ForegroundProperty, TswG.KeyText)
-		).A(
-			Sty.Is<Control>(x=>x.Class(Cls.HintLabel))
-			.Set(FontSizeProperty, UiCfg.Inst.HintFontSize)
-			.Set(ForegroundProperty, TswG.HintText)
-			.Set(HorizontalAlignmentProperty, HAlign.Center)
-		);
-	}
+	[Doc("鍵外框；事件都掛在它上面。")]
+	public Border? _Border;
 
-	Border _border = default!;
-	Point _pressPoint;
-	DispatcherTimer? _longPressTimer;
-	DispatcherTimer? _repeatTimer;
-	bool _longPressFired;
+	[Doc("主文字控件。")]
+	public TextBlock? _Label;
 
-	void OnPointerPressed(object? s, PointerPressedEventArgs e){
-		_pressPoint = e.GetPosition(_border);
-		_longPressFired = false;
-		e.Pointer.Capture(_border);
-		_border.Background = UiCfg.Inst.MainColor;
-		AppLog.Info($"[SplitTouch] Key PointerPressed label={Ctx?.Label} key={Ctx?.Key_Click?.Name}");
-		AppLog.Debug($"[Key] Pressed, hasLongPress={Ctx?.LongPress is not null}, isRepeat={Ctx?.IsRepeat}");
-		StartLongPressTimer();
-	}
+	[Doc("右上角提示控件。")]
+	public TextBlock? _Hint;
 
-	void OnPointerMoved(object? s, PointerEventArgs e){
-		var pos = e.GetPosition(_border);
-		var dx = pos.X - _pressPoint.X;
-		var dy = pos.Y - _pressPoint.Y;
-		if(Math.Abs(dx) > SwipeThreshold || Math.Abs(dy) > SwipeThreshold){
-			StopLongPressTimer();
-		}
-	}
+	[Doc("左下角提示控件。")]
+	public TextBlock? _BottomHint;
 
-	void OnPointerReleased(object? s, PointerReleasedEventArgs e){
-		var swPerf = System.Diagnostics.Stopwatch.StartNew();
-		if(e.Pointer.Captured == _border){
-			e.Pointer.Capture(null);
-		}
-		StopLongPressTimer();
-		RestoreBg();
+	[Doc("按下位置；用來算滑動方向。")]
+	Point PressPoint;
 
-		if(_longPressFired){
-			AppLog.Debug("[Key] Released after long press, skipping Click");
-			return;
-		}
-		var pos = e.GetPosition(_border);
-		var dx = pos.X - _pressPoint.X;
-		var dy = pos.Y - _pressPoint.Y;
+	[Doc("本次按下是否已觸發長按。")]
+	bool LongPressFired;
 
-		if(Math.Abs(dx) > SwipeThreshold || Math.Abs(dy) > SwipeThreshold){
-			if(Math.Abs(dx) > Math.Abs(dy)){
-				if(dx > 0) Ctx?.SwipeRight?.Invoke();
-				else Ctx?.SwipeLeft?.Invoke();
-			}else{
-				if(dy > 0) Ctx?.SwipeDown?.Invoke();
-				else Ctx?.SwipeUP?.Invoke();
-			}
-		}else{
-			AppLog.Debug($"[Perf] OnPointerReleased→Click start: {swPerf.ElapsedMilliseconds}ms");
-			AppLog.Info($"[SplitTouch] Key Click label={Ctx?.Label} key={Ctx?.Key_Click?.Name}");
-			Ctx?.Click?.Invoke();
-			AppLog.Debug($"[Perf] OnPointerReleased→Click done: {swPerf.ElapsedMilliseconds}ms");
-		}
-	}
+	[Doc("長按計時器；第一次按下時建立，之後複用。")]
+	DispatcherTimer? LongPressTimer;
 
-	void OnPointerCaptureLost(object? s, PointerCaptureLostEventArgs e){
-		StopLongPressTimer();
-		RestoreBg();
-	}
+	[Doc("連發計時器；長按且 `IsRepeat` 為真時啟動。")]
+	DispatcherTimer? RepeatTimer;
 
-	void RestoreBg(){
-		_border.Background = Ctx?.Background ?? UiCfg.Inst.KeyBgColor;
-	}
+	[Doc("建立控件樹。")]
+	protected override partial object Build(VmKey vm);
 
-	void StartLongPressTimer(){
-		_longPressTimer = new DispatcherTimer{Interval = TimeSpan.FromMilliseconds(LongPressMs)};
-		_longPressTimer.Tick += (_, _) => {
-			_longPressTimer.Stop();
-			_longPressFired = true;
-			AppLog.Debug($"[Key] LongPress fired, isRepeat={Ctx?.IsRepeat}");
-			Ctx?.LongPress?.Invoke();
-			if(Ctx?.IsRepeat == true){
-				StartRepeatTimer();
-			}
-		};
-		_longPressTimer.Start();
-	}
+	[Doc("控件樹建好後建立計時器（UI 線程）。")]
+	protected override partial void OnAfterInitialized();
 
-	void StartRepeatTimer(){
-		_repeatTimer = new DispatcherTimer{Interval = TimeSpan.FromMilliseconds(RepeatIntervalMs)};
-		_repeatTimer.Tick += (_, _) => {
-			Ctx?.Click?.Invoke();
-		};
-		_repeatTimer.Start();
-	}
-
-	void StopLongPressTimer(){
-		_longPressTimer?.Stop();
-		_longPressTimer = null;
-		_repeatTimer?.Stop();
-		_repeatTimer = null;
-	}
-
-	void Render(){
-		var keyboardFont = UiCfg.Inst.KeyboardFontFamily;
-		this.SetContent(new Border(), b=>{
-			_border = b;
-			b.Classes.Add(Cls.KeyBorder);
-
-			b.PointerPressed += OnPointerPressed;
-			b.PointerMoved += OnPointerMoved;
-			b.PointerReleased += OnPointerReleased;
-			b.PointerCaptureLost += OnPointerCaptureLost;
-			Ctx.Bind(b, Border.BackgroundProperty, x=>x.Background);
-			b.SetChild(new Grid(), grid=>{
-				grid
-				.A(new TextBlock(), o=>{
-					o.Classes.Add(Cls.Label);
-					if(keyboardFont is not null) o.FontFamily = keyboardFont;
-					Ctx.Bind(o, x=>x.Text, x=>x.Label);
-					Ctx.Bind(o, TextBlock.FontSizeProperty, x=>x.FontSize);
-				})
-				.A(new TextBlock(), o=>{
-					o.Classes.Add(Cls.HintLabel);
-					if(keyboardFont is not null) o.FontFamily = keyboardFont;
-					o.VerticalAlignment = VAlign.Top;
-					o.HorizontalAlignment = HAlign.Right;
-					o.Margin = new(0, 1, 3, 0);
-					Ctx.Bind(o, x=>x.Text, x=>x.Hint);
-				})
-				.A(new TextBlock(), o=>{
-					o.Classes.Add(Cls.HintLabel);
-					if(keyboardFont is not null) o.FontFamily = keyboardFont;
-					o.VerticalAlignment = VAlign.Bottom;
-					o.HorizontalAlignment = HAlign.Left;
-					o.Margin = new(2, 0, 0, 2);
-					Ctx.Bind(o, x=>x.Text, x=>x.BottomHint);
-				})
-				;
-			});
-		});
-	}
+	[Doc("釋放計時器並解除事件訂閱。")]
+	public partial void Dispose();
 }

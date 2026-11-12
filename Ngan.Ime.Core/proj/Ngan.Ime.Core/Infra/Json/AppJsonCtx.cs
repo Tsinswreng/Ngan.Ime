@@ -48,7 +48,10 @@ public partial class AppJsonCtx : JsonSerializerContext {
 			WriteIndented = false,
 			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
 			Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-			// 這一行是本類存在的理由：讓「只帶 options」的序列化重載在 AOT 下仍走源生成。
+			// 生成檔（Ngan.Ime.Gen.g.cs）的 JsonSourceGenerationOptions 也必須與這裡一致：
+		// 兩邊不一致時同一個型別走不同路徑會寫出不同結果。目前兩邊都不開字符串枚舉，
+		// 故枚舉一律以數字上線；要改成字符串時必須同時改生成器與本方法。
+		// 這一行是本類存在的理由：讓「只帶 options」的序列化重載在 AOT 下仍走源生成。
 			TypeInfoResolver = Default,
 		};
 		// 強類型值（Id 之類）的轉換器由生成器列出，這裡只負責掛上。

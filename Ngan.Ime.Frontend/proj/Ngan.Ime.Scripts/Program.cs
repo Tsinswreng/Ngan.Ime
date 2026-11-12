@@ -55,6 +55,9 @@ internal static partial class Program{
 			case nameof(RunWin):
 				await RunWin.Main(Ctx, Ct);
 				break;
+			case nameof(DeployWinVm):
+				await DeployWinVm.Main(Ctx, Ct);
+				break;
 			default:
 				throw new ArgumentException($"Unknown Ngan.Ime script: {Args[0]}.", nameof(Args));
 		}
@@ -63,9 +66,10 @@ internal static partial class Program{
 	/// 列出可由 dotnet run -- <entry> 呼叫的腳本名稱。
 	private static void PrintUsage(){
 		Console.Error.WriteLine("Usage: dotnet run --project Ngan.Ime.Frontend/proj/Ngan.Ime.Scripts -- <entry>");
-		Console.Error.WriteLine("Entries: Test, TestAotWin, GenAppJsonCtx, RunWin");
+		Console.Error.WriteLine("Entries: Test, TestAotWin, GenAppJsonCtx, RunWin, DeployWinVm");
 		Console.Error.WriteLine("GenAppJsonCtx：改過 DTO／實體之後跑一次，重寫 Ngan.Ime.Core/Tsinswreng.SrcGen/Ngan.Ime.Gen.g.cs。");
 		Console.Error.WriteLine("RunWin：把配置檔放到輸出目錄，再以 win-x86 啟動 Windows 宿主。");
+		Console.Error.WriteLine("DeployWinVm：建置並部署 Windows 版到測試虛擬機（-Fast／-NoBuild／-StartVm／-OpenNotepad／-SkipSmoke／-DryRun）。");
 	}
 
 	/// 讓編譯器提供腳本源文件路徑，故腳本不依賴啟動時的當前目錄。

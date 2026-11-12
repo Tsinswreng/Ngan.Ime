@@ -79,4 +79,22 @@ public partial class AppCfg : LayeredCfgAccessor{
 	#Throw[{{nameof(IOException)}}][檔案開不起來時；那屬於部署錯誤，不靜默降級。]
 	""")]
 	public partial void Setup(I_GetBaseDir BaseDir);
+
+	[Doc($$"""
+	把一個字符串鍵補成宿主認定的默認值——**只在它目前為空／null 時**才寫。
+
+	*為何屬本類而不屬宿主*：這是「雙源配置的寫入策略」（只補缺、不覆蓋顯式值），
+	四個宿主各抄一份就一定會漂移；收在這裡，宿主只負責提供自己機器上的默認路徑。
+
+	#Prm[{{nameof(Key)}}][要補的鍵；必須是字符串鍵，因為宿主默認值都是路徑或名稱。]
+	#Prm[{{nameof(Value)}}][默認值；空串時什麼都不做，避免把空值寫進可寫源。]
+	#Rtn[確實寫入了新值時 true。]
+	#Eg[
+		```cs
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.DllPath, @"D:\ENV\Rime\rime.dll");
+		```
+	]
+	""")]
+	public partial bool SetDefaultIfBlank(KeyNode<str> Key, str Value);
+
 }

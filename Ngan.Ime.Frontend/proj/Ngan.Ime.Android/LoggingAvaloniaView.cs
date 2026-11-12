@@ -53,11 +53,12 @@ public class LoggingAvaloniaView : AvaloniaView
 		LogLifecycle($"OnLayout changed={changed} bounds=[{left},{top},{right},{bottom}]");
 	}
 
+	[Doc("記錄一次視圖生命週期事件；布局回調是熱路徑，故降到 Trace 避免刷屏。")]
 	void LogLifecycle(string message)
 	{
 		var tag = Tag?.ToString() ?? "untagged";
 		AppLog.Inst.Log(
-			LogLevel.Information,
+			LogLevel.Trace,
 			new EventId(0, "ImeView"),
 			$"[ImeView:{tag}] {message}; attached={IsAttachedToWindow}; shown={IsShown}; visibility={Visibility}; alpha={Alpha}; size={Width}x{Height}",
 			null,

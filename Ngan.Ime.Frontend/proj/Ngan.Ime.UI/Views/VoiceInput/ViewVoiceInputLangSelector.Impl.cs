@@ -1,181 +1,154 @@
-using Ngan.Ime.Core.Language;
+//Impl: 聲明見 ViewVoiceInputLangSelector.cs。
+namespace Ngan.Ime.UI.Views.VoiceInput;
+
+using System.Collections.Specialized;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Ngan.Ime.Core.Language;
+using Ngan.Ime.UI.Infra;
 
-namespace Ngan.Ime.UI.Views.VoiceInput;
-
-/// 語音识别语言覆盖层的搜索、列表重建与关闭实现。
 public partial class ViewVoiceInputLangSelector{
-	/// 建立覆盖层并订阅搜索结果变化。
-	public partial ViewVoiceInputLangSelector(){
-		Ctx = Di.DiOrMk<VmVoiceInputLangSelector>();
-		Render();
-		_ctxPropertyChangedHandler = (_, E)=>{
-			if(E.PropertyName is nameof(VmVoiceInputLangSelector.Rows) or nameof(VmVoiceInputLangSelector.IsEmpty)){
-				RebuildLangItems();
-			}
+
+	[Doc("搜索框字級比例。")]
+	const f64 SearchFontScale = 0.48;
+
+	[Doc("語言項字級比例。")]
+	const f64 ItemFontScale = 0.44;
+
+	[Doc("語言項次要文字比例。")]
+	const f64 ItemSubFontScale = 0.34;
+
+	[Doc("組出「搜索列 ＋ 列表 ＋ 空提示」。")]
+	protected override partial object Build(VmVoiceInputLangSelector vm){
+		_LangList = new StackPanel{
+			Orientation = Avalonia.Layout.Orientation.Vertical,
+			Spacing = 0,
 		};
-		if(Ctx is not null){
-			Ctx.PropertyChanged += _ctxPropertyChangedHandler;
-		}
+		_EmptyText = new TextBlock()
+			.Text(Todo.I18n("沒有匹配的語言"))
+			.Foreground(Brushes.Gray)
+			.HorizontalAlignment(HAlign.Center)
+			.VerticalAlignment(VAlign.Center);
+		var ListArea = new Grid().Children(
+			new ScrollViewer()
+				.With(S => {
+					S.VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
+					S.Content = _LangList;
+				})
+			,_EmptyText
+		);
+		return new Border()
+			.Background(Brushes.Black)
+			.BorderBrush(UiCfg.Inst.GapLineBrush)
+			.BorderThickness(new Avalonia.Thickness(1))
+			.Child(new StackGrid(IsRow: true)
+				.Rows("Auto,*")
+				.Children(MkSearchBar(vm), ListArea));
+	}
+
+	[Doc("頂部搜索列：返回、輸入框、清空、搜索。")]
+	Control MkSearchBar(VmVoiceInputLangSelector vm){
+		_CloseButton = new Button()
+			.Content(Todo.I18n("返回"))
+			.With(B => B.Click += (_, _) => OnCloseRequested?.Invoke());
+		_SearchInput = new TextBox()
+			.With(T => {
+				T.PlaceholderText = Todo.I18n("語言名稱或 BCP 47 代碼");
+				T.FontSize = UiCfg.Inst.BaseFontSize * SearchFontScale;
+				T.Background = UiCfg.Inst.CandidateBgColor;
+				T.Foreground = Brushes.White;
+				T.BorderBrush = UiCfg.Inst.GapLineBrush;
+				T.KeyDown += (_, Args) => {
+					if(Args.Key == Key.Enter){
+						vm.Search();
+						Args.Handled = true;
+					}
+				};
+			})
+			.Text(vm, X => X.Input, Avalonia.Data.BindingMode.TwoWay);
+		_ClearSearchButton = new Button()
+			.Content("×")
+			.With(B => B.Click += (_, _) => vm.ClearSearch());
+		_SearchButton = new Button()
+			.With(B => {
+				B.Background = UiCfg.Inst.MainColor;
+				B.Foreground = Brushes.Black;
+				B.Click += (_, _) => vm.Search();
+			})
+			.Content(Todo.I18n("搜尋"));
+		return new Grid()
+			.Cols("Auto,*,Auto,Auto")
+			.Children(_CloseButton, _SearchInput, _ClearSearchButton, _SearchButton);
+	}
+
+	[Doc("訂閱結果集合：每次重建列表（項數少，簡單可靠）。")]
+	protected override partial void OnAfterInitialized(){
+		vm.Rows.CollectionChanged += OnRowsChanged;
 		RebuildLangItems();
 	}
 
-	/// 组装顶部工具列和语言列表区。
-	private partial void Render(){
-		this.SetContent(new Border(), B=>{
-			B.Background = Brushes.Black;
-			B.BorderBrush = UiCfg.Inst.GapLineBrush;
-			B.BorderThickness = new(1);
-			B.SetChild(Root.Grid, _=>{
-				Root.SetRowDefs([
-					new(1, GUT.Auto),
-					new(1, GUT.Star),
-				]);
-				Root.A(MkSearchBar())
-				.A(MkLangList());
-			});
-		});
+	void OnRowsChanged(obj? Sender, NotifyCollectionChangedEventArgs Args){
+		RebuildLangItems();
 	}
 
-	/// 建立关闭、输入、清空与搜索操作。
-	private partial Control MkSearchBar(){
-		var R = new GridStack(IsRow: false);
-		R.SetColDefs([
-			new(1, GUT.Auto),
-			new(1, GUT.Star),
-			new(1, GUT.Auto),
-			new(1, GUT.Auto),
-		]);
-		R.A(new Button(), B=>{
-			CloseButton = B;
-			B.SetContent("返回");
-			B.Click += (_, _)=>Close();
-		})
-		.A(new TextBox(), T=>{
-			SearchInput = T;
-			T.PlaceholderText = "語言名稱或 BCP 47 代碼";
-			T.FontSize = UiCfg.Inst.BaseFontSize * 0.48;
-			T.Background = UiCfg.Inst.CandidateBgColor;
-			T.Foreground = Brushes.White;
-			T.BorderBrush = UiCfg.Inst.GapLineBrush;
-			Ctx.Bind(T, X=>X.Text, X=>X.Input, Mode: Avalonia.Data.BindingMode.TwoWay);
-			T.KeyDown += (_, E)=>{
-				if(E.Key == Avalonia.Input.Key.Enter){
-					Ctx?.Search();
-					E.Handled = true;
-				}
-			};
-		})
-		.A(new Button(), B=>{
-			ClearSearchButton = B;
-			B.SetContent("×");
-			B.Click += (_, _)=>Ctx?.ClearSearch();
-		})
-		.A(new Button(), B=>{
-			SearchButton = B;
-			B.Background = UiCfg.Inst.MainColor;
-			B.Foreground = Brushes.Black;
-			B.SetContent("搜尋");
-			B.Click += (_, _)=>Ctx?.Search();
-		});
-		return R.Grid;
-	}
-
-	/// 建立列表与空结果提示叠层。
-	private partial Control MkLangList(){
-		var R = new Grid();
-		R.A(new ScrollViewer(), S=>{
-			LangScroll = S;
-			S.SetContent(new StackPanel(), L=>{
-				LangList = L;
-				L.Orientation = Avalonia.Layout.Orientation.Vertical;
-				L.Spacing = 0;
-			});
-		})
-		.A(new TextBlock(), T=>{
-			EmptyText = T;
-			T.Text = "沒有匹配的語言";
-			T.Foreground = Brushes.Gray;
-			T.HorizontalAlignment = HAlign.Center;
-			T.VerticalAlignment = VAlign.Center;
-		});
-		return R;
-	}
-
-	/// 重建语言项并同步空结果提示。
-	private partial void RebuildLangItems(){
-		if(LangList is null){
+	[Doc("清空並重建語言項；同步空結果提示。")]
+	partial void RebuildLangItems(){
+		if(_LangList is null){
 			return;
 		}
-		LangList.Children.Clear();
-		if(Ctx is not null){
-			foreach(var Lang in Ctx.Rows){
-				LangList.A(MkLangItem(Lang));
-			}
+		_LangList.Children.Clear();
+		foreach(var Lang in vm.Rows){
+			_LangList.Children.Add(MkLangItem(Lang));
 		}
-		if(EmptyText is not null){
-			EmptyText.IsVisible = Ctx?.IsEmpty != false;
+		if(_EmptyText is not null){
+			_EmptyText.IsVisible = vm.IsEmpty;
 		}
 	}
 
-	/// 建立代码、本地名和英文名三层信息的点击项。
+	[Doc("單個語言項：代碼用主色、本地名為主文字、英文名為次要文字。")]
 	private partial Control MkLangItem(INormLang Lang){
-		var R = new Button{
-			Background = Brushes.Black,
-			BorderBrush = UiCfg.Inst.GapLineBrush,
-			BorderThickness = new(0, 0, 0, 0.5),
-			CornerRadius = new(0),
-			Padding = new(14, 8),
-			HorizontalContentAlignment = HAlign.Stretch,
-		};
-		var Row = new GridStack(IsRow: false);
-		Row.SetColDefs([
-			new(1, GUT.Auto),
-			new(1, GUT.Star),
-		]);
-		Row.A(new TextBlock(), T=>{
-			T.Text = Lang.Code;
-			T.MinWidth = UiCfg.Inst.BaseFontSize * 3.8;
-			T.Foreground = UiCfg.Inst.MainColor;
-			T.FontSize = UiCfg.Inst.BaseFontSize * 0.48;
-			T.VerticalAlignment = VAlign.Center;
-		})
-		.A(new StackPanel(), P=>{
-			P.Spacing = 2;
-			var Detail = Lang as INormLangDetail;
-			P.A(new TextBlock(), T=>{
-				T.Text = Detail?.NativeName ?? Lang.Code;
-				T.Foreground = Brushes.White;
-				T.FontSize = UiCfg.Inst.BaseFontSize * 0.48;
+		var Detail = Lang as INormLangDetail;
+		return new Button()
+			.With(B => {
+				B.Background = Brushes.Black;
+				B.BorderBrush = UiCfg.Inst.GapLineBrush;
+				B.BorderThickness = new Avalonia.Thickness(0, 0, 0, 0.5);
+				B.CornerRadius = new Avalonia.CornerRadius(0);
+				B.HorizontalAlignment = HAlign.Stretch;
+				B.HorizontalContentAlignment = HAlign.Left;
+				B.Padding = new Avalonia.Thickness(10, 6);
+				B.Click += (_, _) => OnSelected?.Invoke(Lang);
 			})
-			.A(new TextBlock(), T=>{
-				T.Text = Detail?.EnglishName ?? "";
-				T.Foreground = Brushes.Gray;
-				T.FontSize = UiCfg.Inst.BaseFontSize * 0.36;
-			});
-		});
-		R.SetContent(Row.Grid);
-		R.Click += (_, _)=>SelectLang(Lang);
-		return R;
+			.Content(new StackGrid(IsRow: false)
+				.Cols("Auto,*")
+				.Children(
+					new TextBlock()
+						.Text(Lang.Code)
+						.Foreground(UiCfg.Inst.MainColor)
+						.FontSize(UiCfg.Inst.BaseFontSize * ItemSubFontScale)
+						.Margin(new Avalonia.Thickness(0, 0, 8, 0))
+					,new StackGrid(IsRow: true)
+						.Rows("Auto,Auto")
+						.Children(
+							new TextBlock()
+								.Text(Detail?.NativeName ?? Lang.Code)
+								.Foreground(Brushes.White)
+								.FontSize(UiCfg.Inst.BaseFontSize * ItemFontScale)
+							,new TextBlock()
+								.Text(Detail?.EnglishName ?? "")
+								.Foreground(Brushes.Gray)
+								.FontSize(UiCfg.Inst.BaseFontSize * ItemSubFontScale)
+								.IsVisible(Detail is not null && !string.IsNullOrWhiteSpace(Detail.EnglishName))
+						)
+				));
 	}
 
-	/// 回传语言选择，不在覆盖层内部改变主页面状态。
-	private partial void SelectLang(INormLang Lang){
-		OnSelected?.Invoke(Lang);
-	}
-
-	/// 显式请求关闭覆盖层。
-	private partial void Close(){
-		OnCloseRequested?.Invoke();
-	}
-
-	/// 解除搜索结果订阅，避免已离开控件树的覆盖层继续重建列表。
+	[Doc("解除集合訂閱並釋放 ViewModel。")]
 	public partial void Dispose(){
-		if(_ctxPropertyChangedHandler is not null && Ctx is not null){
-			Ctx.PropertyChanged -= _ctxPropertyChangedHandler;
-			_ctxPropertyChangedHandler = null;
+		if(vm is not null){
+			vm.Rows.CollectionChanged -= OnRowsChanged;
 		}
+		GC.SuppressFinalize(this);
 	}
 }

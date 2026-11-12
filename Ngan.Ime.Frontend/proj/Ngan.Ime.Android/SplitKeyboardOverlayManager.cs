@@ -36,7 +36,7 @@ public class SplitKeyboardOverlayManager
 			AppLog.Warn("[SplitOverlay] ViewManager unavailable");
 			return false;
 		}
-		if(!AvalimeOverlayPermission.CanDraw(_context)){
+		if(!ImeOverlayPermission.CanDraw(_context)){
 			AppLog.Warn("[SplitOverlay] missing overlay permission");
 			return false;
 		}

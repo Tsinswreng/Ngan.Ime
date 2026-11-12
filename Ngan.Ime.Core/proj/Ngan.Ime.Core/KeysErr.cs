@@ -34,7 +34,7 @@ public static class KeysErr {
 
 		[Doc($$"""
 		參數不合法。佔位符填字段名。
-		#Eg[`throw {nameof(ArgErr__)}.ToErr(nameof(Options))`]
+		#Eg[`throw {{nameof(Common)}}.{{nameof(ArgErr__)}}.ToErr(nameof(Options))`]
 		""")]
 		public static K ArgErr__ = Mk(_R, [nameof(ArgErr__)]);
 
@@ -52,6 +52,9 @@ public static class KeysErr {
 
 		[Doc("還沒有人給 Di.SvcProvider 賦值就取服務：入口漏了建立容器。")]
 		public static K DiNotSetup = MkSys(_R, [nameof(DiNotSetup)]);
+
+		[Doc("同一個行程裡建立了第二個容器：容器必須是進程唯一，否則單例會分裂成兩份。")]
+		public static K DiAlreadySetup = MkSys(_R, [nameof(DiAlreadySetup)]);
 	}
 
 	[Doc("配置層的錯誤。")]
@@ -89,13 +92,31 @@ public static class KeysErr {
 		[Doc("配置沒給 librime 的動態庫路徑，無法載入引擎。")]
 		public static K DllPathEmpty = MkSys(_R, [nameof(DllPathEmpty)]);
 
+		[Doc("動態庫載入失敗或拿不到 rime_get_api（路徑錯、位元數不符、缺少依賴）。佔位符填路徑。")]
+		public static K EngineLoadErr__ = MkSys(_R, [nameof(EngineLoadErr__)]);
+
 		[Doc("配置沒給 Rime 的用戶資料目錄，引擎無法初始化。")]
 		public static K UserDataDirEmpty = MkSys(_R, [nameof(UserDataDirEmpty)]);
+
+		[Doc("引擎已連接但 session 無效（初始化未完成或被銷毀）。")]
+		public static K SessionInvalid = MkSys(_R, [nameof(SessionInvalid)]);
+	}
+
+	[Doc("輸入法管線本身的錯誤。")]
+	public static class Ime {
+		[Doc("此組的根節點。")]
+		public static K _R = Mk(ErrRoot.Node, [nameof(Ime)]);
+
+		[Doc("按鍵佇列已關閉（服務已釋放）仍有人送鍵：宿主生命週期寫錯。")]
+		public static K KeyQueueClosed = MkSys(_R, [nameof(KeyQueueClosed)]);
+
+		[Doc("語音／識別等外部能力的配置不完整。佔位符填缺少的項。")]
+		public static K MissingCfg__ = Mk(_R, [nameof(MissingCfg__)]);
 	}
 
 	[Doc($$"""
 	造一個帶 {{nameof(AppErrTags.SysErr)}} 標籤的系統級錯誤鍵。
-	#Prm[{{nameof(Parent)}}][父節點，用 {nameof(ErrRoot)}.Node 或本組 `_R`。]
+	#Prm[{{nameof(Parent)}}][父節點，用 `ErrRoot.Node` 或本組 `_R`。]
 	#Prm[{{nameof(Path)}}][自己的路徑段。]
 	#Rtn[已標 SysErr 的鍵。]
 	""")]
@@ -110,10 +131,10 @@ public static class KeysErr {
 [Doc($$"""
 錯誤鍵樹的根。**刻意獨立成一個類型**，而不是 {{nameof(KeysErr)}} 的成員。
 
-*為何*：分組類（{{nameof(KeysErr)}}.Common 等）的鍵要以根為父。若根長在外層 {{nameof(KeysErr)}} 上，
+*為何*：分組類（`KeysErr.Common` 等）的鍵要以根為父。若根長在外層 {{nameof(KeysErr)}} 上，
 分組類初始化時讀根就會觸發 {{nameof(KeysErr)}} 初始化，而外層類初始化又要碰分組成員——
 此時分組類**正在**初始化中，CLR 不允許重入，成員仍是 null。
-根搬到獨立類型後，兩邊互不牽扯。
+根搬到獨立類型後，兩邊互不牽扯。新增錯誤鍵分組時父節點必須用這裡的 {{nameof(Node)}}。
 """)]
 internal static class ErrRoot {
 	[Doc("根鍵，路徑 `Error`。")]

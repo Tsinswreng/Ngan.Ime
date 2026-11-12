@@ -133,8 +133,7 @@ internal static partial class GenAppJsonCtx{
 		// *必須與 AppJsonCtx.WireOptions 的運行時設定一致*：STJ 有「生成期選項」與「運行時選項」
 		// 兩個表面，兩邊不一致時同一個型別走不同路徑會寫出不同結果。改一處就要同改另一處。
 		[JsonSourceGenerationOptions(
-			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-			UseStringEnumConverter = true
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 		)]
 		public partial class AppJsonCtx { }
 

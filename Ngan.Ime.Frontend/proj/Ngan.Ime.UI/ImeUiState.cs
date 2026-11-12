@@ -1,19 +1,64 @@
-using CommunityToolkit.Mvvm.ComponentModel;
-using Tsinswreng.CsCfg;
-
 namespace Ngan.Ime.UI;
 
-/// `Ime` 界面的共享 UI 狀態。由根 `VmIme` 與工具欄/剪貼板等子模塊共用。
-public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
-{
-	/// 共享狀態寫回可寫配置時的互斥鎖。
-	/// 避免多個工具欄開關短時間連點時併發寫盤。
+using Tsinswreng.CsCfg;
+using Tsinswreng.CsCore;
+using Ngan.Ime.UI.Infra;
+
+[Doc($$"""
+`Ime` 界面的共享狀態：body 頁互斥、候選註釋顯示、分體鍵盤與系統按鍵映射兩個持久化偏好，
+以及三個鍵盤視圖（主鍵盤、分體左半、分體右半）共用的布局狀態。
+
+*為何要共享*：分體鍵盤是把「一份鍵盤」裁成兩半顯示，三份視圖若各自持有
+`IsNumLayout`／`IsShiftLocked`，在主鍵盤上切數字層時兩個半邊就完全不知道——
+這不是「少同步一下」，而是狀態模型被架構性分叉。故布局狀態收在本單例。
+
+*為何不從配置讀默認值到欄位初始化器*：那會讓「new 一個 ImeUiState」等於「要求全域配置已就緒」，
+測試與設計器預覽都會被拖下水。現在配置只在 DI 建構子裡讀一次，`Mk()` 走純默認值。
+
+*持久化*：只有兩個使用者偏好（分體、按鍵映射）寫回可寫配置；寫盤在背景完成並記日誌，
+不讓 UI 線程被 IO 卡住，也不讓失敗變成靜默。
+
+#Eg[
+	```cs
+	UiState.ToggleClipboard();
+	bool Split = UiState.IsSplitKeyboardEnabled;
+	```
+]
+""")]
+public partial class ImeUiState : AppVmBase, IMk<ImeUiState>{
+
+	[Doc("唯一可寫的配置源；`Mk()` 建立的實例沒有它（純內存狀態，不持久化）。")]
+	readonly ICfgAccessor? Rw;
+
+	[Doc("正在從配置載入：此期間的屬性賦值不得觸發寫盤。")]
+	bool Loading = true;
+
+	[Doc("持久化寫盤的串行鎖；避免連點工具欄時多個任務同時整檔重寫。")]
 	static readonly Lock PersistLock = new();
 
-	/// 共享 UI 狀態本身沒有外部構造依賴，未註冊時可直接 new。
-	public static partial ImeUiState Mk();
+	[Doc("純內存實例：沒有配置來源，兩個偏好取默認值且不持久化。供設計器與測試使用。")]
+	protected ImeUiState(){
+		Loading = false;
+		Init();
+	}
 
-	/// 用戶主動點擊工具欄後的日誌頁顯示狀態。
+	[Doc("由容器建立：讀一次配置中的兩個持久化偏好。")]
+	public ImeUiState(ICfgReader Cfg, ICfgAccessor Rw){
+		this.Rw = Rw;
+		IsSplitKeyboardEnabled = Cfg.Get(KeysAppCfg.Keyboard.IsSplitEnabled);
+		IsSystemKeyRemappingEnabled = Cfg.Get(KeysAppCfg.Keyboard.IsSystemKeyRemappingEnabled);
+		Loading = false;
+		Init();
+	}
+
+	[Doc("兜底建立：無依賴的純內存實例。")]
+	public static ImeUiState Mk(){
+		return new ImeUiState();
+	}
+
+	#region body 頁
+
+	[Doc("用戶主動點擊工具欄後的日誌頁顯示狀態。")]
 	public bool IsRimeLogPinnedVisible{
 		get;
 		set{
@@ -23,8 +68,7 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 		}
 	}
 
-	/// 本次 Rime 連接開始時自動顯示的初始日誌頁。
-	/// 它只決定首屏；用戶一旦主動選擇 body 頁，就不再覆蓋該選擇。
+	[Doc("本次連接開始時自動顯示的初始日誌頁；只決定首屏。")]
 	public bool IsInitialRimeLogVisible{
 		get;
 		set{
@@ -34,98 +78,108 @@ public partial class ImeUiState : ObservableObject, IMk<ImeUiState>
 		}
 	}
 
+	[Doc("是否顯示候選註釋。")]
 	public bool IsCandidateCommentVisible{
 		get;
-		set{SetProperty(ref field, value);}
+		set{ SetProperty(ref field, value); }
 	}
 
-	/// 用戶手動切換的分體鍵盤狀態。
-	/// Android 宿主會監聽此值，決定是否切到 overlay 分體模式。
+	[Doc("是否顯示剪貼板頁。")]
+	public bool IsClipboardVisible{
+		get;
+		set{ SetProperty(ref field, value); }
+	}
+
+	[Doc("是否顯示語音輸入頁。")]
+	public bool IsVoiceInputVisible{
+		get;
+		set{ SetProperty(ref field, value); }
+	}
+
+	[Doc("日誌頁是否顯示（手動釘住或首屏強制）。")]
+	public bool IsRimeLogVisible => IsRimeLogPinnedVisible || IsInitialRimeLogVisible;
+
+	[Doc("使用者是否已經主動選擇過 body 頁；連接完成後據此決定要不要自動切回鍵盤。")]
+	public bool HasUserSelectedBodyPage{get; private set;}
+
+	#endregion
+
+	#region 持久化偏好
+
+	[Doc("是否啟用分體鍵盤；變更即寫回可寫配置。")]
 	public bool IsSplitKeyboardEnabled{
 		get;
 		set{
-			if(SetProperty(ref field, value)){
-				PersistSplitKeyboardEnabled(value);
+			if(SetProperty(ref field, value) && !Loading){
+				PersistBoolCfg(KeysAppCfg.Keyboard.IsSplitEnabled, value);
 			}
 		}
-	} = AppCfg.Inst.Get(KeysAppCfg.Keyboard.IsSplitEnabled);
-
-	public bool IsClipboardVisible{
-		get;
-		set{SetProperty(ref field, value);}
 	}
 
-	/// 語音輸入頁是否顯示。
-	/// 此狀態只替換 body 區，不改動上方 preedit 與 toolbar/candidates 的互斥邏輯。
-	public bool IsVoiceInputVisible{
-		get;
-		set{SetProperty(ref field, value);}
-	}
-
-	/// 用戶手動切換的系統按鍵映射開關。
-	/// 其作用域只覆蓋“Rime 未處理按鍵 -> OS 發送前”的映射鏈路。
+	[Doc("是否啟用「未處理按鍵 → OS」的系統按鍵映射。")]
 	public bool IsSystemKeyRemappingEnabled{
 		get;
 		set{
-			if(SetProperty(ref field, value)){
+			if(SetProperty(ref field, value) && !Loading){
 				PersistBoolCfg(KeysAppCfg.Keyboard.IsSystemKeyRemappingEnabled, value);
 			}
 		}
-	} = AppCfg.Inst.Get(KeysAppCfg.Keyboard.IsSystemKeyRemappingEnabled);
-
-	public bool IsRimeLogVisible{
-		get{return IsRimeLogPinnedVisible || IsInitialRimeLogVisible;}
 	}
 
-	/// 使用者是否已經主動選擇過 body 頁。
-	/// 連接成功後只在此值為 false 時，才把初始日誌頁自動切回鍵盤。
-	public bool HasUserSelectedBodyPage{get; private set;}
+	#endregion
 
-	/// 在鍵盤區與剪貼板頁之間切換。
-	/// 當準備打開剪貼板頁時，先關閉手動釘住的日誌頁，避免 body 區雙重模式重疊。
+	#region 鍵盤布局（三個鍵盤視圖共享）
+
+	[Doc("是否處於數字層；主鍵盤與左右半邊共用同一份。")]
+	public bool IsNumLayout{
+		get;
+		set{ SetProperty(ref field, value); }
+	}
+
+	[Doc("是否鎖定 Shift（鍵帽高亮）；共用同一份。")]
+	public bool IsShiftLocked{
+		get;
+		set{ SetProperty(ref field, value); }
+	}
+
+	#endregion
+
+	[Doc("在鍵盤區與剪貼板頁之間切換；三個 body 頁互斥。")]
 	public partial void ToggleClipboard();
 
-	/// 從剪貼板頁退出，回到普通鍵盤區。
+	[Doc("從剪貼板頁退出。")]
 	public partial void ExitClipboard();
 
-	/// 在鍵盤區與語音輸入頁之間切換。
-	/// 打開語音頁時需要先退出 clipboard / rime log，避免 body 區模式重疊。
+	[Doc("在鍵盤區與語音輸入頁之間切換。")]
 	public partial void ToggleVoiceInput();
 
-	/// 從語音輸入頁退出，回到普通鍵盤區。
+	[Doc("從語音輸入頁退出。")]
 	public partial void ExitVoiceInput();
 
-	/// 切換手動釘住的日誌頁。
-	/// 準備打開日誌頁時需要先退出剪貼板頁，保持 body 區語義單一。
+	[Doc("切換手動釘住的日誌頁。")]
 	public partial void ToggleRimeLog();
 
-	/// 完整退出日誌頁，回到普通鍵盤區。
+	[Doc("完整退出日誌頁。")]
 	public partial void ExitRimeLog();
 
-	/// 開始一次 Rime 連接時，將日誌頁作為初始 body 頁展示。
+	[Doc("開始一次連接時把日誌頁作為首屏。")]
 	public partial void BeginInitialRimeLog();
 
-	/// 結束一次 Rime 連接。
-	/// 成功時，僅在用戶未主動導航的情況下由初始日誌頁回到鍵盤；失敗則保留初始日誌頁供查閱。
+	[Doc("結束一次連接：成功且用戶未打斷時回到鍵盤；失敗則保留日誌。")]
 	public partial void CompleteInitialRimeLog(bool IsSuccess);
 
-	/// 切換候選詞 comment 區顯示狀態。
+	[Doc("切換候選註釋顯示。")]
 	public partial void ToggleCandidateComment();
 
-	/// 切換分體鍵盤偏好，並通過屬性 setter 觸發持久化。
+	[Doc("切換分體鍵盤偏好。")]
 	public partial void ToggleSplitKeyboard();
 
-	/// 切換系統按鍵映射偏好，並通過屬性 setter 觸發持久化。
+	[Doc("切換系統按鍵映射偏好。")]
 	public partial void ToggleSystemKeyRemapping();
 
-	/// 這個狀態不僅影響當前 UI，還會被 Android 宿主用來決定下次 show 時是否直接進分體。
-	/// 因此一旦變更，立即寫回可寫配置。
-	static partial void PersistSplitKeyboardEnabled(bool Value);
-
-	/// 共享的布爾偏好持久化入口。
-	/// UI 線程只更新內存配置；真正寫盤放到後台，避免工具欄點擊被 IO 卡住。
-	static partial void PersistBoolCfg(KeyNode<bool> Key, bool Value);
-
-	/// 記錄用戶對 body 頁的明確選擇，並撤銷僅用於首屏的自動日誌頁。
+	[Doc("記錄用戶已主動選過 body 頁，並撤銷首屏日誌。")]
 	partial void MarkUserSelectedBodyPage();
+
+	[Doc("把布爾偏好寫回可寫配置：先改內存，再在背景存檔。")]
+	partial void PersistBoolCfg(KeyNode<bool> Key, bool Value);
 }

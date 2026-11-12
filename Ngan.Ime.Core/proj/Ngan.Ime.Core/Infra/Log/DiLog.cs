@@ -7,18 +7,18 @@ using Tsinswreng.CsCore;
 [Doc($$"""
 日誌相關的依賴注入裝配。
 
-四個宿主原本各自貼同一段「設 {nameof(AppLog)}.Inst 的內層實現 ＋ AddSingleton ＋ AddLogging」，
-改一處漏三處；收成 {nameof(AddAppLog)} 之後，入口只留一行，宿主之間只剩「傳哪個內層實現」這一處差異。
+四個宿主原本各自貼同一段「設 {{nameof(AppLog)}}.Inst 的內層實現 ＋ AddSingleton ＋ AddLogging」，
+改一處漏三處；收成 {{nameof(AddAppLog)}} 之後，入口只留一行，宿主之間只剩「傳哪個內層實現」這一處差異。
 """)]
 public static class DiLog {
 	extension(IServiceCollection z) {
 		[Doc($$"""
-		把 {nameof(AppLog)} 接到容器，並指定本宿主的日誌去向。
+		把 {{nameof(AppLog)}} 接到容器，並指定本宿主的日誌去向。
 
-		做完之後三種寫法都落到同一個內層實現：注入日誌介面、注入泛型日誌介面、直接調 {nameof(AppLog)}.Inst。
+		做完之後三種寫法都落到同一個內層實現：注入日誌介面、注入泛型日誌介面、直接調 {{nameof(AppLog)}}.Inst。
 
 		#Prm[{{nameof(InnerLogger)}}][本宿主的日誌實現：桌面「主控台＋檔案」、Android logcat。]
-		#Rtn[同一個 {nameof(IServiceCollection)}，便於串接。]
+		#Rtn[同一個 {{nameof(IServiceCollection)}}，便於串接。]
 		#Eg[
 			```cs
 			Svc.AddAppLog(MkrLogger.ConsoleEtFile("Ngan.Ime.Windows"));

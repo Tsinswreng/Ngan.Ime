@@ -1,22 +1,31 @@
 namespace Ngan.Ime.UI;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Ngan.Ime.UI.Infra;
 using Ngan.Ime.UI.Views.CandidatesBar;
 using Ngan.Ime.UI.Views.Clipboard;
 using Ngan.Ime.UI.Views.Ime;
 using Ngan.Ime.UI.Views.Input;
-using Ngan.Ime.UI.Views.Key;
 using Ngan.Ime.UI.Views.KeyBoard;
 using Ngan.Ime.UI.Views.RimeLog;
 using Ngan.Ime.UI.Views.ToolBar;
 using Ngan.Ime.UI.Views.VoiceInput;
+using Tsinswreng.CsCore;
 
 [Doc($$"""
-Ui 程序集（平臺無關界面）的依賴注入裝配。
+界面程序集的依賴注入裝配。
 
-*只註冊本程序集提供的東西*：各 ViewModel 與界面共享狀態。宿主專屬實現（鍵盤宿主、
-剪貼簿、Rime 引擎）由各宿主的 `DiXxx` 註冊。
+*只註冊本程序集提供的東西*：共享界面狀態、日誌緩衝與各 ViewModel。
+引擎（{{nameof(Ngan.Ime.Core.Ime.IImeState)}} 等）由 `DiRime` 或宿主提供；
+鍵盤宿主與剪貼板由各宿主提供（骨架宿主用 {{nameof(NoopKeyboardHost)}}／{{nameof(NoopClipboardService)}}）。
+
+*生命週期*：
+- 共享狀態（{{nameof(ImeUiState)}}、{{nameof(EngineLogBuffer)}}）與「根 VM」{{nameof(VmIme)}} 用 singleton：
+  分體鍵盤的頂條與主界面必須看到同一份狀態，否則會出現「這邊切了、那邊不知道」。
+- 各頁 VM 也用 singleton：它們只是狀態投影，多處共用反而避免重複訂閱。
+- {{nameof(VmKeyBoard)}} 用 transient：每個鍵盤視圖（主／左半／右半）各一份，
+  它持有該視圖的鍵集合；布局狀態本身在 {{nameof(ImeUiState)}} 裡共享。
 
 #Eg[
 	```cs
@@ -24,33 +33,42 @@ Ui 程序集（平臺無關界面）的依賴注入裝配。
 	```
 ]
 """)]
-public static class DiUi {
+public static class DiUi{
+
 	[Doc($$"""
 	註冊界面層的服務。
-
-	*生命週期*：ViewModel 用 transient（每次解析都是新的一份，符合視圖生命週期）；
-	{{nameof(ImeUiState)}} 與 {{nameof(RimeLogBuffer)}} 用 singleton——它們是全界面共享的狀態，
-	每個視圖各拿一份會導致「這邊切了分體、那邊還顯示整塊」。
-
-	#Rtn[同一個 {nameof(IServiceCollection)}，便於串接。]
+	#Rtn[同一個 {{nameof(IServiceCollection)}}，便於串接。]
 	""")]
-	public static IServiceCollection SetupUi(
-		this IServiceCollection z
-	) {
+	public static IServiceCollection SetupUi(this IServiceCollection z){
 		// 共享狀態：多個 ViewModel 都投影同一份。
-		z.AddSingleton<ImeUiState>(_ => ImeUiState.Mk());
-		z.AddSingleton<RimeLogBuffer>();
+		z.AddSingleton<ImeUiState>(Svc => new ImeUiState(
+			Svc.GetRequiredService<Tsinswreng.CsCfg.ICfgReader>(),
+			Svc.GetRequiredService<Tsinswreng.CsCfg.ICfgAccessor>()));
+		// 引擎日誌緩衝：骨架宿主沒有引擎日誌源，退回空實例而不是讓解析失敗。
+		z.AddSingleton<EngineLogBuffer>(Svc => {
+			var LogSrc = Svc.GetService<Ngan.Ime.Infra.Log.IEngineLogSource>();
+			return LogSrc is null ? EngineLogBuffer.Mk() : new EngineLogBuffer(LogSrc);
+		});
 
-		z.AddTransient<VmIme>();
-		z.AddTransient<VmToolBar>();
-		z.AddTransient<VmCandidatesBar>();
-		z.AddTransient<VmInput>();
-		z.AddTransient<VmClipboard>();
-		z.AddTransient<VmRimeLog>();
-		z.AddTransient<VmKey>();
+		z.AddSingleton<VmIme>();
+		z.AddSingleton<VmInput>();
+		z.AddSingleton<VmToolBar>();
+		z.AddSingleton<VmCandidatesBar>();
+		z.AddSingleton<VmClipboard>();
+		z.AddSingleton<VmRimeLog>();
+		z.AddSingleton<VmVoiceInput>();
+		z.AddSingleton<VmVoiceInputLangSelector>();
 		z.AddTransient<VmKeyBoard>();
-		z.AddTransient<VmVoiceInput>();
-		z.AddTransient<VmVoiceInputLangSelector>();
+		return z;
+	}
+
+	[Doc($$"""
+	骨架宿主（桌面預覽／Browser／iOS）的降級實現：只在宿主沒有註冊時補上。
+	#Rtn[同一個 {{nameof(IServiceCollection)}}，便於串接。]
+	""")]
+	public static IServiceCollection SetupUiFallbackHosts(this IServiceCollection z){
+		z.TryAddSingleton<IKeyboardHost, NoopKeyboardHost>();
+		z.TryAddSingleton<IClipboardService, NoopClipboardService>();
 		return z;
 	}
 }

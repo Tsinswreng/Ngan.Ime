@@ -2,6 +2,7 @@ using Android.App;
 using Android.Content;
 using Android.InputMethodServices;
 using Android.OS;
+using Ngan.Ime.Core.Ime;
 using Android.Runtime;
 using Android.Views;
 using Android.Views.InputMethods;
@@ -34,12 +35,12 @@ namespace Ngan.Ime.Android;
 	Exported = true)]
 [IntentFilter(["android.view.InputMethod"])]
 [MetaData("android.view.im", Resource = "@xml/ime_method")]
-public class AvalimeInputMethodService : InputMethodService {
+public class ImeInputMethodService : InputMethodService {
 	/// 把當前活躍的 IME service 暴露給通知恢復入口使用。
-	static WeakReference<AvalimeInputMethodService?> ActiveServiceRef = new(null);
+	static WeakReference<ImeInputMethodService?> ActiveServiceRef = new(null);
 
-	public AvalimeInputMethodService() { }
-	public AvalimeInputMethodService(nint javaReference, JniHandleOwnership transfer)
+	public ImeInputMethodService() { }
+	public ImeInputMethodService(nint javaReference, JniHandleOwnership transfer)
 		: base(javaReference, transfer) { }
 
 	public global::Android.Views.View? InputView{get;set;}
@@ -48,6 +49,9 @@ public class AvalimeInputMethodService : InputMethodService {
 	SplitKeyboardOverlayManager? _splitOverlayManager;
 	ImeUiState? _uiState;
 	PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
+
+	/// 引擎 commit 事件的處理器；存成欄位以便 OnDestroy 解除訂閱。
+	EventHandler<str>? _onCommitHandler;
 	i32 _showSeq = 0;
 	long _activeShowSeq = 0;
 	long _activeShowStartTick = 0;
@@ -295,16 +299,22 @@ public class AvalimeInputMethodService : InputMethodService {
 			_splitOverlayManager?.Hide();
 			return;
 		}
-		if(!AvalimeOverlayPermission.CanDraw(this)){
+		if(!ImeOverlayPermission.CanDraw(this)){
 			AppLog.Warn("[IME] split keyboard requested without overlay permission");
-			if(!AvalimeOverlayPermission.Ensure(this) && _uiState is not null){
+			if(!ImeOverlayPermission.Ensure(this) && _uiState is not null){
 				// 沒權限時回退到普通鍵盤，避免把輸入法切到“只有 1px 佔位但沒有 overlay”的不可用狀態。
 				_uiState.IsSplitKeyboardEnabled = false;
 			}
 			return;
 		}
 		_splitOverlayManager ??= new SplitKeyboardOverlayManager(this);
-		_splitOverlayManager.Show();
+		if(!_splitOverlayManager.Show()){
+			// 重要：overlay 起不來時主窗口已被壓成 1px，若不回退就等於「沒有鍵盤」。
+			if(_uiState is not null){
+				_uiState.IsSplitKeyboardEnabled = false;
+			}
+			AppLog.Warn("[IME] 分體 overlay 啟動失敗，已回退為普通鍵盤");
+		}
 	}
 
 	/// <summary>
@@ -333,7 +343,7 @@ public class AvalimeInputMethodService : InputMethodService {
 	/// </summary>
 	void WarmSplitOverlayIfPossible()
 	{
-		if(!AvalimeOverlayPermission.CanDraw(this)){
+		if(!ImeOverlayPermission.CanDraw(this)){
 			AppLog.Info("[IME] WarmSplitOverlayIfPossible skipped: no permission");
 			return;
 		}
@@ -462,56 +472,27 @@ public class AvalimeInputMethodService : InputMethodService {
 		AppLog.Info("[IME] OnCreate");
 		ActiveServiceRef.SetTarget(this);
 
-		var Svc = new ServiceCollection();
-		Svc.SetupCore();
-		Svc.AddAppLog(new AndroidLogger("Ngan.Ime"));
-		Svc.AddSingleton<I_GetBaseDir>(ExternalFilesBaseDirMgr.Inst);
-		Svc.SetupCfg(AppCfg.Inst);
-		Svc.SetupRime();
-		Svc.SetupAndroid();
-		Svc.SetupUi();
-		// 鍵盤宿主需要本 Service 實例；剪貼簿走 Android 的 SystemService。
-		Svc.AddSingleton<IKeyboardHost>(_ => new AndroidKeyboardHost(() => this));
-		Svc.AddSingleton<IClipboardService, AndroidClipboardService>();
-		AndroidVoiceComposition.AddAndroidVoiceInput(Svc, this);
-		var Provider = Svc.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = false, ValidateScopes = false });
-		Di.SvcProvider = Provider;
-
-		var imeState = Di.GetRSvc<ISvcIme>();
+		// 容器由 Application 建好（進程唯一）；服務只把「自己」與輸入連接掛到執行期句柄上，
+		// 不再另建第二套容器、也不再改寫任何單例的屬性。
+		var imeInput = Di.GetRSvc<Ngan.Ime.Core.Ime.IImeInput>();
 		_uiState = Di.GetRSvc<ImeUiState>();
-		imeState.StatusText = "正在連接 Rime";
+		AndroidImeRuntime.Inst.ServiceRef.SetTarget(this);
+		AndroidImeRuntime.Inst.GetInputConnection = () => CurrentInputConnection;
 
-		// 未處理按鍵先過可切換映射器，再轉發給 Android OS。
-		// 這樣不會改動 Rime 收到的原始鍵，只修正最終交給宿主應用的鍵值。
-		imeState.OsKeyProcessor = new KeyRemappingOsKeyProcessor(
-			new AndroidOsKeyProcessor(() => CurrentInputConnection),
-			new KeyEventRemapper(
-				() => _uiState?.IsSystemKeyRemappingEnabled == true,
-				[
-					new KeyRemapRule(KeyChars.Backspace, KeyChars.Alt_R),
-				]
-			)
-		);
-
-		// Rime commit 文字上屏
-		imeState.OnCommit += (sender, text) => {
-			var swPost = System.Diagnostics.Stopwatch.StartNew();
-			var mainHandler = new Handler(Looper.MainLooper!);
-			mainHandler.Post(() => {
-				var swMain = System.Diagnostics.Stopwatch.StartNew();
+		// 引擎 commit → 主線程上屏。處理器存成欄位，OnDestroy 才能解除（單例上的匿名 lambda 會連服務一起留著）。
+		_onCommitHandler = (sender, text) => {
+			AndroidImeRuntime.Inst.Post(() => {
 				var ic = CurrentInputConnection;
-				if (ic is not null) {
-					var swCommit = System.Diagnostics.Stopwatch.StartNew();
+				if(ic is not null){
 					ic.CommitText(text, 1);
-					AppLog.Debug($"[Perf] Android.OnCommit CommitText call: {swCommit.ElapsedMilliseconds}ms, text: {text}");
-					AppLog.Info($"[IME] CommitText: {text}");
-				} else {
-					AppLog.Warn("[IME] CommitText skipped: no InputConnection");
+					// 只記文字長度：輸入內容不進日誌（隱私）。
+					AppLog.Debug($"[IME] CommitText chars={text.Length}");
+				}else{
+					AppLog.Warn("[IME] 沒有 InputConnection，commit 被丟棄");
 				}
-				AppLog.Debug($"[Perf] Android.OnCommit main-thread handler total: {swMain.ElapsedMilliseconds}ms, text: {text}");
 			});
-			AppLog.Debug($"[Perf] Android.OnCommit post_to_main: {swPost.ElapsedMilliseconds}ms, text: {text}");
 		};
+		imeInput.OnCommit += _onCommitHandler;
 		_uiStatePropertyChangedHandler = (_, e) => {
 			if(e.PropertyName != nameof(ImeUiState.IsSplitKeyboardEnabled)){
 				return;
@@ -606,6 +587,13 @@ public class AvalimeInputMethodService : InputMethodService {
 		if(_uiState is not null && _uiStatePropertyChangedHandler is not null){
 			_uiState.PropertyChanged -= _uiStatePropertyChangedHandler;
 		}
+		if(_onCommitHandler is not null){
+			if(Di.SvcProviderOrNull?.GetService<Ngan.Ime.Core.Ime.IImeInput>() is { } InputSvc){
+				InputSvc.OnCommit -= _onCommitHandler;
+			}
+			_onCommitHandler = null;
+		}
+		AndroidImeRuntime.Inst.Clear();
 		_splitOverlayManager?.Dispose();
 		_splitOverlayManager = null;
 		ResetInputViewInstance();
@@ -617,15 +605,15 @@ public class AvalimeInputMethodService : InputMethodService {
 /// 通知點擊後的恢復廣播接收器。
 /// 它本身不持有 UI 狀態，只負責把“請求恢復”轉交給當前活躍的 IME service。
 [BroadcastReceiver(Enabled = true, Exported = false)]
-[IntentFilter([AvalimeRecoveryNotification.ActionRecoverIme])]
-public class AvalimeImeRecoveryReceiver : BroadcastReceiver {
+[IntentFilter([ImeRecoveryNotification.ActionRecoverIme])]
+public class ImeRecoveryReceiver : BroadcastReceiver {
 	public override void OnReceive(Context? context, Intent? intent) {
-		if(intent?.Action != AvalimeRecoveryNotification.ActionRecoverIme){
+		if(intent?.Action != ImeRecoveryNotification.ActionRecoverIme){
 			return;
 		}
 
 		AppLog.Info("[IME] Recovery notification clicked");
-		AvalimeInputMethodService.TryRecoverFromNotification();
+		ImeInputMethodService.TryRecoverFromNotification();
 	}
 }
 

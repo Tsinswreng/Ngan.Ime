@@ -1,174 +1,60 @@
-using Ngan.Ime.UI.Infra;
-using ViewCandidatesBarControl = Ngan.Ime.UI.Views.CandidatesBar.ViewCandidatesBar;
-using ViewClipboardControl = Ngan.Ime.UI.Views.Clipboard.ViewClipboard;
-using ViewKeyBoardControl = Ngan.Ime.UI.Views.KeyBoard.ViewKeyBoard;
-using ViewPreeditControl = Ngan.Ime.UI.Views.Preedit.ViewPreedit;
-using ViewRimeLogControl = Ngan.Ime.UI.Views.RimeLog.ViewRimeLog;
-using ViewToolBarControl = Ngan.Ime.UI.Views.ToolBar.ViewToolBar;
-using ViewVoiceInputControl = Ngan.Ime.UI.Views.VoiceInput.ViewVoiceInput;
-using Avalonia.Controls;
-using System.ComponentModel;
-using Tsinswreng.Avln.Grid;
-
 namespace Ngan.Ime.UI.Views.Ime;
-using Ctx = VmIme;
 
-public partial class ViewIme : AppViewBase<Ctx>
-	, IDisposable
-{
-	ViewPreeditControl? _preedit;
-	ViewToolBarControl? _toolbar;
-	ViewCandidatesBarControl? _candidates;
-	ViewKeyBoardControl? _keyboard;
-	ViewClipboardControl? _clipboard;
-	ViewVoiceInputControl? _voiceInput;
-	ViewRimeLogControl? _rimeLog;
-	PropertyChangedEventHandler? _ctxPropertyChangedHandler;
-	PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
-	GridStack Root = new(IsRow: true);
-	Grid? _topBarOverlay;
-	Grid? _bodyOverlay;
-	RowDefinition? _topBarRow;
+using Avalonia.Controls;
+using Ngan.Ime.UI.Infra;
+using Ngan.Ime.UI.Views.CandidatesBar;
+using Ngan.Ime.UI.Views.Clipboard;
+using Ngan.Ime.UI.Views.KeyBoard;
+using Ngan.Ime.UI.Views.Preedit;
+using Ngan.Ime.UI.Views.RimeLog;
+using Ngan.Ime.UI.Views.ToolBar;
+using Ngan.Ime.UI.Views.VoiceInput;
+using Tsinswreng.CsCore;
 
-	public ViewIme(){
-		Ctx = Di.DiOrMk<Ctx>();
-		AppLog.Info($"[Life] ViewIme ctor view#{GetHashCode()} vm#{Ctx?.GetHashCode()}");
-		Render();
-	}
+[Doc($$"""
+輸入法主視圖：上「預編輯列」、中「頂欄（工具欄／候選欄）」、下「body 區（四頁互斥）」。
 
-	void Render(){
-		var topBarHeight = GetTopBarHeight();
-		this.SetContent(Root.Grid);
-		_topBarRow = new(topBarHeight, GUT.Pixel);
-		Root.SetRowDefs([
-			new(1, GUT.Auto),
-			_topBarRow,
-			new(1, GUT.Star),
-		]);
+*為何可見性全部走綁定*：舊版訂閱 7 個 `Show*` 屬性後手動設 `IsVisible` 與 `IsHitTestVisible`，
+等於把「綁定能做的事」用一份手工屬性名清單重做一次，漏一個就是幽靈 bug。
+現在每個子視圖各自 `.IsVisible(vm, X => X.ShowXxx)`，加一頁只改 ViewModel 與這裡各一行。
 
-		var preedit = new ViewPreeditControl();
-		_preedit = preedit;
+*為何頂欄用疊層 Grid*：工具欄與候選欄共用同一塊高度、互斥顯示，疊在一起可以避免佈局跳動。
 
-		var toolbar = new ViewToolBarControl();
-		_toolbar = toolbar;
-		toolbar.Height = topBarHeight;
+#Eg[
+	```cs
+	Content = new ViewIme();
+	```
+]
+""")]
+public partial class ViewIme : AppViewBase<VmIme>, IDisposable{
 
-		var candidates = new ViewCandidatesBarControl();
-		_candidates = candidates;
-		candidates.Height = topBarHeight;
+	[Doc("預編輯列。")]
+	public ViewPreedit? _Preedit;
 
-		var keyboard = new ViewKeyBoardControl();
-		_keyboard = keyboard;
+	[Doc("工具欄。")]
+	public ViewToolBar? _Toolbar;
 
-		var clipboard = new ViewClipboardControl();
-		_clipboard = clipboard;
+	[Doc("候選欄。")]
+	public ViewCandidatesBar? _Candidates;
 
-		var voiceInput = new ViewVoiceInputControl();
-		_voiceInput = voiceInput;
+	[Doc("鍵盤。")]
+	public ViewKeyBoard? _Keyboard;
 
-		var rimeLog = new ViewRimeLogControl();
-		_rimeLog = rimeLog;
+	[Doc("剪貼板頁。")]
+	public ViewClipboard? _Clipboard;
 
-		void SyncVisible(){
-			preedit.IsVisible = Ctx!.ShowPreedit;
-			preedit.IsHitTestVisible = Ctx.ShowPreedit;
+	[Doc("語音頁。")]
+	public ViewVoiceInput? _VoiceInput;
 
-			toolbar.IsVisible = Ctx.ShowToolbar;
-			toolbar.IsHitTestVisible = Ctx.ShowToolbar;
+	[Doc("日誌頁。")]
+	public ViewRimeLog? _RimeLog;
 
-			candidates.IsVisible = Ctx.ShowCandidates;
-			candidates.IsHitTestVisible = Ctx.ShowCandidates;
+	[Doc("建立控件樹。")]
+	protected override partial object Build(VmIme vm);
 
-			keyboard.IsVisible = Ctx.ShowKeyboard;
-			keyboard.IsHitTestVisible = Ctx.ShowKeyboard;
+	[Doc("首次建立後啟動引擎連接（只生效一次）。")]
+	protected override partial void OnAfterInitialized();
 
-			clipboard.IsVisible = Ctx.ShowClipboard;
-			clipboard.IsHitTestVisible = Ctx.ShowClipboard;
-
-			voiceInput.IsVisible = Ctx.ShowVoiceInput;
-			voiceInput.IsHitTestVisible = Ctx.ShowVoiceInput;
-
-			rimeLog.IsVisible = Ctx.ShowRimeLog;
-			rimeLog.IsHitTestVisible = Ctx.ShowRimeLog;
-		}
-
-		_ctxPropertyChangedHandler = (_, e) => {
-			if(
-				e.PropertyName is nameof(Ctx.ShowPreedit)
-				or nameof(Ctx.ShowToolbar)
-				or nameof(Ctx.ShowCandidates)
-				or nameof(Ctx.ShowKeyboard)
-				or nameof(Ctx.ShowClipboard)
-				or nameof(Ctx.ShowVoiceInput)
-				or nameof(Ctx.ShowRimeLog)
-			){
-				SyncVisible();
-			}
-		};
-		Ctx.PropertyChanged += _ctxPropertyChangedHandler;
-		_uiStatePropertyChangedHandler = (_, e) => {
-			if(e.PropertyName == nameof(ImeUiState.IsCandidateCommentVisible)){
-				SyncTopBarHeight();
-			}
-		};
-		Ctx.UiState.PropertyChanged += _uiStatePropertyChangedHandler;
-		SyncVisible();
-
-		Root
-		.A(preedit)
-		.A(new Grid(), o=>{
-			_topBarOverlay = o;
-			o.Height = topBarHeight;
-			o.A(toolbar)
-			.A(candidates);
-		})
-		.A(new Grid(), o=>{
-			_bodyOverlay = o;
-			o.A(keyboard)
-			.A(clipboard)
-			.A(voiceInput)
-			.A(rimeLog);
-		});
-	}
-
-	double GetTopBarHeight() => Ctx!.UiState.IsCandidateCommentVisible
-		? UiCfg.Inst.TopBarHeight
-		: UiCfg.Inst.TopBarHeightNoComment;
-
-	void SyncTopBarHeight()
-	{
-		var height = GetTopBarHeight();
-		if(_topBarRow is not null){
-			_topBarRow.Height = new GridLength(height, GridUnitType.Pixel);
-		}
-		if(_topBarOverlay is not null){
-			_topBarOverlay.Height = height;
-		}
-		if(_toolbar is not null){
-			_toolbar.Height = height;
-		}
-		if(_candidates is not null){
-			_candidates.Height = height;
-		}
-	}
-
-	public void Dispose()
-	{
-		AppLog.Info($"[Life] ViewIme dispose view#{GetHashCode()} vm#{Ctx?.GetHashCode()}");
-		if(_ctxPropertyChangedHandler is not null && Ctx is not null){
-			Ctx.PropertyChanged -= _ctxPropertyChangedHandler;
-		}
-		if(_uiStatePropertyChangedHandler is not null && Ctx is not null){
-			Ctx.UiState.PropertyChanged -= _uiStatePropertyChangedHandler;
-		}
-		(_preedit as IDisposable)?.Dispose();
-		(_toolbar as IDisposable)?.Dispose();
-		(_candidates as IDisposable)?.Dispose();
-		_keyboard?.Dispose();
-		(_clipboard as IDisposable)?.Dispose();
-		(_voiceInput as IDisposable)?.Dispose();
-		(_rimeLog as IDisposable)?.Dispose();
-		(Ctx as IDisposable)?.Dispose();
-	}
+	[Doc("釋放所有子視圖與 ViewModel。")]
+	public partial void Dispose();
 }
-

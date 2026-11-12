@@ -1,129 +1,43 @@
-using Ngan.Ime.UI.Infra;
-using Avalonia.Controls;
-using System.ComponentModel;
-using ViewCandidatesBarControl = Ngan.Ime.UI.Views.CandidatesBar.ViewCandidatesBar;
-using ViewPreeditControl = Ngan.Ime.UI.Views.Preedit.ViewPreedit;
-using ViewToolBarControl = Ngan.Ime.UI.Views.ToolBar.ViewToolBar;
-
 namespace Ngan.Ime.UI.Views.SplitKeyboard;
-using Ctx = Views.Ime.VmIme;
 
-/// <summary>
-/// 分體模式下的中間窄頂條。
-/// 只承擔預編輯、工具欄與候選欄，避免重新佔用整個 IME 視窗。
-/// </summary>
-public class ViewSplitTopOverlay : AppViewBase<Ctx>
-	, IDisposable
-{
-	ViewPreeditControl? _preedit;
-	ViewToolBarControl? _toolbar;
-	ViewCandidatesBarControl? _candidates;
-	PropertyChangedEventHandler? _ctxPropertyChangedHandler;
-	PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
-	GridStack _root = new(IsRow: true);
-	Grid? _topBarOverlay;
-	RowDefinition? _topBarRow;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Ngan.Ime.UI.Infra;
+using Ngan.Ime.UI.Views.CandidatesBar;
+using Ngan.Ime.UI.Views.Ime;
+using Ngan.Ime.UI.Views.Preedit;
+using Ngan.Ime.UI.Views.ToolBar;
+using Tsinswreng.CsCore;
 
-	public ViewSplitTopOverlay(){
-		Ctx = Di.DiOrMk<Ctx>();
-		Render();
-	}
+[Doc($$"""
+分體模式的中間窄頂條：只有預編輯列與頂欄（工具欄／候選欄），不含鍵盤。
 
-	void Render()
-	{
-		var topBarHeight = GetTopBarHeight();
-		Content = _root.Grid;
-		_topBarRow = new(topBarHeight, GUT.Pixel);
-		_root.SetRowDefs([
-			new(1, GUT.Auto),
-			_topBarRow,
-		]);
+*為何與主界面共用 ViewModel*：`VmIme` 在容器裡是 singleton，故這裡拿到的是同一個根 VM，
+不會再觸發一次「連引擎／重置首屏日誌」——舊版每個分體視圖各建一個 `VmIme`，
+切到分體就把使用者剛選好的 body 頁搶回日誌頁。
 
-		var preedit = new ViewPreeditControl();
-		_preedit = preedit;
+*可見性*：全部走綁定，與主界面同一套規則。
 
-		var toolbar = new ViewToolBarControl();
-		_toolbar = toolbar;
-		toolbar.Height = topBarHeight;
+#Eg[
+	```cs
+	var Strip = new ViewSplitTopOverlay();
+	```
+]
+""")]
+public partial class ViewSplitTopOverlay : AppViewBase<VmIme>, IDisposable{
 
-		var candidates = new ViewCandidatesBarControl();
-		_candidates = candidates;
-		candidates.Height = topBarHeight;
+	[Doc("預編輯列。")]
+	public ViewPreedit? _Preedit;
 
-		void SyncVisible(){
-			preedit.IsVisible = Ctx!.ShowPreedit;
-			preedit.IsHitTestVisible = Ctx.ShowPreedit;
+	[Doc("工具欄。")]
+	public ViewToolBar? _Toolbar;
 
-			toolbar.IsVisible = Ctx.ShowToolbar;
-			toolbar.IsHitTestVisible = Ctx.ShowToolbar;
+	[Doc("候選欄。")]
+	public ViewCandidatesBar? _Candidates;
 
-			candidates.IsVisible = Ctx.ShowCandidates;
-			candidates.IsHitTestVisible = Ctx.ShowCandidates;
-		}
+	[Doc("建立控件樹。")]
+	protected override partial object Build(VmIme vm);
 
-		_ctxPropertyChangedHandler = (_, e) => {
-			if(
-				e.PropertyName is nameof(Ctx.ShowPreedit)
-				or nameof(Ctx.ShowToolbar)
-				or nameof(Ctx.ShowCandidates)
-			){
-				SyncVisible();
-			}
-		};
-		Ctx.PropertyChanged += _ctxPropertyChangedHandler;
-
-		_uiStatePropertyChangedHandler = (_, e) => {
-			if(e.PropertyName == nameof(ImeUiState.IsCandidateCommentVisible)){
-				SyncTopBarHeight();
-			}
-		};
-		Ctx.UiState.PropertyChanged += _uiStatePropertyChangedHandler;
-		SyncVisible();
-
-		_root
-		.A(preedit)
-		.A(new Grid(), o=>{
-			_topBarOverlay = o;
-			o.Height = topBarHeight;
-			o.A(toolbar)
-			.A(candidates);
-		});
-	}
-
-	double GetTopBarHeight()
-	{
-		return Ctx!.UiState.IsCandidateCommentVisible
-			? UiCfg.Inst.TopBarHeight
-			: UiCfg.Inst.TopBarHeightNoComment;
-	}
-
-	void SyncTopBarHeight()
-	{
-		var height = GetTopBarHeight();
-		if(_topBarRow is not null){
-			_topBarRow.Height = new GridLength(height, GridUnitType.Pixel);
-		}
-		if(_topBarOverlay is not null){
-			_topBarOverlay.Height = height;
-		}
-		if(_toolbar is not null){
-			_toolbar.Height = height;
-		}
-		if(_candidates is not null){
-			_candidates.Height = height;
-		}
-	}
-
-	public void Dispose()
-	{
-		if(_ctxPropertyChangedHandler is not null && Ctx is not null){
-			Ctx.PropertyChanged -= _ctxPropertyChangedHandler;
-		}
-		if(_uiStatePropertyChangedHandler is not null && Ctx is not null){
-			Ctx.UiState.PropertyChanged -= _uiStatePropertyChangedHandler;
-		}
-		(_preedit as IDisposable)?.Dispose();
-		(_toolbar as IDisposable)?.Dispose();
-		(_candidates as IDisposable)?.Dispose();
-	}
+	[Doc("釋放子視圖。")]
+	public partial void Dispose();
 }

@@ -24,7 +24,7 @@ Core 程序集（抽象層與基礎設施）的依賴注入裝配。
 public static class DiCore {
 	[Doc($$"""
 	註冊共享層提供的服務。
-	#Rtn[同一個 {nameof(IServiceCollection)}，便於串接。]
+	#Rtn[同一個 {{nameof(IServiceCollection)}}，便於串接。]
 	""")]
 	public static IServiceCollection SetupCore(
 		this IServiceCollection z

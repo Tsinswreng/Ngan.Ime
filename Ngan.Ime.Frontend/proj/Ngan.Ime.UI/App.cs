@@ -1,59 +1,51 @@
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Controls;
-using Ngan.Ime.ViewModels;
-using Ngan.Ime.UI.Views;
-using Avalonia.Markup.Xaml;
-
 namespace Ngan.Ime.UI;
 
-public partial class App : Application
-{
-	/// <summary>TSF 常駐模式：不建立主視窗，關閉視窗也不會結束行程。</summary>
-	public static bool DaemonMode { get; set; }
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Themes.Fluent;
+using Ngan.Ime.UI.Views;
+using Tsinswreng.CsCore;
 
-	/// 初始化 Ngan.Ime 的全局控件樣式。
-	///
-	/// 當前主要統一 Button 的普通背景與鼠標懸停邊框：普通狀態保持穩定深色背景，
-	/// 懸停時僅以 `UiCfg.MainColor` 突出邊框，避免 FluentTheme 把按鈕內容區改成突兀的黑色。
-	/// 具體樣式實現獨立放在 `App.Style.Impl.cs`，避免入口生命週期與視覺規則混雜。
-	private partial void InitStyle();
+[Doc($$"""
+Avalonia 應用入口。
 
+*為何沒有 `App.axaml`*：本專案規定界面一律用純 C# 聲明式（`Avalonia.Markup.Declarative`），
+主題與全域樣式因此也在代碼裡加：{{nameof(FluentTheme)}} ＋ `AppStyles`，
+不再需要 `AvaloniaXamlLoader.Load(this)`。
+
+*三種生命週期*：桌面（`IClassicDesktopStyleApplicationLifetime`，建主視窗）、
+Android（`IActivityApplicationLifetime`，建主視圖交給 Activity）、
+Browser／單視圖（`ISingleViewApplicationLifetime`）。三者共用 `MainView`。
+
+*常駐模式*：TSF 宿主用 `--tsf` 啟動時不建主視窗（候選窗是另一個獨立視窗），
+故 `ShutdownMode` 設為顯式退出，避免「沒有視窗就自動退出」。
+""")]
+public partial class App : Application{
+
+	[Doc("TSF 常駐模式：不建立主視窗，關閉視窗也不會結束行程。")]
+	public static bool DaemonMode{get;set;}
+
+	[Doc("載入主題與全域樣式；此處不建任何視窗。")]
 	public override void Initialize(){
-		AvaloniaXamlLoader.Load(this);
-		InitStyle();
+		Styles.Add(new FluentTheme());
+		foreach(var One in AppStyles.Build()){
+			Styles.Add(One);
+		}
 	}
 
+	[Doc("依生命週期建立根視圖。")]
 	public override void OnFrameworkInitializationCompleted(){
-		if(ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop){
+		if(ApplicationLifetime is IClassicDesktopStyleApplicationLifetime Desktop){
 			if(DaemonMode){
-				desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+				Desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 				return;
 			}
-// #if DEBUG
-// 			this.AttachDeveloperTools();
-// #endif
-			// Windows 桌面端保持標準系統窗口，保留標題欄與拖動能力。
-			desktop.MainWindow = new MainWindow{
-				DataContext = new MainViewModel(),
-				Title = "Ngan.Ime",
-				Width = 1920/4,
-				MinWidth = 0,
-				Height = 1080/4,
-				MinHeight = 0,
-				WindowDecorations = WindowDecorations.Full,
-				ExtendClientAreaToDecorationsHint = false
-			};
-		}
-		else if(ApplicationLifetime is IActivityApplicationLifetime activityLifetime){
-			activityLifetime.MainViewFactory = () => new MainView{
-				DataContext = new MainViewModel()
-			};
-		}
-		else if(ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform){
-			singleViewPlatform.MainView = new MainView{
-				DataContext = new MainViewModel()
-			};
+			Desktop.MainWindow = new MainWindow();
+		}else if(ApplicationLifetime is IActivityApplicationLifetime ActivityLifetime){
+			ActivityLifetime.MainViewFactory = () => new MainView();
+		}else if(ApplicationLifetime is ISingleViewApplicationLifetime SingleView){
+			SingleView.MainView = new MainView();
 		}
 		base.OnFrameworkInitializationCompleted();
 	}

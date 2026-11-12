@@ -19,8 +19,8 @@ public class MainActivity : AvaloniaMainActivity
 		if(RequestVoicePermissionIfNeeded(Intent)){
 			return;
 		}
-		AvalimeRecoveryNotification.Ensure(this);
-		AvalimeOverlayPermission.Ensure(this);
+		ImeRecoveryNotification.Ensure(this);
+		ImeOverlayPermission.Ensure(this);
 	}
 
 	/// SingleTop 權限入口被重用時，從新 Intent 繼續處理錄音權限。
@@ -60,7 +60,7 @@ public class MainActivity : AvaloniaMainActivity
 			Finish();
 			return;
 		}
-		if(!AvalimeRecoveryNotification.IsPermissionRequest(requestCode)){
+		if(!ImeRecoveryNotification.IsPermissionRequest(requestCode)){
 			return;
 		}
 		if(grantResults is null || grantResults.Length == 0){
@@ -69,6 +69,6 @@ public class MainActivity : AvaloniaMainActivity
 		if(grantResults[0] != Permission.Granted){
 			return;
 		}
-		AvalimeRecoveryNotification.Ensure(this);
+		ImeRecoveryNotification.Ensure(this);
 	}
 }

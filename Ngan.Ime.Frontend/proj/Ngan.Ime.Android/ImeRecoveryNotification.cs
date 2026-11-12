@@ -8,7 +8,7 @@ namespace Ngan.Ime.Android;
 
 /// 恢復通知的常量與構建邏輯集中放在這裡，
 /// 讓 MainActivity 與 IME Service 共用同一套通知配置。
-public static class AvalimeRecoveryNotification {
+public static class ImeRecoveryNotification {
 	/// 常駐通知 channel id。
 	public const str ChannelId = "ngan.ime_ime_recovery";
 
@@ -91,7 +91,7 @@ public static class AvalimeRecoveryNotification {
 
 	/// 點通知後直接發廣播，不必先打開 Activity。
 	static PendingIntent CreateRecoverPendingIntent(Context context) {
-		var intent = new Intent(context, typeof(AvalimeImeRecoveryReceiver));
+		var intent = new Intent(context, typeof(ImeRecoveryReceiver));
 		intent.SetAction(ActionRecoverIme);
 		var flags = PendingIntentFlags.UpdateCurrent;
 		if(Build.VERSION.SdkInt >= BuildVersionCodes.M){

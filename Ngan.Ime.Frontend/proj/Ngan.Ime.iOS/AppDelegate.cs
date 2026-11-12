@@ -5,32 +5,27 @@ using Ngan.Ime.Infra.Storage;
 using Ngan.Ime.UI;
 using Avalonia;
 using Avalonia.iOS;
-using Microsoft.Extensions.DependencyInjection;
+using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.iOS;
 
-/// iOS 宿主。目前只裝配基礎設施與界面層，尚未接 Rime 引擎；
-/// 沒有檔案系統抽象之外的儲存區需求，故儲存區用 NoBaseDirMgr。
+[Doc("""
+iOS 宿主。沒有檔案系統與引擎，故用 NoBaseDirMgr 與 NoopSvcIme（界面可預覽，不能輸入）。
+""")]
 [Register("AppDelegate")]
-#pragma warning disable CA1711 // Identifiers should not have incorrect suffix
 public partial class AppDelegate : AvaloniaAppDelegate<App>
-#pragma warning restore CA1711 // Identifiers should not have incorrect suffix
 {
-	/// 本宿主在日誌與配置裡的自稱。
+	[Doc("本宿主在日誌與配置裡的自稱。")]
 	const str AppName = "Ngan.Ime.iOS";
 
+	[Doc("裝配容器並回傳 Avalonia 建置器。")]
 	protected override AppBuilder CustomizeAppBuilder(AppBuilder Builder)
 	{
-		var Svc = new ServiceCollection();
-		Svc.SetupCore();
-		Svc.AddAppLog(MkrLogger.Console(AppName));
-		Svc.AddSingleton<I_GetBaseDir>(NoBaseDirMgr.Inst);
-		AppCfg.Inst.Setup(NoBaseDirMgr.Inst);
-		Svc.SetupCfg(AppCfg.Inst);
-		Svc.SetupUi();
-		Di.SvcProvider = Svc.BuildServiceProvider();
-
-		return base.CustomizeAppBuilder(Builder)
-			.WithInterFont();
+		AppComposition.MkServices(new HostBootstrap{
+			AppName = AppName,
+			BaseDir = NoBaseDirMgr.Inst,
+			Logger = MkrLogger.Console(AppName),
+		});
+		return base.CustomizeAppBuilder(Builder).WithInterFont();
 	}
 }

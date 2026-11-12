@@ -18,8 +18,12 @@
 		<PublishAot>false</PublishAot>
 
 		<!-- Avalonia 版本只在這裡寫一次；各頭用 $(AvaloniaVersion) 引用，
-			 避免五個專案各寫一個數字而漂移。 -->
-		<AvaloniaVersion>12.0.4</AvaloniaVersion>
+			 避免五個專案各寫一個數字而漂移。
+			 12.1.6 是 2026-11 的最新穩定版：Markup.Declarative 與本地 Avln.Grid 都要求 12.1.x。 -->
+		<!-- Markup.Declarative 只有 12.1.x 版本（生成器另發 12.1.0），故與 Avalonia 同代。 -->
+		<MarkupDeclarativeVersion>12.1.1</MarkupDeclarativeVersion>
+		<MarkupDeclarativeGeneratorVersion>12.1.0</MarkupDeclarativeGeneratorVersion>
+		<AvaloniaVersion>12.1.6</AvaloniaVersion>
 		<!-- Microsoft.Extensions.* 的版本同理。DI 必須 ≥ 10.0.8：
 			 本地 CsKeyNode 宣告了這個下限，寫低了會被 NU1605 判成降級。 -->
 		<MicrosoftExtensionsVersion>10.0.8</MicrosoftExtensionsVersion>

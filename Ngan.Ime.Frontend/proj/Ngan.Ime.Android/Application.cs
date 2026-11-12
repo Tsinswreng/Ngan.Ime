@@ -7,6 +7,7 @@ using Ngan.Ime.Android.Voice;
 using Avalonia;
 using Avalonia.Android;
 using Microsoft.Extensions.DependencyInjection;
+using Ngan.Ime.UI;
 using Tsinswreng.CsCfg;
 using Tsinswreng.CsKeyNode;
 using Tsinswreng.CsTools;
@@ -39,6 +40,20 @@ public class Application : AvaloniaAndroidApplication<App>
 
 		// 4: 引擎與語音所需的 so／資源落地，並在配置缺失時補本機默認值。
 		SetupSoFiles(Ctx, BaseDir);
+
+		// 5: 進程唯一的容器。輸入法服務之後直接重用，不再另建第二套。
+		AppComposition.MkServices(new HostBootstrap{
+			AppName = AppName,
+			BaseDir = BaseDir,
+			Logger = new AndroidLogger(AppName),
+			SetupEngine = Svc => Svc.SetupRime(),
+			SetupHost = Svc => {
+				Svc.SetupAndroid();
+				Svc.AddSingleton<Ngan.Ime.UI.IKeyboardHost, AndroidKeyboardHost>();
+				Svc.AddSingleton<Ngan.Ime.UI.IClipboardService, AndroidClipboardService>();
+				AndroidVoiceComposition.AddAndroidVoiceInput(Svc, global::Android.App.Application.Context);
+			},
+		});
 	}
 
 	/// <summary>
@@ -49,7 +64,7 @@ public class Application : AvaloniaAndroidApplication<App>
 	{
 		var Dir = BaseDir.GetBaseDir();
 		var RoPath = Path.Combine(Dir, AppCfg.RoCfgFileName);
-		EnsureAssetFile(Ctx.Assets!, AppCfg.RoCfgFileName, RoPath, overwrite: false);
+		EnsureAssetFile(Ctx.Assets!, AppCfg.RoCfgFileName, RoPath, Overwrite: false);
 
 		// 用臨時讀者取出引導鍵；AppCfg.Setup 之後還會再讀一次，這點成本可忽略。
 		var Ro = new Tsinswreng.CsCfg.Json.JsonFileCfgReader(RoPath, AppCfg.RoSrcName);
@@ -58,7 +73,7 @@ public class Application : AvaloniaAndroidApplication<App>
 			throw KeysErr.Cfg.RwCfgPathEmpty.ToErr(nameof(KeysAppCfg.RwCfgPath));
 		}
 		var RwPath = Path.IsPathRooted(RwRelPath) ? RwRelPath : Path.Combine(Dir, RwRelPath);
-		EnsureAssetFile(Ctx.Assets!, Path.GetFileName(RwPath), RwPath, overwrite: false);
+		EnsureAssetFile(Ctx.Assets!, Path.GetFileName(RwPath), RwPath, Overwrite: false);
 	}
 
 	static string SetupSoFiles(global::Android.Content.Context ctx, I_GetBaseDir BaseDir)
@@ -134,72 +149,36 @@ public class Application : AvaloniaAndroidApplication<App>
 
 		EnsureDir(userDataDir);
 		// 配置優先；只有明確未配置時，宿主才補當前設備上的默認值。
-		EnsureCfgOrDefault(KeysAppCfg.Librime.DllPath, localRime);
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.user_data_dir, userDataDir);
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.distribution_code_name, "Tsinswreng.Ngan.Ime.Android");
-		EnsureCfgOrDefault(KeysAppCfg.Librime.RimeTraits.app_name, ctx.PackageName ?? "rime.ngan.ime");
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.DllPath, localRime);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.user_data_dir, userDataDir);
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.distribution_code_name, "Tsinswreng.Ngan.Ime.Android");
+		AppCfg.Inst.SetDefaultIfBlank(KeysAppCfg.Librime.RimeTraits.app_name, ctx.PackageName ?? "rime.ngan.ime");
 
 		return internalDir;
 	}
 
-	/// <summary>
-	/// 雙源配置以顯式配置爲準；只有缺省值爲空時，才由宿主補上可運行的默認值。
-	/// </summary>
-	static void EnsureCfgOrDefault(KeyNode<str> Key, str DefaultValue)
-	{
-		var Cur = AppCfg.Inst.Get(Key) ?? "";
-		if(!string.IsNullOrWhiteSpace(Cur)){
+	[Doc("建立目錄（含父層）；空路徑什麼都不做。")]
+	static void EnsureDir(str DirPath){
+		if(string.IsNullOrWhiteSpace(DirPath)){
 			return;
 		}
-		AppCfg.Inst.SetNoSave(Key, DefaultValue);
+		Directory.CreateDirectory(DirPath);
 	}
 
-	/// <summary>
-	/// 建給 MainActivity 用的容器。輸入法服務另有自己的容器（需要以 Service 為鍵盤宿主），
-	/// 但兩者的服務清單都由 DiXxx 提供，避免分岔。
-	/// </summary>
-	static IServiceProvider BuildActivityServices()
-	{
-		var Svc = new ServiceCollection();
-		Svc.SetupCore();
-		Svc.AddAppLog(new AndroidLogger(AppName));
-		Svc.AddSingleton<I_GetBaseDir>(ExternalFilesBaseDirMgr.Inst);
-		Svc.SetupCfg(AppCfg.Inst);
-		Svc.SetupRime();
-		Svc.SetupAndroid();
-		Svc.SetupUi();
-		Svc.AddSingleton<IKeyboardHost, ActivityKeyboardHost>();
-		Svc.AddSingleton<IClipboardService, AndroidClipboardService>();
-		AndroidVoiceComposition.AddAndroidVoiceInput(Svc, global::Android.App.Application.Context);
-		return Svc.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = false, ValidateScopes = false });
-	}
-
-	static void EnsureAssetFile(AssetManager assets, string assetPath, string outputPath, bool overwrite)
-	{
-		EnsureParentDir(outputPath);
-		if(File.Exists(outputPath) && !overwrite){
+	[Doc("把 assets 裡的檔案複製到輸出位置；overwrite=false 且已存在時直接跳過。")]
+	static void EnsureAssetFile(AssetManager Assets, str AssetPath, str OutputPath, bool Overwrite){
+		EnsureParentDir(OutputPath);
+		if(File.Exists(OutputPath) && !Overwrite){
 			return;
 		}
-		ExtractAssetFile(assets, assetPath, outputPath);
+		ExtractAssetFile(Assets, AssetPath, OutputPath);
 	}
 
-	static void EnsureDir(string dirPath)
-	{
-		if(string.IsNullOrWhiteSpace(dirPath)){
-			return;
-		}
-		var keepFile = Path.Combine(dirPath, ".keep");
-		ToolFile.EnsureFile(keepFile);
-		if(File.Exists(keepFile)){
-			File.Delete(keepFile);
-		}
-	}
-
-	static void ExtractAssetFile(AssetManager assets, string assetPath, string outputPath)
-	{
-		using var input = assets.Open(assetPath);
-		using var output = System.IO.File.Create(outputPath);
-		input.CopyTo(output);
+	[Doc("從 assets 讀出一個檔案並寫到指定路徑（覆蓋）。")]
+	static void ExtractAssetFile(AssetManager Assets, str AssetPath, str OutputPath){
+		using var Input = Assets.Open(AssetPath);
+		using var Output = System.IO.File.Create(OutputPath);
+		Input.CopyTo(Output);
 	}
 
 	static void EnsureParentDir(string filePath)
@@ -216,9 +195,7 @@ public class Application : AvaloniaAndroidApplication<App>
 
 	protected override AppBuilder CustomizeAppBuilder(AppBuilder builder)
 	{
-		if(Di.SvcProviderOrNull is null){
-			Di.SvcProvider = BuildActivityServices();
-		}
+		// 容器已在建構子建立；這裡只決定渲染模式與字體。
 		return base.CustomizeAppBuilder(builder)
 			//用CPU渲染、否則在安卓端鍵盤隱藏又彈出有概率變黑 但仍可點擊交互
 			.With(new AndroidPlatformOptions{
@@ -231,13 +208,4 @@ public class Application : AvaloniaAndroidApplication<App>
 				DefaultFamilyName = "serif"
 			});
 	}
-}
-
-file class ActivityKeyboardHost : IKeyboardHost
-{
-	public bool CanCommitText => false;
-
-	public void HideKeyboard() { }
-
-	public void CommitText(str text) { }
 }

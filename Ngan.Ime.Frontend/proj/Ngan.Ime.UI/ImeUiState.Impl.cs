@@ -1,112 +1,110 @@
-using Tsinswreng.CsCfg;
-
+//Impl: 聲明見 ImeUiState.cs。
 namespace Ngan.Ime.UI;
 
-public partial class ImeUiState {
-	public static partial ImeUiState Mk() {
-		return new ImeUiState();
-	}
+using Tsinswreng.CsCfg;
 
-	public partial void ToggleClipboard() {
-		// 任何工具欄操作都代表用戶已選擇 body 頁，不再讓初始化流程搶回日誌頁。
+public partial class ImeUiState{
+
+	[Doc("進入剪貼板前先解除互斥頁，再翻轉自身。")]
+	public partial void ToggleClipboard(){
 		MarkUserSelectedBodyPage();
-
-		// step 1: 進入剪貼板頁前，先解除和它互斥的手動日誌頁。
-		if (!IsClipboardVisible) {
+		if(!IsClipboardVisible){
 			IsRimeLogPinnedVisible = false;
 			IsVoiceInputVisible = false;
 		}
-
-		// step 2: 再翻轉剪貼板頁狀態。
 		IsClipboardVisible = !IsClipboardVisible;
 	}
 
-	public partial void ExitClipboard() {
+	[Doc("退出剪貼板頁。")]
+	public partial void ExitClipboard(){
 		MarkUserSelectedBodyPage();
 		IsClipboardVisible = false;
 	}
 
-	public partial void ToggleVoiceInput() {
+	[Doc("進入語音頁前先解除互斥頁，再翻轉自身。")]
+	public partial void ToggleVoiceInput(){
 		MarkUserSelectedBodyPage();
-
-		// 語音頁與其他 body 模式互斥；本階段只提供前端頁面入口。
-		if (!IsVoiceInputVisible) {
+		if(!IsVoiceInputVisible){
 			IsClipboardVisible = false;
 			IsRimeLogPinnedVisible = false;
 		}
 		IsVoiceInputVisible = !IsVoiceInputVisible;
 	}
 
-	public partial void ExitVoiceInput() {
+	[Doc("退出語音頁。")]
+	public partial void ExitVoiceInput(){
 		MarkUserSelectedBodyPage();
 		IsVoiceInputVisible = false;
 	}
 
-	public partial void ToggleRimeLog() {
+	[Doc("進入日誌頁前先解除互斥頁，再翻轉手動釘住態。")]
+	public partial void ToggleRimeLog(){
 		MarkUserSelectedBodyPage();
-
-		// step 1: 打開手動日誌頁前，先退出剪貼板頁，避免 body 區同時承擔兩種模式。
-		if (!IsRimeLogPinnedVisible) {
+		if(!IsRimeLogPinnedVisible){
 			IsClipboardVisible = false;
 			IsVoiceInputVisible = false;
 		}
-
-		// step 2: 再翻轉手動釘住態。
 		IsRimeLogPinnedVisible = !IsRimeLogPinnedVisible;
 	}
 
-	public partial void ExitRimeLog() {
-		// 顯式退出日誌頁就是回到鍵盤的使用者選擇。
+	[Doc("顯式退出日誌頁。")]
+	public partial void ExitRimeLog(){
 		MarkUserSelectedBodyPage();
 		IsRimeLogPinnedVisible = false;
 	}
 
-	public partial void BeginInitialRimeLog() {
-		// 每個新的連接流程都有自己的首屏決策，不能沿用上一輪的用戶操作標記。
+	[Doc("每次新的連接都重新決定首屏，不沿用上一輪的用戶選擇。")]
+	public partial void BeginInitialRimeLog(){
 		HasUserSelectedBodyPage = false;
 		IsRimeLogPinnedVisible = false;
 		IsInitialRimeLogVisible = true;
 	}
 
-	public partial void CompleteInitialRimeLog(bool IsSuccess) {
-		// 失敗時保留日誌以提供錯誤輸出；成功且未被用戶打斷時才回到鍵盤。
+	[Doc("連接結束：成功且用戶沒打斷才自動回到鍵盤；失敗保留日誌供查看。")]
+	public partial void CompleteInitialRimeLog(bool IsSuccess){
 		if(IsSuccess && !HasUserSelectedBodyPage){
 			IsInitialRimeLogVisible = false;
 		}
 	}
 
-	partial void MarkUserSelectedBodyPage() {
+	[Doc("記錄用戶選擇並收起首屏日誌。")]
+	partial void MarkUserSelectedBodyPage(){
 		HasUserSelectedBodyPage = true;
 		IsInitialRimeLogVisible = false;
 	}
 
-	public partial void ToggleCandidateComment() {
+	[Doc("切換候選註釋。")]
+	public partial void ToggleCandidateComment(){
 		IsCandidateCommentVisible = !IsCandidateCommentVisible;
 	}
 
-	public partial void ToggleSplitKeyboard() {
-		AppLog.Info($"[SplitState] ToggleSplitKeyboard current={IsSplitKeyboardEnabled} next={!IsSplitKeyboardEnabled}");
+	[Doc("切換分體鍵盤。")]
+	public partial void ToggleSplitKeyboard(){
 		IsSplitKeyboardEnabled = !IsSplitKeyboardEnabled;
 	}
 
-	public partial void ToggleSystemKeyRemapping() {
+	[Doc("切換系統按鍵映射。")]
+	public partial void ToggleSystemKeyRemapping(){
 		IsSystemKeyRemappingEnabled = !IsSystemKeyRemappingEnabled;
 	}
 
-	static partial void PersistSplitKeyboardEnabled(bool Value) {
-		AppLog.Info($"[SplitState] PersistSplitKeyboardEnabled value={Value}");
-		PersistBoolCfg(KeysAppCfg.Keyboard.IsSplitEnabled, Value);
+	[Doc("先改內存中的可寫配置，再把存檔丟到背景；失敗記日誌，不靜默。")]
+	partial void PersistBoolCfg(KeyNode<bool> Key, bool Value){
+		var Cfg = Rw;
+		if(Cfg is null){
+			return;
+		}
+		Cfg.SetNoSave(Key, Value);
+		Fire(SaveAsy(Cfg));
 	}
 
-	static partial void PersistBoolCfg(KeyNode<bool> Key, bool Value) {
-		// step 1: 先更新內存中的可寫配置，保證當前 UI 能立即看到新值。
-		AppCfg.Inst.SetNoSave(Key, Value);
-
-		// step 2: 寫盤放到後台並串行化，避免 UI 線程被 IO 卡住。
-		_ = Task.Run(() => {
-			lock (PersistLock) {
-				AppCfg.Inst.Save();
+	[Doc("串行存檔：連點開關時只會一個接一個寫，不會互相覆蓋。")]
+	static async Task<nil> SaveAsy(ICfgAccessor Cfg){
+		await Task.Run(() => {
+			lock(PersistLock){
+				Cfg.Save();
 			}
 		});
+		return NIL;
 	}
 }

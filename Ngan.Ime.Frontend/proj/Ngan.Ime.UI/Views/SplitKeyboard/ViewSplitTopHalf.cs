@@ -1,75 +1,79 @@
-using Avalonia.Controls;
-using Avalonia.Layout;
-
 namespace Ngan.Ime.UI.Views.SplitKeyboard;
 
-/// <summary>
-/// 分體模式下的單側頂條。
-/// 與鍵盤半邊相同，復用一個“兩倍寬”的完整頂條，再裁剪出左半或右半。
-/// 這樣候選欄、工具欄、預編輯欄都沿同一條全寬佈局切開，中央保持空出。
-/// </summary>
-public class ViewSplitTopHalf : UserControl
-	, IDisposable
-{
-	readonly ViewSplitTopOverlay _fullStrip;
-	readonly SplitKeyboardSide _side;
-	readonly Grid _root = new();
-	double _lastSyncedWidth;
-	double _lastSyncedHeight;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Tsinswreng.CsCore;
 
+[Doc($$"""
+分體模式的一側頂條：內嵌一份「兩倍寬」的完整頂條，再裁出左半或右半。
+
+*與鍵盤半邊同一個手法*：候選欄、工具欄、預編輯列都按全寬排好，裁半後中央留空，
+左右各顯示自己那一半——與正式的分體輸入法視覺一致。
+
+#Eg[
+	```cs
+	var Half = new ViewSplitTopHalf(SplitKeyboardSide.Left);
+	```
+]
+""")]
+public partial class ViewSplitTopHalf : UserControl, IDisposable{
+
+	[Doc("本側頂條。")]
+	public ViewSplitTopOverlay? _Strip;
+
+	[Doc("裁切容器。")]
+	public Grid? _Root;
+
+	[Doc("本側標識。")]
+	readonly SplitKeyboardSide Side;
+
+	[Doc("上次套用的寬度。")]
+	f64 LastWidth;
+
+	[Doc("上次套用的高度。")]
+	f64 LastHeight;
+
+	[Doc("建立並放入完整頂條。")]
 	public ViewSplitTopHalf(SplitKeyboardSide Side){
-		_side = Side;
-		_fullStrip = new ViewSplitTopOverlay();
-		AppLog.Info($"[SplitTop:{_side}] ctor topView#{_fullStrip.GetHashCode()}");
-		Render();
-	}
-
-	void Render()
-	{
+		this.Side = Side;
+		_Strip = new ViewSplitTopOverlay();
+		_Root = new Grid();
 		ClipToBounds = true;
 		HorizontalAlignment = HorizontalAlignment.Stretch;
 		VerticalAlignment = VerticalAlignment.Stretch;
-		_root.ClipToBounds = true;
-		_root.HorizontalAlignment = HorizontalAlignment.Stretch;
-		_root.VerticalAlignment = VerticalAlignment.Stretch;
-		Content = _root;
-		_root.Children.Add(_fullStrip);
-		_fullStrip.HorizontalAlignment = _side == SplitKeyboardSide.Left
+		_Root.ClipToBounds = true;
+		_Root.Children.Add(_Strip);
+		_Strip.HorizontalAlignment = Side == SplitKeyboardSide.Left
 			? HorizontalAlignment.Left
 			: HorizontalAlignment.Right;
-		// split 頂欄 overlay 本身是固定高度窗口；
-		// 內容需要貼近鍵盤頂邊，而不是撐滿整個窗口，否則工具欄和第一排按鍵之間會留下整塊黑縫。
-		_fullStrip.VerticalAlignment = VerticalAlignment.Bottom;
+		// 頂欄 overlay 是固定高度的窗口，內容要貼近鍵盤上沿而不是撐滿。
+		_Strip.VerticalAlignment = VerticalAlignment.Bottom;
+		Content = _Root;
 		SizeChanged += OnSizeChanged;
-		LayoutUpdated += OnLayoutUpdated;
 	}
 
-	void OnSizeChanged(object? Sender, SizeChangedEventArgs E)
-	{
-		var width = Bounds.Width;
-		var height = Bounds.Height;
-		if(width <= 0){
-			AppLog.Warn($"[SplitTop:{_side}] SizeChanged width<=0 bounds={Bounds}");
+	[Doc("把內層頂條拉成兩倍寬。")]
+	void OnSizeChanged(obj? Sender, SizeChangedEventArgs Args){
+		var Width = Bounds.Width;
+		var Height = Bounds.Height;
+		if(Width <= 0){
 			return;
 		}
-		if(Math.Abs(width - _lastSyncedWidth) < 0.5 && Math.Abs(height - _lastSyncedHeight) < 0.5){
+		if(Math.Abs(Width - LastWidth) < 0.5 && Math.Abs(Height - LastHeight) < 0.5){
 			return;
 		}
-		_lastSyncedWidth = width;
-		_lastSyncedHeight = height;
-		_fullStrip.Width = width * 2;
-		AppLog.Info($"[SplitTop:{_side}] SizeChanged bounds={Bounds} stripWidth={_fullStrip.Width} stripHeight={_fullStrip.Height} rootBounds={_root.Bounds}");
+		LastWidth = Width;
+		LastHeight = Height;
+		if(_Strip is not null){
+			_Strip.Width = Width * 2;
+		}
 	}
 
-	void OnLayoutUpdated(object? Sender, EventArgs E)
-	{
-		AppLog.Debug($"[SplitTop:{_side}] LayoutUpdated self={Bounds} root={_root.Bounds} strip={_fullStrip.Bounds} desired={_fullStrip.DesiredSize}");
-	}
-
-	public void Dispose()
-	{
+	[Doc("解除事件並釋放頂條。")]
+	public void Dispose(){
 		SizeChanged -= OnSizeChanged;
-		LayoutUpdated -= OnLayoutUpdated;
-		_fullStrip.Dispose();
+		_Strip?.Dispose();
+		_Strip = null;
+		GC.SuppressFinalize(this);
 	}
 }

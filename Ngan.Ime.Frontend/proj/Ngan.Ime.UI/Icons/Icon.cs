@@ -1,5 +1,6 @@
 namespace Ngan.Ime.UI.Icons;
 
+using Avalonia.Layout;
 using Avalonia.Media;
 using SPath = Avalonia.Controls.Shapes.Path;
 
@@ -9,8 +10,8 @@ public class Icon : SPath
 		var R = new Icon();
 		R.Data = Geometry.Parse(Svg);
 		R.Height = R.Width = UiCfg.Inst.BaseFontSize;
-		R.HAlign(x=>x.Center);
-		R.VAlign(x=>x.Center);
+		R.HorizontalAlignment = HAlign.Center;
+		R.VerticalAlignment = VAlign.Center;
 		R.Fill = Brushes.White;
 		R.Stretch = Stretch.Uniform;
 		return R;

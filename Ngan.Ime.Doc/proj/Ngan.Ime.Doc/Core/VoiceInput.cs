@@ -2,7 +2,6 @@ namespace Ngan.Ime.Doc.Core;
 
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.Backend.Voice.Volcengine;
-using Ngan.Ime.Windows.Voice;
 using Tsinswreng.CsCore;
 
 [Doc($$"""
@@ -10,7 +9,7 @@ using Tsinswreng.CsCore;
 	- `{{nameof(IAudioInputSource)}}` / `{{nameof(IAudioInputSession)}}`：跨平臺麥克風 PCM 分片來源。
 	- `{{nameof(IVoiceRecognitionProvider)}}` / `{{nameof(IVoiceRecognitionSession)}}`：供應商無關的流式識別會話。
 	- `{{nameof(VolcengineVoiceRecognitionProvider)}}`：跨 Windows / Android 複用的火山 v3 WebSocket 適配器。
-	- `{{nameof(WindowsAudioInputSource)}}`：Windows 專屬 WASAPI 音頻採集入口。
+	- ``WindowsAudioInputSource``：Windows 專屬 WASAPI 音頻採集入口。
 	- Android 平台使用原生 `AudioRecord` 實現相同 PCM 契約，不引入第三方音頻庫。
 	- `VmVoiceInput`：組合音頻與遠端識別管線，只維護 UI 狀態和文本草稿。
 ]

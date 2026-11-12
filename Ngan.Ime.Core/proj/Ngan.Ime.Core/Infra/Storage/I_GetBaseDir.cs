@@ -24,7 +24,7 @@ public interface I_GetBaseDir{
 	[Doc($$"""
 	取應用儲存區的根目錄（絕對路徑，不含結尾分隔符）。
 	#Rtn[根目錄路徑。]
-	#Throw[{{nameof(NotSupportedException)}}][宿主沒有檔案系統時（見 {nameof(NoBaseDirMgr)}）。]
+	#Throw[{{nameof(NotSupportedException)}}][宿主沒有檔案系統時（見 {{nameof(NoBaseDirMgr)}}）。]
 	""")]
 	public str GetBaseDir();
 }
@@ -35,7 +35,7 @@ public static class I_GetBaseDirExtn{
 	把根目錄與若干路徑段拼成完整路徑。
 	#Prm[{{nameof(z)}}][根目錄來源。]
 	#Prm[{{nameof(Segs)}}][子路徑段，可多個。]
-	#Rtn[{nameof(I_GetBaseDir.GetBaseDir)} 與 {nameof(Segs)} 的組合。]
+	#Rtn[{{nameof(I_GetBaseDir.GetBaseDir)}} 與 {{nameof(Segs)}} 的組合。]
 	""")]
 	public static str Combine(
 		this I_GetBaseDir z

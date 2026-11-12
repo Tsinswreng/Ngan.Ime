@@ -104,21 +104,21 @@ public sealed partial class VolcengineVoiceRecognitionProvider{
 	/// 取消保持原语义；其余异常按连接失败统一提供可读诊断。
 	private partial VoiceRecognitionException MapConnectionException(Exception Error, str RequestId){
 		if(Error is OperationCanceledException){
-			return new VoiceRecognitionException(EVoiceRecognitionErrorKind.Cancelled, "語音識別連接已取消", TraceId: RequestId, InnerException: Error);
+			return new VoiceRecognitionException(EVoiceRecognitionErrorKind.Cancelled, "The recognition connection was cancelled.", TraceId: RequestId, InnerException: Error);
 		}
-		return new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "無法連接火山語音識別服務", TraceId: RequestId, InnerException: Error);
+		return new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "Failed to connect to the recognition service.", TraceId: RequestId, InnerException: Error);
 	}
 
 	/// 在网络访问前尽早暴露空凭据、错误端点及非法限制值。
 	private partial void ValidateOptions(){
 		if(str.IsNullOrWhiteSpace(Options.ApiKey) && (str.IsNullOrWhiteSpace(Options.AppId) || str.IsNullOrWhiteSpace(Options.AccessToken))){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "請在 VoiceInput.Volcengine 配置 ApiKey，或同時配置 AppId 與 AccessToken");
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "VoiceInput.Volcengine is not configured: set ApiKey, or set both AppId and AccessToken.");
 		}
 		if(!Uri.TryCreate(Options.Endpoint, UriKind.Absolute, out var Endpoint) || Endpoint.Scheme != Uri.UriSchemeWss){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "火山識別 Endpoint 必須是 wss 地址");
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "VoiceInput.Volcengine.Endpoint must be an absolute wss:// URL.");
 		}
 		if(str.IsNullOrWhiteSpace(Options.ResourceId) || str.IsNullOrWhiteSpace(Options.ModelName) || Options.ConnectTimeout <= TimeSpan.Zero || Options.FinalResultTimeout <= TimeSpan.Zero || Options.MaxServerMessageBytes <= 0){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "火山識別配置不完整或超時/消息大小無效");
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "VoiceInput.Volcengine is incomplete or has an invalid timeout/message-size value.");
 		}
 	}
 
@@ -126,14 +126,14 @@ public sealed partial class VolcengineVoiceRecognitionProvider{
 	private partial str ValidateLanguage(INormLang Language){
 		ArgumentNullException.ThrowIfNull(Language);
 		if(Language.Type != ELangIdentType.Bcp47 || str.IsNullOrWhiteSpace(Language.Code)){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.UnsupportedLanguage, "語音識別語言必須是受支持的 BCP 47 代碼");
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.UnsupportedLanguage, "Recognition language must be a supported BCP 47 tag.");
 		}
 		foreach(var Candidate in SupportedLanguages){
 			if(str.Equals(Candidate.Code, Language.Code, StringComparison.OrdinalIgnoreCase)){
 				return Candidate.Code;
 			}
 		}
-		throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.UnsupportedLanguage, $"火山流式識別不支持語言：{Language.Code}");
+		throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.UnsupportedLanguage, $"Unsupported recognition language: {Language.Code}.");
 	}
 
 	/// 首轮目录覆盖用户已知语言；增加语言仅需扩展此目录，不改变 UI。

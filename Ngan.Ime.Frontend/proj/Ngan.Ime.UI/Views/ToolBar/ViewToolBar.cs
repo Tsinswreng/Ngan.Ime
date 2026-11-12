@@ -1,51 +1,46 @@
-using System.ComponentModel;
+namespace Ngan.Ime.UI.Views.ToolBar;
+
+using Avalonia.Controls;
+using Avalonia.Media;
 using Ngan.Ime.UI.Icons;
 using Ngan.Ime.UI.Infra;
-using Avalonia.Controls;
-using Tsinswreng.Avln.Grid;
+using Tsinswreng.CsCore;
 
-namespace Ngan.Ime.UI.Views.ToolBar;
-using Ctx = VmToolBar;
+[Doc($$"""
+頂部工具欄：七個功能入口，等寬排列。
 
-/// 輸入法頂部工具欄視圖聲明。
-/// 各模式入口的圖標控件均獨立暴露，便於綁定選中高亮及進行視圖測試。
-public partial class ViewToolBar : AppViewBase<Ctx>, IDisposable{
-	/// 工具欄水平根版面；每個功能入口佔一個等寬欄位。
-	public GridStack Root = new(IsRow: false);
+*為何留三格空白*：工具欄按十欄排布，右側三欄刻意留空——分體模式會把頂欄裁成左右各半，
+若把七個按鈕鋪滿，裁半後按鈕會落在被裁掉的一側。故佈局寬度先按整條頂欄算好。
 
-	/// 工具欄使用的共享 UI 狀態；目前用於同步頂欄高度。
-	public readonly ImeUiState _uiState;
+*入口*：簡繁、候選註釋、剪貼板、日誌、語音、分體、按鍵映射；各自綁定
+{{nameof(VmToolBar)}} 的 `XxxForeground`，開啟時變主色。
 
-	/// 共享 UI 狀態變更處理器；釋放視圖時必須解除訂閱。
-	public PropertyChangedEventHandler? _uiStatePropertyChangedHandler;
+#Eg[
+	```cs
+	var Bar = new ViewToolBar();
+	```
+]
+""")]
+public partial class ViewToolBar : AppViewBase<VmToolBar>, IDisposable{
 
-	/// 剪貼板入口圖標。
-	/// 剪貼板頁打開時，其填充色應綁定爲 `VmToolBar.ClipboardForeground`。
-	public Icon? ClipboardIcon;
+	[Doc("工具欄欄數；含右側三格留白（見類註釋）。")]
+	public const i32 ColumnCount = 10;
 
-	/// Rime 日誌入口圖標。
-	/// 日誌頁由手動或系統強制顯示時，其填充色應綁定爲 `VmToolBar.RimeLogForeground`。
-	public Icon? RimeLogIcon;
+	[Doc("根版面：十欄等寬。")]
+	public Grid? _Root;
 
-	/// 語音輸入入口圖標。
-	/// 語音頁打開時，其填充色綁定爲 `VmToolBar.VoiceInputForeground`。
-	public Icon? VoiceInputIcon;
+	[Doc("剪貼板入口圖標。")]
+	public Icon? _ClipboardIcon;
 
-	/// 建立工具欄、解析 ViewModel 並組裝控件樹。
-	public partial ViewToolBar();
+	[Doc("日誌入口圖標。")]
+	public Icon? _RimeLogIcon;
 
-	/// 組裝工具欄中的簡繁、註釋、剪貼板、日誌、語音及其他功能入口。
-	private partial void Render();
+	[Doc("語音入口圖標。")]
+	public Icon? _VoiceInputIcon;
 
-	/// 根據候選註釋顯示狀態取得工具欄高度。
-	private partial f64 GetTopBarHeight();
+	[Doc("建立控件樹。")]
+	protected override partial object Build(VmToolBar vm);
 
-	/// 候選註釋顯示狀態改變後，同步工具欄自身高度。
-	private partial void SyncHeight();
-
-	/// 建立具有統一黑色背景與分隔線的工具欄按鈕容器。
-	private static partial Border MkBtn();
-
-	/// 解除共享狀態訂閱並釋放工具欄 ViewModel。
+	[Doc("釋放 ViewModel。")]
 	public partial void Dispose();
 }

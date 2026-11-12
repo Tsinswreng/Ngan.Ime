@@ -1,153 +1,170 @@
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
-using Microsoft.Extensions.DependencyInjection;
 using Rime.Api;
 using Rime.Api.Types;
 using Tsinswreng.CsInterop;
+using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.Rime;
 
-/// ISvcIme 的 Rime 引擎實現。
-/// 負責把 Rime 引擎狀態回填到 Core 狀態模型。
-public class SvcIme : ISvcIme
-{
-	readonly IServiceProvider _SvcProvider;
-	readonly Lock _StateLock = new();
-	readonly SemaphoreSlim _ConnectLock = new(1, 1);
-	i32 _IsTogglingAscii;
-	i32 _IsTogglingSimplification;
-	volatile Task? _ConnectTask;
-	RimeSetup? _RimeSetup;
 
+[Doc($$"""
+`IImeState`／`IImeInput`／`IImeOptions` 的 Rime 實現。
+
+*狀態從哪來*：每批按鍵處理完（{{nameof(SvcImeBase.AfterInput)}}）就從 librime 抓一次
+`get_status` 與 `get_context`，複製成托管快照。界面只讀快照，不碰原生記憶體。
+
+*鎖的分工*：
+- {{nameof(StateLock)}}：保護「一次狀態同步」的完整性，避免讀到 status 與 context 不一致的中間態；
+- {{nameof(ConnectLock)}}：序列化連接流程（`RimeSetup` 只能初始化一次）。
+連接流程不持 {{nameof(StateLock)}} 做初始化——librime 初始化會阻塞數秒，持鎖會卡住所有按鍵。
+
+*取消語義*：連接任務是共享的（多個界面可能同時要求連接），故任務本身**不綁定任何呼叫方的令牌**；
+呼叫方只在自己的 `WaitAsync` 上取消。舊版把第一個呼叫方的令牌塞進共享任務，
+導致「A 關了頁面 → B 的連接被連坐取消」。
+
+*選項切換*：`ascii_mode`／`simplification` 走 librime 的 `get_option`/`set_option`，
+並由 {{nameof(RimeSetup.OnOptionChanged)}} 回寫狀態（方案自己切換時也能同步）。
+
+#Eg[
+	```cs
+	IImeInput Input = Di.GetRSvc<IImeInput>();
+	Input.InputSafely([new KeyEvent{ KeyChar = KeyChars.LowerA, KeyState = KeyStates.Down }]);
+	```
+]
+""")]
+public class SvcIme : SvcImeBase {
+
+	[Doc("取引擎單例的工廠；連接時才真的初始化。")]
+	readonly Func<RimeSetup> GetRimeSetup;
+
+	[Doc("狀態同步鎖；保證 status 與 context 一次讀完。")]
+	readonly Lock StateLock = new();
+
+	[Doc("連接流程鎖；序列化初始化。")]
+	readonly SemaphoreSlim ConnectLock = new(1, 1);
+
+	[Doc("選項切換鎖；兩個選項共用，避免同時 set_option 造成狀態交錯。")]
+	readonly SemaphoreSlim OptionLock = new(1, 1);
+
+	[Doc("共享的連接任務；完成（含失敗）後可重建。")]
+	Task<nil>? ConnectTask;
+
+	[Doc("最近一次成功連接的引擎實例；未連接時為 null。")]
+	RimeSetup? Setup;
+
+	[Doc("option 名稱緩衝的最大位元組數；現有兩個名稱都遠小於此。")]
+	const i32 OptionNameBufferBytes = 32;
+
+	[Doc("建立 Rime 服務；引擎與鍵處理器由容器注入。")]
 	public SvcIme(
 		IOsKeyProcessor OsKeyProcessor
-		, IImeKeyProcessor ImeKeyProcessor
-		, IServiceProvider SvcProvider
+		,IImeKeyProcessor ImeKeyProcessor
+		,Func<RimeSetup> GetRimeSetup
 	) : base(OsKeyProcessor, ImeKeyProcessor){
-		_SvcProvider = SvcProvider;
-		AfterInput += OnAfterInput;
+		this.GetRimeSetup = GetRimeSetup;
+		// option 變更由 librime 主動通知（方案裡切換、快捷鍵等），故狀態要能從該回調同步回來。
 		RimeSetup.OnOptionChanged += OnOptionChanged;
 	}
 
-	/// 懶取後端 RimeSetup。
-	/// 這裡故意不在構造函數裏碰 RimeSetup，讓 UI 可以先實例化 SvcIme 再異步初始化後端。
-	RimeSetup GetRimeSetup()
-	{
-		_RimeSetup ??= _SvcProvider.GetRequiredService<RimeSetup>();
-		return _RimeSetup;
-	}
-
-	/// 真正建立 Core 與 Rime session 的連通狀態。
-	/// 首次調用時在後台懶初始化 Rime；後續重複調用則複用同一輪初始化任務。
+	[Doc("連接（或重試連接）引擎；成功後立刻同步一次狀態。")]
 	public override async Task ConnectAsy(CT Ct = default){
 		Ct.ThrowIfCancellationRequested();
-		var ConnectTask = _ConnectTask;
-		if(ConnectTask is null || ConnectTask.IsCompleted){
-			await _ConnectLock.WaitAsync(Ct);
+		var Task = ConnectTask;
+		if(Task is null || Task.IsCompleted){
+			await ConnectLock.WaitAsync(Ct);
 			try{
-				ConnectTask = _ConnectTask;
-				if(ConnectTask is null || ConnectTask.IsCompleted){
-					ConnectTask = ConnectCoreAsy(Ct);
-					_ConnectTask = ConnectTask;
+				Task = ConnectTask;
+				if(Task is null || Task.IsCompleted){
+					// 共享任務：刻意不傳 Ct（見類註釋）。
+					Task = ConnectCoreAsy();
+					ConnectTask = Task;
 				}
 			}finally{
-				_ConnectLock.Release();
+				ConnectLock.Release();
 			}
 		}
-		await ConnectTask.WaitAsync(Ct);
+		await Task.WaitAsync(Ct);
 	}
 
-	/// 單次真正的初始化/連接實現。
-	/// 這裡把同步重活包進後台執行，避免 IME 首屏 UI 被 RimeSetup 構造直接堵住。
-	async Task ConnectCoreAsy(CT Ct){
+	[Doc("單次連接：背景預熱 → 取實例 → 同步狀態；失敗時重置單例以便重試。")]
+	async Task<nil> ConnectCoreAsy(){
 		IsConnecting = true;
-		StatusText = "正在連接 Rime";
-		var IsSuccess = false;
+		var Success = false;
 		try{
-			await Task.Run(() => {
-				Ct.ThrowIfCancellationRequested();
-				var RimeSetup = GetRimeSetup();
-				_ = RimeSetup.rimeSessionId;
-				SyncStateFromRime();
-			}, Ct);
+			await RimeWarmup.EnsureWarmAsy();
+			Setup = GetRimeSetup();
+			SyncStateFromRime();
 			IsConnected = true;
-			StatusText = "Rime 已連接";
-			IsSuccess = true;
+			Success = true;
+			AppLog.Info("[Rime] 已連接");
 		}catch(Exception Ex){
 			IsConnected = false;
-			StatusText = "Rime 連接失敗: " + Ex.Message;
-			AppLog.Error(Ex, "[AvalimeRime] ConnectAsy failed");
+			// 半初始化的單例必須丟棄，否則 Lazy 會永久快取失敗。
+			RimeSetup.Reset();
+			Setup = null;
+			AppLog.Error(Ex, "[Rime] 連接失敗");
 			throw;
 		}finally{
 			IsConnecting = false;
-			RaiseConnectCompleted(IsSuccess);
+			RaiseConnectCompleted(Success);
 		}
+		return NIL;
 	}
 
-	/// 通過 Rime API 切換 ascii_mode。
-	public override Task ToggleAsciiModeAsy(CT Ct = default){
-		if(Interlocked.Exchange(ref _IsTogglingAscii, 1) != 0){
-			return Task.CompletedTask;
-		}
-		return Task.Run(() => {
-			try{
-				Ct.ThrowIfCancellationRequested();
-				unsafe{
-					lock(_StateLock){
-						var RimeSetup = GetRimeSetup();
-						var Rime = RimeSetup.apiFn;
-						var SessionId = RimeSetup.rimeSessionId;
-						byte* Option = stackalloc byte[15];
-						WriteAsciiMode(new Span<byte>(Option, 15));
-						var Current = Rime.get_option(SessionId, Option);
-						Rime.set_option(SessionId, Option, Current == RimeUtil.False ? RimeUtil.True : RimeUtil.False);
-					}
-				}
-				SyncStateFromRime();
-			}finally{
-				Interlocked.Exchange(ref _IsTogglingAscii, 0);
-			}
-		}, Ct);
+	[Doc("切換英文模式。")]
+	public override async Task<nil> ToggleAsciiModeAsy(CT Ct = default){
+		await ToggleOptionAsy("ascii_mode", Ct);
+		return NIL;
 	}
 
-	/// 通過 Rime API 切換 simplification。
-	public override Task ToggleSimplificationAsy(CT Ct = default){
-		if(Interlocked.Exchange(ref _IsTogglingSimplification, 1) != 0){
-			return Task.CompletedTask;
-		}
-		return Task.Run(() => {
-			try{
-				Ct.ThrowIfCancellationRequested();
-				unsafe{
-					lock(_StateLock){
-						var RimeSetup = GetRimeSetup();
-						var Rime = RimeSetup.apiFn;
-						var SessionId = RimeSetup.rimeSessionId;
-						byte* Option = stackalloc byte[15];
-						WriteSimplification(new Span<byte>(Option, 15));
-						var Current = Rime.get_option(SessionId, Option);
-						Rime.set_option(SessionId, Option, Current == RimeUtil.False ? RimeUtil.True : RimeUtil.False);
-					}
-				}
-				SyncStateFromRime();
-			}finally{
-				Interlocked.Exchange(ref _IsTogglingSimplification, 0);
-			}
-		}, Ct);
+	[Doc("切換簡繁。")]
+	public override async Task<nil> ToggleSimplificationAsy(CT Ct = default){
+		await ToggleOptionAsy("simplification", Ct);
+		return NIL;
 	}
 
-	/// 每次輸入後從 Rime 抓最新快照，回流到 Core 狀態。
-	void OnAfterInput(object? Sender, IEnumerable<IKeyEvent> Args){
+	[Doc($$"""
+	切換一個 librime option：讀當前值、寫反值，再同步狀態。
+	#Prm[{{nameof(OptionName)}}][option 名，必須是 ASCII 且長度小於 {nameof(OptionNameBufferBytes)}。]
+	#Prm[{{nameof(Ct)}}][取消令牌。]
+	""")]
+	async Task<nil> ToggleOptionAsy(str OptionName, CT Ct){
+		Ct.ThrowIfCancellationRequested();
+		await OptionLock.WaitAsync(Ct);
 		try{
-			var sw = System.Diagnostics.Stopwatch.StartNew();
+			ToggleOptionCore(OptionName);
 			SyncStateFromRime();
-			AppLog.Debug($"[Perf] AvalimeRime.OnAfterInput SyncStateFromRime total: {sw.ElapsedMilliseconds}ms");
-		}catch(Exception Ex){
-			AppLog.Error(Ex, "[AvalimeRime] SyncStateFromRime after input failed");
+		}finally{
+			OptionLock.Release();
 		}
+		return NIL;
 	}
 
-	/// 逆向 P/Invoke 回調只傳 option 名和值，實際狀態同步仍統一回到這裡。
+	[Doc("真正讀寫 librime option 的同步部分；指針操作抽在這裡，因為 async 方法不能位於 unsafe 上下文。")]
+	unsafe void ToggleOptionCore(str OptionName){
+		var Engine = Setup ?? throw KeysErr.Rime.SessionInvalid.ToErr();
+		var Session = Engine.rimeSessionId;
+		if(Session == 0){
+			throw KeysErr.Rime.SessionInvalid.ToErr();
+		}
+		var Buffer = stackalloc byte[OptionNameBufferBytes];
+		WriteOptionName(OptionName, new Span<byte>(Buffer, OptionNameBufferBytes));
+		var Current = Engine.apiFn.get_option(Session, Buffer);
+		Engine.apiFn.set_option(Session, Buffer, Current == RimeUtil.False ? RimeUtil.True : RimeUtil.False);
+	}
+
+	[Doc("把 option 名寫成 NUL 結尾的 UTF-8；超長屬程式錯誤，直接拋參數異常。")]
+	static void WriteOptionName(str OptionName, Span<byte> Buffer){
+		Buffer.Clear();
+		var Count = System.Text.Encoding.UTF8.GetByteCount(OptionName);
+		if(Count + 1 > Buffer.Length){
+			throw KeysErr.Common.ArgErr__.ToErr(nameof(OptionName));
+		}
+		System.Text.Encoding.UTF8.GetBytes(OptionName, Buffer);
+	}
+
+	[Doc("librime 通知的托管端：只認兩個 option，其餘忽略（狀態每次輸入後都會重抓）。")]
 	void OnOptionChanged(str OptionName, bool IsEnabled){
 		try{
 			switch(OptionName){
@@ -159,31 +176,29 @@ public class SvcIme : ISvcIme
 					break;
 			}
 		}catch(Exception Ex){
-			AppLog.Error(Ex, "[AvalimeRime] OnOptionChanged sync failed");
+			AppLog.Error(Ex, "[Rime] option 狀態回寫失敗");
 		}
 	}
 
-	/// 將 Rime session 的 status/context 轉成 Core 狀態。
+	[Doc("從引擎抓一次完整快照；未連接或會話失效時清空狀態。")]
 	unsafe void SyncStateFromRime(){
-		var swTotal = System.Diagnostics.Stopwatch.StartNew();
-		lock(_StateLock){
-			var RimeSetup = GetRimeSetup();
-			var Rime = RimeSetup.apiFn;
-			var SessionId = RimeSetup.rimeSessionId;
-			if(SessionId == 0){
-				IsConnected = false;
-				StatusText = "Rime session 無效";
-				ReplacePreedit("");
-				ReplaceCandidates(new());
-				IsComposing = false;
+		var Engine = Setup;
+		if(Engine is null){
+			ClearState();
+			return;
+		}
+		lock(StateLock){
+			var Rime = Engine.apiFn;
+			var Session = Engine.rimeSessionId;
+			if(Session == 0){
+				ClearState();
 				return;
 			}
-
+			// 1: status：組字／英文／簡繁。
 			var Status = new RimeStatus{
-				data_size = RimeUtil.DataSize<RimeStatus>()
+				data_size = RimeUtil.DataSize<RimeStatus>(),
 			};
-			var swStatus = System.Diagnostics.Stopwatch.StartNew();
-			if(Rime.get_status(SessionId, &Status) != RimeUtil.False){
+			if(Rime.get_status(Session, &Status) != RimeUtil.False){
 				try{
 					IsAsciiMode = Status.is_ascii_mode != RimeUtil.False;
 					IsSimplification = Status.is_simplified != RimeUtil.False;
@@ -192,19 +207,14 @@ public class SvcIme : ISvcIme
 					Rime.free_status(&Status);
 				}
 			}
-			AppLog.Debug($"[Perf] AvalimeRime.SyncStateFromRime get_status: {swStatus.ElapsedMilliseconds}ms");
-
+			// 2: context：preedit 與候選。原生 context 只在 free_context 前有效，故這裡複製成托管快照。
 			var Context = new RimeContext{
-				data_size = RimeUtil.DataSize<RimeContext>()
+				data_size = RimeUtil.DataSize<RimeContext>(),
 			};
-			var swContext = System.Diagnostics.Stopwatch.StartNew();
-			if(Rime.get_context(SessionId, &Context) != RimeUtil.False){
+			if(Rime.get_context(Session, &Context) != RimeUtil.False){
 				try{
-					var swCopy = System.Diagnostics.Stopwatch.StartNew();
 					ReplacePreedit(MkDisplayedPreedit(Context.composition));
-					var page = ReadCandidates(&Context);
-					ReplaceCandidates(page);
-					AppLog.Debug($"[Perf] AvalimeRime.SyncStateFromRime copy_context_to_managed: {swCopy.ElapsedMilliseconds}ms, candidates: {page.Data?.Count ?? 0}");
+					ReplaceCandidates(ReadCandidates(&Context));
 				}finally{
 					Rime.free_context(&Context);
 				}
@@ -212,43 +222,46 @@ public class SvcIme : ISvcIme
 				ReplacePreedit("");
 				ReplaceCandidates(new());
 			}
-			AppLog.Debug($"[Perf] AvalimeRime.SyncStateFromRime get_context: {swContext.ElapsedMilliseconds}ms");
 		}
-		AppLog.Debug($"[Perf] AvalimeRime.SyncStateFromRime total: {swTotal.ElapsedMilliseconds}ms");
 	}
 
-	/// 先按 librime 的 soft cursor 思路，把 composition.preedit 與 cursor_pos 組裝成當前要顯示的 preedit。
-	/// 目前先插入 U+2038 `‸`，優先補齊 Ngan.Ime 缺失的輸入游標顯示。
-	unsafe str MkDisplayedPreedit(RimeComposition composition) {
-		var preedit = ToolCStr.ToCsStr(composition.preedit) ?? "";
-		if(preedit.Length <= 0){
-			return preedit;
-		}
-
-		const str Caret = "\u2038";
-		var cursorPos = composition.cursor_pos;
-		if(cursorPos < 0){
-			cursorPos = 0;
-		}
-		if(cursorPos > preedit.Length){
-			cursorPos = preedit.Length;
-		}
-		return preedit.Insert(cursorPos, Caret);
+	[Doc("清空所有狀態；用於未連接或會話失效。")]
+	void ClearState(){
+		IsConnected = false;
+		ReplacePreedit("");
+		ReplaceCandidates(new());
+		IsComposing = false;
 	}
 
-	/// 在 native context 有效期間把候選詞複製成 Core DTO，包含分頁訊息。
-	unsafe CandidatePage ReadCandidates(RimeContext* Context){
-		var Ans = new List<ICandidate>();
+	[Doc("把 composition.preedit 與 cursor_pos 組成要顯示的 preedit；游標用 U+2038 `‸` 表示。")]
+	static unsafe str MkDisplayedPreedit(RimeComposition Composition){
+		var Preedit = ToolCStr.ToCsStr(Composition.preedit) ?? "";
+		if(Preedit.Length == 0){
+			return Preedit;
+		}
+		var Cursor = Composition.cursor_pos;
+		if(Cursor < 0){
+			Cursor = 0;
+		}
+		if(Cursor > Preedit.Length){
+			Cursor = Preedit.Length;
+		}
+		return Preedit.Insert(Cursor, "\u2038");
+	}
+
+	[Doc("在原生 context 有效期間把候選複製成托管快照（含分頁與高亮）。")]
+	static unsafe CandidatePage ReadCandidates(RimeContext* Context){
+		var Items = new List<ICandidate>();
 		var Menu = Context->menu;
 		for(i32 Index = 0; Index < Menu.num_candidates; Index++){
-			var Candidate = Menu.candidates[Index];
-			Ans.Add(new Candidate{
-				Text = ToolCStr.ToCsStr(Candidate.text) ?? ""
-				, Comment = ToolCStr.ToCsStr(Candidate.comment) ?? ""
+			var One = Menu.candidates[Index];
+			Items.Add(new Candidate{
+				Text = ToolCStr.ToCsStr(One.text) ?? "",
+				Comment = ToolCStr.ToCsStr(One.comment) ?? "",
 			});
 		}
 		return new CandidatePage{
-			Data = Ans,
+			Data = Items,
 			PageIdx = (u64)Menu.page_no,
 			PageSize = (u64)Menu.page_size,
 			IsLastPage = Menu.is_last_page != RimeUtil.False,
@@ -256,15 +269,9 @@ public class SvcIme : ISvcIme
 		};
 	}
 
-	/// 把 ascii_mode 寫入 stackalloc buffer。
-	static void WriteAsciiMode(Span<byte> Buffer){
-		Buffer.Clear();
-		"ascii_mode"u8.CopyTo(Buffer);
-	}
-
-	/// 把 simplification 寫入 stackalloc buffer。
-	static void WriteSimplification(Span<byte> Buffer){
-		Buffer.Clear();
-		"simplification"u8.CopyTo(Buffer);
+	[Doc("釋放時解除靜態事件訂閱，避免單例事件持有已死的服務。")]
+	public override async ValueTask DisposeAsync(){
+		RimeSetup.OnOptionChanged -= OnOptionChanged;
+		await base.DisposeAsync();
 	}
 }

@@ -32,7 +32,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 	/// 普通音频帧不能在尾包发送后继续写入。
 	public async partial Task<nil> SendAudio(ReadOnlyMemory<byte> PcmChunk, CT Ct){
 		if(IsDisposed || IsAudioCompleted){
-			throw new InvalidOperationException("語音識別會話已停止接收音頻");
+			throw new InvalidOperationException("The recognition session no longer accepts audio.");
 		}
 		if(PcmChunk.IsEmpty){
 			return NIL;
@@ -59,7 +59,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		try{
 			await FinalResultCompletion.Task.WaitAsync(LinkedCts.Token);
 		}catch(OperationCanceledException Error) when(TimeoutCts.IsCancellationRequested){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "等待火山語音識別最終結果超時", TraceId: TraceId, InnerException: Error);
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "Timed out waiting for the final recognition result.", TraceId: TraceId, InnerException: Error);
 		}
 		return NIL;
 	}
@@ -85,6 +85,9 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 			}
 		}catch(WebSocketException){
 			Socket.Abort();
+		}catch(OperationCanceledException){
+			// 呼叫方已取消：關閉握手不算失敗，直接放棄連線。
+			Socket.Abort();
 		}
 		Results.Writer.TryComplete();
 		return NIL;
@@ -104,7 +107,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		try{
 			while(!Ct.IsCancellationRequested && Socket.State is WebSocketState.Open or WebSocketState.CloseSent){
 				var Raw = await ReceiveMessage(Ct);
-				var Message = VolcengineProtocolCodec.Decode(Raw);
+				var Message = VolcengineProtocolCodec.Decode(Raw, Options.MaxServerMessageBytes);
 				// 記錄協議元資料與解壓後負載大小，避免把識別文本或任何敏感音頻寫入日誌。
 				AppLog.Debug($"[VoiceInput] Receive frame type={Message.MessageType} flags={Message.Flags} payloadBytes={Message.Payload.Length}");
 				if(Message.MessageType == EVolcengineMessageType.ServerError){
@@ -138,10 +141,10 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		while(true){
 			var Receive = await Socket.ReceiveAsync(Temp, Ct);
 			if(Receive.MessageType == WebSocketMessageType.Close){
-				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "火山語音識別連接已關閉", TraceId: TraceId);
+				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "The recognition WebSocket was closed by the server.", TraceId: TraceId);
 			}
 			if(Receive.MessageType != WebSocketMessageType.Binary || Buffer.WrittenCount + Receive.Count > Options.MaxServerMessageBytes){
-				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Protocol, "火山返回了無效或過大的識別消息", TraceId: TraceId);
+				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Protocol, "The recognition server returned an invalid or oversized message.", TraceId: TraceId);
 			}
 			Temp.AsSpan(0, Receive.Count).CopyTo(Buffer.GetSpan(Receive.Count));
 			Buffer.Advance(Receive.Count);
@@ -158,7 +161,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 			return null;
 		}
 		if(Message.Serialization != EVolcengineSerialization.Json){
-			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Protocol, "火山识别响应不是 JSON", TraceId: TraceId);
+			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Protocol, "The recognition response is not JSON.", TraceId: TraceId);
 		}
 		var Response = JsonSerializer.Deserialize(Message.Payload.Span, VolcengineJsonContext.Default.VolcengineServerResponse);
 		if(Response?.result is null){
@@ -200,7 +203,7 @@ public sealed partial class VolcengineVoiceRecognitionSession{
 		await SendLock.WaitAsync(Ct);
 		try{
 			if(Socket.State != WebSocketState.Open){
-				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "火山語音識別連接不可用", TraceId: TraceId);
+				throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Network, "The recognition connection is not open.", TraceId: TraceId);
 			}
 			await Socket.SendAsync(Message, WebSocketMessageType.Binary, true, Ct);
 		}finally{

@@ -10,8 +10,8 @@ Android 的應用儲存區根目錄：應用的外部私有目錄。
 寫入不需要任何權限，且應用被卸載時由系統一併清理，
 不會在別人的手機上留下垃圾目錄——這是 Android 上放日誌／緩存／下載的事實標準。
 
-*Context 從哪來*：由 {nameof(Application)} 在建構子注入，而不是自己去取靜態的全局 Context。
-理由與 {nameof(Application)} 的註釋一致：那個 Application 實例本來就是現成的 Context，
+*Context 從哪來*：由 {{nameof(Application)}} 在建構子注入，而不是自己去取靜態的全局 Context。
+理由與 {{nameof(Application)}} 的註釋一致：那個 Application 實例本來就是現成的 Context，
 再去找一個靜態全域的等於多一個不必要的全局狀態。
 
 #Eg[

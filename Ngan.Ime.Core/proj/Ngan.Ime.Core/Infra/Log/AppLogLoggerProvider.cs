@@ -4,13 +4,13 @@ using Microsoft.Extensions.Logging;
 using Tsinswreng.CsCore;
 
 [Doc($$"""
-把容器裡產生的一切日誌（含泛型分類版）都導向 {nameof(AppLog)} 的日誌提供者。
+把容器裡產生的一切日誌（含泛型分類版）都導向 {{nameof(AppLog)}} 的日誌提供者。
 
 *沒有它會怎樣*：`AddLogging` 預設自己造一條出口（例如主控台），
-於是「注入取得的日誌」與「直接調 {nameof(AppLog)} 的日誌」會分岔到兩處，排錯時看到的是殘缺的兩半。
+於是「注入取得的日誌」與「直接調 {{nameof(AppLog)}} 的日誌」會分岔到兩處，排錯時看到的是殘缺的兩半。
 
 *分類前綴*：容器按型別全名建立分類，本提供者把分類名綴在訊息前，
-故日誌行能看出是哪個類別寫的。直接調 {nameof(AppLog)}.Inst 的路徑沒有分類，這是預期差異。
+故日誌行能看出是哪個類別寫的。直接調 {{nameof(AppLog)}}.Inst 的路徑沒有分類，這是預期差異。
 """)]
 public sealed class AppLogLoggerProvider : ILoggerProvider {
 	[Doc("容器與 AddLogging 共用的唯一實例；本類無狀態，故不必每次 new。")]
@@ -19,7 +19,7 @@ public sealed class AppLogLoggerProvider : ILoggerProvider {
 	[Doc($$"""
 	建立指定分類的日誌器。
 	#Prm[{{nameof(CategoryName)}}][分類名。容器傳入的是型別全名，例如 `Ngan.Ime.UI.Views.Key.VmKey`。]
-	#Rtn[把分類名綴在訊息前、其餘行為照舊轉發的 {nameof(ILogger)}。]
+	#Rtn[把分類名綴在訊息前、其餘行為照舊轉發的 {{nameof(ILogger)}}。]
 	""")]
 	public ILogger CreateLogger(str CategoryName) {
 		return new CategoryAppLog(CategoryName);

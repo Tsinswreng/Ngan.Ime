@@ -1,45 +1,30 @@
-using Ngan.Ime.UI.Infra;
-using Avalonia.Controls;
-using Avalonia.Data;
-using Avalonia.Media;
-
 namespace Ngan.Ime.UI.Views.Input;
-using Ctx = VmInput;
 
-public class ViewInput : AppViewBase<Ctx>
-	, IDisposable
-{
-	public ViewInput(){
-		Ctx = Di.DiOrMk<Ctx>();
-		AppLog.Info($"[Life] ViewInput ctor view#{GetHashCode()} vm#{Ctx?.GetHashCode()}");
-		Render();
-	}
+using Avalonia.Controls;
+using Avalonia.Media;
+using Ngan.Ime.UI.Infra;
+using Tsinswreng.CsCore;
 
-	GridStack Root = new(IsRow: true);
+[Doc($$"""
+預編輯列：一行可折行的文字，讀取 {{nameof(VmInput.Text)}}。
 
-	void Render(){
-		var keyboardFont = UiCfg.Inst.KeyboardFontFamily;
-		this.SetContent(Root.Grid);
-		Root.Grid.Background = Brushes.Black;
-		Root
-		.A(new WrapPanel(), wp=>{
-			wp.Background = Brushes.Black;
-			wp.VerticalAlignment = VAlign.Center;
-			wp.Margin = new (0);
-			wp.A(new TextBlock(), o=>{
-				if(keyboardFont is not null) o.FontFamily = keyboardFont;
-				o.Foreground = Brushes.White;
-				o.FontSize = UiCfg.Inst.PreeditFontSize;
-				o.Margin = new(4, 1, 0, 1);
-				o.VerticalAlignment = VAlign.Center;
-				Ctx.Bind(o, x=>x.Text, x=>x.Text, Mode: BindingMode.TwoWay);
-			});
-		});
-	}
+*為何用 WrapPanel*：預編輯可能很長（整句拼音），需要在窄寬度下自動折行而不是被裁掉；
+`TextBlock` 本身支援 `TextWrapping`，包一層面板是為了留邊距與垂直居中。
 
-	public void Dispose()
-	{
-		AppLog.Info($"[Life] ViewInput dispose view#{GetHashCode()} vm#{Ctx?.GetHashCode()}");
-		(Ctx as IDisposable)?.Dispose();
-	}
+#Eg[
+	```cs
+	var View = new ViewInput();
+	```
+]
+""")]
+public partial class ViewInput : AppViewBase<VmInput>, IDisposable{
+
+	[Doc("預編輯文字控件；公開以便設計時檢查。")]
+	public TextBlock? _Text;
+
+	[Doc("建立控件樹。")]
+	protected override partial object Build(VmInput vm);
+
+	[Doc("釋放 ViewModel 的事件訂閱。")]
+	public partial void Dispose();
 }

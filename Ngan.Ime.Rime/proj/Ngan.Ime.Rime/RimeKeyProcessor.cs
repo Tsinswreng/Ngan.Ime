@@ -1,74 +1,91 @@
 using Ngan.Ime.Core.Keys;
-using Microsoft.Extensions.DependencyInjection;
 using Rime.Api;
+using Rime.Api.Types;
+using Tsinswreng.CsCore;
 using Tsinswreng.CsInterop;
 
 namespace Ngan.Ime.Rime;
 
 
-unsafe public class RimeKeyProcessor
-	: IImeKeyProcessor
-{
+[Doc($$"""
+把 Core 的按鍵事件送進 librime 並收集結果。
+
+*一次一批*：{{nameof(IImeKeyProcessor)}} 的契約是一批鍵一起處理，故這裡逐鍵 `process_key`、
+逐鍵 `get_commit`；上屏文本與未處理鍵分別累積到回傳值。
+
+*Enter 的雙重語義*：某些方案會用 Enter 提交候選（產生 commit），此時不能再把同一顆 Enter
+當成「未處理鍵」交還給宿主，否則宿主會同時收到上屏文本與 Enter 鍵——等於提交兩次。
+這裡用 `suppressUnhandledEnter` 記住「本批的 Enter 已產生 commit」，只影響 Enter 本身。
+
+*日誌*：熱路徑只留 Trace；舊版每鍵兩條 Debug + 兩個 Stopwatch，一次按鍵就十幾條日誌。
+""")]
+unsafe public class RimeKeyProcessor : IImeKeyProcessor {
+
+	[Doc("取引擎單例的工廠；由 DI 注入，避免本類直接依賴靜態單例（可測性）。")]
+	readonly Func<RimeSetup> GetRimeSetup;
+
+	[Doc("錯誤事件；本實現目前不主動觸發（原生崩潰不可捕獲），保留供宿主統一掛接。")]
 	public event ErrHandler? OnErr;
-	readonly IServiceProvider _SvcProvider;
-	RimeSetup? _RimeSetup;
-	public RimeKeyProcessor(IServiceProvider svcProvider) {
-		_SvcProvider = svcProvider;
+
+	[Doc($$"""
+	建立處理器。
+	#Prm[{{nameof(GetRimeSetup)}}][延遲取引擎的工廠：真正初始化留到第一次按鍵或明顯的預熱時機。]
+	""")]
+	public RimeKeyProcessor(Func<RimeSetup> GetRimeSetup){
+		this.GetRimeSetup = GetRimeSetup;
 	}
 
-	RimeSetup GetRimeSetup() {
-		_RimeSetup ??= _SvcProvider.GetRequiredService<RimeSetup>();
-		return _RimeSetup;
-	}
+	[Doc("逐鍵送進 librime，收集 commit 與未處理鍵。")]
+	public Task<IRespOnKeyEvent> OnKeyEvents(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
+		var Resp = new RespOnKeyEvent();
+		var Setup = GetRimeSetup();
+		var Rime = Setup.apiFn;
+		var Session = Setup.rimeSessionId;
+		if(Session == 0){
+			throw KeysErr.Rime.SessionInvalid.ToErr();
+		}
 
-	public async Task<IRespOnKeyEvent> OnKeyEvents(IEnumerable<IKeyEvent> KeyEvents, CT Ct) {
-		var sw = System.Diagnostics.Stopwatch.StartNew();
-		AppLog.Debug($"[Perf] RimeKeyProcessor start: {sw.ElapsedMilliseconds}ms");
-		var resp = new RespOnKeyEvent();
-		var rimeSetup = GetRimeSetup();
-		var rime = rimeSetup.apiFn;
-		var suppressUnhandledEnterForBatch = false;
-		foreach (var keyEvent in KeyEvents) {
-			var tuple = RimeKeyCharConverter.Inst.Convert(keyEvent);
+		foreach(var KeyEvent in KeyEvents){
+			Ct.ThrowIfCancellationRequested();
+			var Key = RimeKeyCharConverter.Inst.Convert(KeyEvent);
+			var Handled = Rime.process_key(Session, Key.Code, Key.Mask);
+			var HasCommit = TryTakeCommit(Rime, Session, Resp);
+			AppLog.Trace($"[Rime] key {KeyEvent.KeyChar.Name} down={KeyEvent.KeyState.IsKeyDown} handled={Handled}");
 
-			var swPk = System.Diagnostics.Stopwatch.StartNew();
-			var handled = rime.process_key(
-				rimeSetup.rimeSessionId
-				,tuple.Item1
-				,tuple.Item2
-			);
-			AppLog.Debug($"[Perf] RimeKeyProcessor process_key({keyEvent.KeyChar.Name}, {(keyEvent.KeyState.IsKeyDown?"Down":"Up")}): {swPk.ElapsedMilliseconds}ms, handled={handled}");
-
-			// 檢查 commit 這裏的commit是沒有進translator 出候選那種 直接在processor階段就上屏的
-			var swCommit = System.Diagnostics.Stopwatch.StartNew();
-			var commit = new RimeCommit();
-			commit.data_size = RimeUtil.DataSize<RimeCommit>();
-			var hasCommitText = false;
-			if(rime.get_commit(rimeSetup.rimeSessionId, &commit) != RimeUtil.False){
-				var text = ToolCStr.ToCsStr(commit.text);
-				if(!string.IsNullOrEmpty(text)){
-					hasCommitText = true;
-					resp.Commits.Add(text);
-				}
-				rime.free_commit(&commit);
-			}
-			AppLog.Debug($"[Perf] RimeKeyProcessor get_commit: {swCommit.ElapsedMilliseconds}ms");
-
-			var isEnterKey = keyEvent.KeyChar.Name == nameof(KeyChars.Enter);
-			if(isEnterKey && hasCommitText){
-				suppressUnhandledEnterForBatch = true;
-			}
-
-			// 當 Enter 已經在本批次內產生 commit 時，
-			// 這一輪的 Enter 不應再作為原生按鍵 fallback 給宿主；
-			// 否則宿主會同時收到 CommitText 與 KeyEvent(Enter) 兩套語義。
-			var shouldFallbackToOs = handled == RimeUtil.False
-				&& !(isEnterKey && suppressUnhandledEnterForBatch);
-			if(shouldFallbackToOs){
-				resp.UnhandledKeys.Add(keyEvent);
+			// Enter 已在本批產生 commit 時，把它從「未處理」裡拿掉（見類註釋）。
+			var IsEnter = KeyEvent.KeyChar.Equals(KeyChars.Enter);
+			var Suppress = IsEnter && HasCommit;
+			if(Handled == RimeUtil.False && !Suppress){
+				Resp.UnhandledKeys.Add(KeyEvent);
 			}
 		}
-		AppLog.Debug($"[Perf] RimeKeyProcessor total: {sw.ElapsedMilliseconds}ms, unhandled: {resp.UnhandledKeys.Count}");
-		return resp;
+		return Task.FromResult<IRespOnKeyEvent>(Resp);
+	}
+
+	[Doc($$"""
+	取走本鍵產生的 commit 文本（若有）；無論成功與否都要 `free_commit`。
+	#Prm[{{nameof(Rime)}}][函數表。]
+	#Prm[{{nameof(Session)}}][會話 id。]
+	#Prm[{{nameof(Resp)}}][累積結果。]
+	#Rtn[本鍵是否產生了非空 commit。]
+	""")]
+	static bool TryTakeCommit(RimeApi Rime, RimeSessionId Session, RespOnKeyEvent Resp){
+		var Commit = new RimeCommit{
+			data_size = RimeUtil.DataSize<RimeCommit>(),
+		};
+		if(Rime.get_commit(Session, &Commit) == RimeUtil.False){
+			return false;
+		}
+		var HasText = false;
+		try{
+			var Text = ToolCStr.ToCsStr(Commit.text);
+			if(!string.IsNullOrEmpty(Text)){
+				Resp.Commits.Add(Text);
+				HasText = true;
+			}
+		}finally{
+			Rime.free_commit(&Commit);
+		}
+		return HasText;
 	}
 }

@@ -65,6 +65,10 @@ public class SvcIme : SvcImeBase {
 		this.GetRimeSetup = GetRimeSetup;
 		// option 變更由 librime 主動通知（方案裡切換、快捷鍵等），故狀態要能從該回調同步回來。
 		RimeSetup.OnOptionChanged += OnOptionChanged;
+		// 每批按鍵處理完就從 librime 重抓一次狀態。
+		// 少了這一行，Preedit／Candidates 永遠停在連接時的快照：
+		// 宿主會以為「這顆鍵沒產生任何東西」而放行，症狀就是「打 a 直接上屏 a、候選框不彈」。
+		AfterInput += OnAfterInputSync;
 	}
 
 	[Doc("連接（或重試連接）引擎；成功後立刻同步一次狀態。")]
@@ -110,6 +114,11 @@ public class SvcIme : SvcImeBase {
 			RaiseConnectCompleted(Success);
 		}
 		return NIL;
+	}
+
+	[Doc("每批按鍵處理完後同步狀態；在消費迴圈的線程上呼叫，故與按鍵處理天然串行。")]
+	void OnAfterInputSync(obj? Sender, IEnumerable<IKeyEvent> Keys){
+		SyncStateFromRime();
 	}
 
 	[Doc("切換英文模式。")]
@@ -180,9 +189,12 @@ public class SvcIme : SvcImeBase {
 		}
 	}
 
-	[Doc("從引擎抓一次完整快照；未連接或會話失效時清空狀態。")]
+	[Doc("從引擎抓一次完整快照；未連接時先按需初始化，會話失效則清空狀態。")]
 	unsafe void SyncStateFromRime(){
-		var Engine = Setup;
+		// 按需初始化：宿主可能沒呼叫 ConnectAsy 就直接送鍵（TSF 外殼就是這樣，
+		// 按鍵由 RimeKeyProcessor 自己觸發引擎初始化）。若這裡堅持要求已連接，
+		// 狀態會永遠停在空的快照上——症狀是「按鍵有效、但 preedit 與候選永遠不出現」。
+		var Engine = Setup ??= GetRimeSetup();
 		if(Engine is null){
 			ClearState();
 			return;
@@ -269,8 +281,9 @@ public class SvcIme : SvcImeBase {
 		};
 	}
 
-	[Doc("釋放時解除靜態事件訂閱，避免單例事件持有已死的服務。")]
+	[Doc("釋放時解除訂閱（自身事件與單例的靜態事件），避免已死的服務仍被回調。")]
 	public override async ValueTask DisposeAsync(){
+		AfterInput -= OnAfterInputSync;
 		RimeSetup.OnOptionChanged -= OnOptionChanged;
 		await base.DisposeAsync();
 	}

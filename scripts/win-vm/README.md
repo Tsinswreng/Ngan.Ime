@@ -56,3 +56,19 @@ guest 端需要先有一次性的目錄與 Rime 資源（`C:\NganImeVm\rime\rime
 
 下面的 `register-install-start.ps1` 等仍是底層零件；`DeployWinVm` 不依賴它們，
 只在需要手動排查時單獨使用。
+
+## 已踩過的坑（改這支命令前先看）
+
+- `vmrun` 在 session 0 起的 `cmd.exe` 一律以 1 結束、且沒有任何輸出；同一條路徑上的
+  `powershell.exe` 正常。故 guest 端一律用 PowerShell，不要用 `cmd /c`。
+- `runProgramInGuest … powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ps1>`
+  在我們的呼叫路徑上會「瞬間回 1、腳本第一行都沒跑到」；改成
+  `-Command "& '<ps1>'; exit $LASTEXITCODE"` 即正常。
+- `copyFileFromHostToGuest` 偶爾「回 0 但沒寫檔」或「寫完不返回」。故每次複製後都用
+  guest 端 PowerShell 比對檔案大小，逾時會殺掉子行程並重試一次。
+- 部署包裡的 `Ngan.Ime.Rw.jsonc` 是主機上的配置（`D:/Program Files/Rime/...`），
+  直接用會得到 `DllNotFoundException` 並讓宿主當場退出；`deploy.ps1` 會在 guest 內
+  把 `DllPath`／`user_data_dir`／`log_dir` 改寫成本機路徑。
+- 宿主的 TSF 管道是「一請求一連線」，同一條連線送第二個請求會得到「管道已中斷」。
+- guest 端 `.ps1` 必須存成 **帶 BOM 的 UTF-8**：Windows PowerShell 5.1 對無 BOM 的
+  檔案用 ANSI 解碼，中文註釋會變成亂碼並吞掉引號，整份腳本語法錯誤。

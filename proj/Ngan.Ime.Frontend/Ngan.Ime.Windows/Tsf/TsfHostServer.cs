@@ -17,8 +17,8 @@ TSF 外殼的宿主端：按鍵經具名管道送進來，交給引擎處理，�
 外殼端（`Ngan.Ime.Tsf.Windows`）是另一份獨立實現，改協議時兩邊必須同步；
 本版尚未帶協議版本號，故只能成對升級。
 
-*為何按鍵要成對送*：請求只帶「系統按下的那顆鍵」，但引擎需要看到按下與擡起兩個事件，
-否則修飾鍵與 Enter/Space 的狀態會殘留。故這裡在一個請求內補出 Down ＋ Up。
+*為何只送 KeyDown*：TSF 外殼攔的是「按下」；引擎只要看到按下就能更新 preedit 與候選。
+補送 Up 會被 Rime 判成未處理鍵，再被轉發回系統，等於同一顆鍵被應用收兩次。
 
 *AOT*：鍵名表直接取自 {{nameof(KeyChars)}} 的手寫登記表（`KeyChars.ByName`），
 不再用 `typeof(KeyChars).GetProperties()` 反射——那在 NativeAOT 裁剪後會得到空表，
@@ -50,9 +50,20 @@ public static class TsfHostServer{
 	[Doc("唯一的候選窗；在 UI 線程建立與更新。")]
 	static TsfCandidateWindow? Window;
 
-	[Doc("啟動管道監聽迴圈（背景）。")]
+	[Doc("啟動管道監聽迴圈並連接引擎（背景）。")]
 	public static void Start(){
 		_ = Task.Run(AcceptLoopAsy);
+		// 主動連接一次：讓 IsConnected 與界面狀態反映真實情況；
+		// 就算這裡失敗，之後的按鍵仍會由 RimeKeyProcessor 按需初始化引擎。
+		_ = Task.Run(async () => {
+			try{
+				if(Di.SvcProviderOrNull?.GetService<IImeInput>() is {} Input){
+					await Input.ConnectAsy();
+				}
+			}catch(Exception Ex){
+				AppLog.Error(Ex, "[TsfHost] 連接引擎失敗，將在首次按鍵時重試");
+			}
+		});
 	}
 
 	[Doc("持續接受連線；每條連線交給一個背景任務。")]
@@ -141,10 +152,10 @@ public static class TsfHostServer{
 			if((Mods & 4) != 0){
 				Board.AllDownKeys.Add(KeyChars.Alt_L);
 			}
-			// 成對送出：引擎需要看到按下與擡起，否則前臺應用的修飾鍵狀態會殘留。
+			// 只送 KeyDown：引擎只需要「按下」就能更新 preedit 與候選；
+			// 送 Up 反而會被判定為「未處理」再轉發給系統，造成同一顆鍵被應用再收一次。
 			await Svc.Input([
 				new KeyEvent{ KeyChar = Key, KeyState = KeyStates.Down, KeyBoardState = Board },
-				new KeyEvent{ KeyChar = Key, KeyState = KeyStates.Up, KeyBoardState = Board },
 			], CancellationToken.None);
 		}catch(Exception Ex){
 			AppLog.Error(Ex, "[TsfHost] 送鍵失敗");

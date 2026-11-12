@@ -459,3 +459,6 @@ TestAvln12
 
 
 .Private/*
+
+# DeployWinVm 的 staging 產物與抓回的日誌（可重建）
+scripts/win-vm/out/

@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-	<!-- 具體依賴（本地庫、日誌套件、CommunityToolkit）一律寫在
-	     ../Directory.Build.props：這是本模組所有專案共用的地基。本檔只描述專案自己。 -->
-	<PropertyGroup>
-		<OutputType>Library</OutputType>
-	</PropertyGroup>
-
-</Project>

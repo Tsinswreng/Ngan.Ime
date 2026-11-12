@@ -30,11 +30,11 @@ Get-GuestProcesses | Select-String 'Ngan.Ime'
 
 ## 一鍵部署（推薦）
 
-日常「改完代碼 → 去 VM 試」用這一個命令（實作在 `Ngan.Ime.Frontend/proj/Ngan.Ime.Scripts`，CsSh 寫的）：
+日常「改完代碼 → 去 VM 試」用這一個命令（實作在 `proj/Ngan.Ime.Scripts`，CsSh 寫的）：
 
 ```powershell
 # 在 Ngan.Ime/ 下
-dotnet run --project Ngan.Ime.Frontend/proj/Ngan.Ime.Scripts -- DeployWinVm
+dotnet run --project proj/Ngan.Ime.Scripts -- DeployWinVm
 ```
 
 它會：確認 VM（`-StartVm` 時自動開機）→ 增量建置三個產物（TSF x64／註冊工具 x64／宿主 x86）

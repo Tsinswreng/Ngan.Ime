@@ -1,0 +1,25 @@
+<Project>
+	<!-- 前端（Avalonia 相關）專案的共同設定。
+		 注意：MSBuild 只會自動匯入「最近一份」Directory.Build.props，
+		 故這裡必須顯式再匯入 proj/Directory.Build.props，否則 TFM、本地庫、
+		 類型別名都會消失。 -->
+	<Import Project="$(MSBuildThisFileDirectory)../Directory.Build.props" />
+
+	<PropertyGroup>
+		<!-- 前端全域不開 AOT；只有 Windows／Desktop 兩個頭在自己的 csproj 打開。 -->
+		<PublishAot>false</PublishAot>
+
+		<!-- Avalonia 與 Markup.Declarative 的版本只寫這裡，各專案用屬性引用，
+			 避免多個專案各寫一個數字而漂移。 -->
+		<AvaloniaVersion>12.1.6</AvaloniaVersion>
+		<MarkupDeclarativeVersion>12.1.1</MarkupDeclarativeVersion>
+		<MarkupDeclarativeGeneratorVersion>12.1.0</MarkupDeclarativeGeneratorVersion>
+		<MicrosoftExtensionsVersion>10.0.8</MicrosoftExtensionsVersion>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- 前端各層都可見 Core 的抽象與基礎設施；全域 using 也在這裡一次引入。 -->
+		<Compile Include="$(MSBuildThisFileDirectory)../_shared/GlobalUsing.cs" />
+		<ProjectReference Include="$(MSBuildThisFileDirectory)../Ngan.Ime.Core/Ngan.Ime.Core.csproj" />
+	</ItemGroup>
+</Project>

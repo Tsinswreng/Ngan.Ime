@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<!-- 引擎適配層直接持有原生指針，故與 Core 一樣開 AOT 分析。 -->
+		<PublishAot>true</PublishAot>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="../_shared/GlobalUsing.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Core 抽象；Rime.Api 是原生 ABI 的托管鏡像（不在 TswgLib，故單獨引用）。 -->
+		<ProjectReference Include="..\Ngan.Ime.Core\Ngan.Ime.Core.csproj" />
+		<ProjectReference Include="..\..\..\CsRimeApi\proj\Rime.Api\Rime.Api.csproj" />
+	</ItemGroup>
+
+</Project>

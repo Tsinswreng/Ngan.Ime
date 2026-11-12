@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<Nullable>enable</Nullable>
+		<LangVersion>latest</LangVersion>
+		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- 界面一律用 Avalonia.Markup.Declarative 的純 C# 聲明式寫法；
+		     生成器（Roslyn4 版）提供 .Text(vm, x=>x.X) 這類強型別鏈式方法。 -->
+		<PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
+		<PackageReference Include="Avalonia.Markup.Declarative" Version="$(MarkupDeclarativeVersion)" />
+		<PackageReference Include="MarkupDeclarative.Roslyn4" Version="$(MarkupDeclarativeGeneratorVersion)" PrivateAssets="all" />
+		<PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
+			<IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+		</PackageReference>
+
+		<!-- ViewModel 基類（ObservableObject）：只出現在界面層，Core 不依賴它。 -->
+		<!-- 與本地 Tsinswreng.Avln.Grid 宣告的下限一致（8.4.2），否則 NU1605 降級。 -->
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+
+		<!-- 本地 Avln.Grid：提供自動落號的 StackGrid；走專案引用而非 NuGet，
+		     避免本地庫改動後界面還用舊 DLL。 -->
+		<ProjectReference Include="..\..\..\..\TswgLib\Avln.Grid\proj\Tsinswreng.Avln.Grid\Tsinswreng.Avln.Grid.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<AvaloniaResource Include="Assets\**" />
+	</ItemGroup>
+</Project>

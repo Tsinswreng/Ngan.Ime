@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<PublishAot>false</PublishAot>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="../_shared/GlobalUsing.cs" />
+	</ItemGroup>
+
+	<PropertyGroup>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Ngan.Ime.Core\Ngan.Ime.Core.csproj" />
+		<ProjectReference Include="..\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
+		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.UI\Ngan.Ime.UI.csproj" />
+		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.Backend\Ngan.Ime.Backend.csproj" />
+	</ItemGroup>
+</Project>

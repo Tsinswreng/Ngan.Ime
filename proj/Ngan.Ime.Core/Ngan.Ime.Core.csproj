@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<!-- Core 是 AOT 的最底層：開著 PublishAot 讓 AOT 分析器在本專案就報警，
+			 而不是等宿主發布時才發現不相容。 -->
+		<PublishAot>true</PublishAot>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="../_shared/GlobalUsing.cs" />
+	</ItemGroup>
+
+	<!-- 本地庫、日誌套件等具體依賴一律在 ../Directory.Build.props：那是整個 proj/ 的地基。 -->
+</Project>

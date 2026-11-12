@@ -1,0 +1,42 @@
+{
+	"Librime": {
+		"AutoLinkDll": false,
+		"DllPath": "D:/Program Files/Rime/Ngan.Ime/bin/rime.dll",
+		"RimeTraits": {
+			"user_data_dir": "D:/Program Files/Rime/Ngan.Ime/UserData",
+			"distribution_code_name": "Tsinswreng.Ngan.Ime.Windows",
+			"app_name": "Tsinswreng.Ngan.Ime.Windows",
+			"log_dir": "D:/Program Files/Rime/Ngan.Ime/Log"
+		}
+	},
+	"Keyboard": {
+		"Font": {
+			"Path": "",
+			"Family": "孤鹜 筑紫明朝",
+			"BaseFontSize": 32.0
+		}
+	},
+	"VoiceInput": {
+		"Audio": {
+			"SampleRate": 16000,
+			"Channels": 1,
+			"BitsPerSample": 16,
+			"ChunkDurationMs": 200,
+			"MaxBufferedChunks": 32
+		},
+		"Volcengine": {
+			"ApiKey": "",
+			"AppId": "",
+			"AccessToken": "",
+			"Endpoint": "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+			"ResourceId": "volc.bigasr.sauc.duration",
+			"ModelName": "bigmodel",
+			"ConnectTimeoutMs": 10000,
+			"FinalResultTimeoutMs": 15000,
+			"MaxServerMessageBytes": 1048576,
+			"EnablePunctuation": true,
+			"EnableInverseTextNormalization": true,
+			"ShowUtterances": true
+		}
+	}
+}

@@ -1,0 +1,47 @@
+<Project>
+	<!-- 本地庫路徑屬性 TswgLibsDir，定義在倉庫根 TswgLibs.props。
+		 本檔是整個 proj/ 的共同地基，故只導入一次。 -->
+	<Import Project="$(MSBuildThisFileDirectory)../TswgLibs.props" />
+
+	<!-- 所有專案共用的編譯設定。個別專案（Core／Rime／GUI 頭）只在必要時覆寫。 -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<LangVersion>latest</LangVersion>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+		<!-- 全域不開 PublishAot：只有需要 NativeAOT 的專案（Core／Rime／Windows／TSF）
+			 在自己的 csproj 打開。開在這裡會讓 Android／Browser 還原時去找桌面版 ILCompiler。 -->
+		<PublishAot>false</PublishAot>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- 類型別名（i32／str／nil…）全專案共用；全域 using 由各自專案按需引入
+			 （Scripts／Doc 不需要 Ngan.Ime.Infra.* 這些命名空間）。 -->
+		<Compile Include="$(MSBuildThisFileDirectory)_shared/TypeAlias.cs" />
+	</ItemGroup>
+
+	<!-- ── 本地基礎庫 ──
+		 一律走 ProjectReference（NuGet 上的 0.0.1-alpha 與本地 API 已對不上）。
+		 換版本、加庫只改這一處，不會出現某個專案還引用舊路徑。 -->
+	<ItemGroup>
+		<ProjectReference Include="$(TswgLibsDir)CsCore/proj/Tsinswreng.CsCore/Tsinswreng.CsCore.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsLog/proj/Tsinswreng.CsLog/Tsinswreng.CsLog.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsKeyNode/proj/Tsinswreng.CsKeyNode/Tsinswreng.CsKeyNode.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsCfg/proj/Tsinswreng.CsCfg/Tsinswreng.CsCfg.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsCfg/proj/Tsinswreng.CsCfg.Json/Tsinswreng.CsCfg.Json.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsErr/proj/Tsinswreng.CsErr/Tsinswreng.CsErr.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsJson/proj/Tsinswreng.CsJson/Tsinswreng.CsJson.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsPage/proj/Tsinswreng.CsPage/Tsinswreng.CsPage.csproj" />
+		<ProjectReference Include="$(TswgLibsDir)CsInterop/proj/Tsinswreng.CsInterop/Tsinswreng.CsInterop.csproj" />
+	</ItemGroup>
+
+	<!-- 依賴注入與日誌抽象：各層都會用，版本集中在此。 -->
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
+	</ItemGroup>
+</Project>

@@ -87,28 +87,34 @@ public static class TsfHostServer{
 		}
 	}
 
-	[Doc("服務一條連線：讀一行請求、處理、回一行回應。")]
+	[Doc("服務一條連線：逐行讀請求、處理、回一行；連線關閉才結束。")]
 	static async Task ServeAsy(NamedPipeServerStream Server){
 		using(Server){
 			try{
 				using var Reader = new StreamReader(Server, Encoding.UTF8, leaveOpen: true);
 				using var Writer = new StreamWriter(Server, new UTF8Encoding(false), leaveOpen: true){ AutoFlush = true };
-				var Line = await Reader.ReadLineAsync();
-				if(Line is null){
-					return;
+				// 一條連線可送多個請求：外殼端是「連一次、之後每顆鍵復用」，
+				// 只處理一行就關閉會讓下一次寫入直接失敗（實測：每兩顆鍵就掉一次）。
+				while(true){
+					var Line = await Reader.ReadLineAsync();
+					if(Line is null){
+						return;
+					}
+					string Reply;
+					await EngineLock.WaitAsync();
+					try{
+						Reply = await HandleAsync(Line);
+					}finally{
+						EngineLock.Release();
+					}
+					await Writer.WriteLineAsync(Reply);
+					await Writer.FlushAsync();
 				}
-				string Reply;
-				await EngineLock.WaitAsync();
-				try{
-					Reply = await HandleAsync(Line);
-				}finally{
-					EngineLock.Release();
-				}
-				await Writer.WriteLineAsync(Reply);
-				await Writer.FlushAsync();
-				Server.WaitForPipeDrain();
+			}catch(IOException){
+				// 客戶端正常斷線（外殼端換行程、使用者切換輸入法）會走到這裡，不是錯誤。
+				AppLog.Trace("[TsfHost] 連線結束（客戶端斷線）");
 			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfHost] 處理連線失敗");
+				AppLog.Error(Ex, "[TsfHost] 連線異常結束");
 			}
 		}
 	}
@@ -138,9 +144,7 @@ public static class TsfHostServer{
 			return EmptyReply();
 		}
 
-		var Commits = new List<str>();
-		void OnCommit(obj? Sender, str Text) => Commits.Add(Text);
-		Svc.OnCommit += OnCommit;
+		IRespOnKeyEvent Resp;
 		try{
 			var Board = new KeyBoardState{ AllDownKeys = new HashSet<IKeyChar>() };
 			if((Mods & 1) != 0){
@@ -152,41 +156,30 @@ public static class TsfHostServer{
 			if((Mods & 4) != 0){
 				Board.AllDownKeys.Add(KeyChars.Alt_L);
 			}
-			// 只送 KeyDown：引擎只需要「按下」就能更新 preedit 與候選；
-			// 送 Up 反而會被判定為「未處理」再轉發給系統，造成同一顆鍵被應用再收一次。
-			await Svc.Input([
+			// 只送 KeyDown：引擎只需要「按下」就能更新 preedit 與候選。
+			// 全部按鍵都交給引擎，由它回報「哪些沒被吃掉」，這裡再據此回 IsEaten。
+			Resp = await Svc.Input([
 				new KeyEvent{ KeyChar = Key, KeyState = KeyStates.Down, KeyBoardState = Board },
 			], CancellationToken.None);
 		}catch(Exception Ex){
 			AppLog.Error(Ex, "[TsfHost] 送鍵失敗");
 			return EmptyReply();
-		}finally{
-			Svc.OnCommit -= OnCommit;
 		}
 
+		var Commits = Resp.Commits.ToList();
 		var Preedit = State.Preedit ?? "";
 		var Page = State.Candidates;
-		var Eaten = Commits.Count > 0 || !string.IsNullOrEmpty(Preedit) || (Page.Data?.Count ?? 0) > 0;
+		// Eaten 的唯一判據：引擎把所有鍵都吃掉了。
+		// 不能用「有沒有 preedit／候選」來判斷——退格刪到空、Escape 取消組字這類按鍵
+		// 引擎吃掉了卻不留下任何狀態，用狀態判斷會把它們放行給應用，等於同時刪兩次。
+		var Eaten = Resp.UnhandledKeys.Count == 0;
 		PostUpdate(Preedit, Page, X, Y);
 		return BuildReply(Eaten, Preedit, Page, Commits);
 	}
 
-	[Doc("把虛擬鍵碼還原成鍵；目前只覆蓋「按鍵本身能表達」的鍵，其餘回 null（未吃掉）。")]
+	[Doc("把虛擬鍵碼還原成鍵；未登記的鍵回 null（回報「沒吃掉」，由系統交給前景應用）。")]
 	static IKeyChar? Resolve(i32 Vk){
-		str? Name = Vk switch {
-			>= 0x41 and <= 0x5A => ((char)('a' + Vk - 0x41)).ToString(),
-			>= 0x30 and <= 0x39 => ((char)('0' + Vk - 0x30)).ToString(),
-			0x20 => " ",
-			0x08 => nameof(KeyChars.Backspace),
-			0x0D => nameof(KeyChars.Enter),
-			0x09 => nameof(KeyChars.Tab),
-			0x1B => null,
-			_ => null,
-		};
-		if(Name is null){
-			return null;
-		}
-		return KeyChars.Find(Name);
+		return KeyEventConverter.Inst.KeyByVk.GetValueOrDefault(Vk);
 	}
 
 	[Doc("沒吃掉任何東西的空回應。")]

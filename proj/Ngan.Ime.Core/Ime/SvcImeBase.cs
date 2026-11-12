@@ -147,10 +147,9 @@ public abstract class SvcImeBase
 		}
 	}
 
-	[Doc("同步處理一批按鍵（不經佇列）；失敗時拋。")]
-	public async Task<nil> Input(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
-		await InputCoreAsy(KeyEvents, Ct);
-		return NIL;
+	[Doc("同步處理一批按鍵（不經佇列）並回傳引擎回應；失敗時拋。")]
+	public async Task<IRespOnKeyEvent> Input(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
+		return await InputCoreAsy(KeyEvents, Ct);
 	}
 
 	[Doc($$"""
@@ -158,7 +157,7 @@ public abstract class SvcImeBase
 	#Prm[{{nameof(KeyEvents)}}][本批按鍵，依序。]
 	#Prm[{{nameof(Ct)}}][取消令牌。]
 	""")]
-	protected async Task<nil> InputCoreAsy(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
+	protected async Task<IRespOnKeyEvent> InputCoreAsy(IEnumerable<IKeyEvent> KeyEvents, CT Ct){
 		RaiseSafely(BeforeInput, KeyEvents, nameof(BeforeInput));
 		IRespOnKeyEvent? Resp = null;
 		if(ImeKeyProcessor is not null){
@@ -174,7 +173,7 @@ public abstract class SvcImeBase
 		if(Resp is not null && Resp.UnhandledKeys.Count > 0 && OsKeyProcessor is not null){
 			await OsKeyProcessor.OnKeyEvents(Resp.UnhandledKeys, Ct);
 		}
-		return NIL;
+		return Resp ?? new RespOnKeyEvent();
 	}
 
 	[Doc("連接引擎；默認實現只是把「有處理器」當成已連接，具體引擎覆寫它做真正的初始化。")]

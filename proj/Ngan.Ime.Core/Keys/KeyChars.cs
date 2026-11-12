@@ -283,6 +283,16 @@ public static class KeyChars {
 	public static readonly IK Left = KeyChar.Mk(nameof(Left));
 	[Doc("右。")]
 	public static readonly IK Right = KeyChar.Mk(nameof(Right));
+	[Doc("上一頁（候選翻頁）。")]
+	public static readonly IK PageUp = KeyChar.Mk(nameof(PageUp));
+	[Doc("下一頁（候選翻頁）。")]
+	public static readonly IK PageDown = KeyChar.Mk(nameof(PageDown));
+	[Doc("刪除鍵（向右刪）。")]
+	public static readonly IK Delete = KeyChar.Mk(nameof(Delete));
+	[Doc("插入鍵。")]
+	public static readonly IK Insert = KeyChar.Mk(nameof(Insert));
+	[Doc("跳脫鍵；輸入法用它取消組字。")]
+	public static readonly IK Escape = KeyChar.Mk(nameof(Escape));
 	#endregion
 
 	[Doc($$"""
@@ -302,6 +312,7 @@ public static class KeyChars {
 		Colon, Semicolon, Apostrophe, Quote, Less, Comma, Greater, Period, Question, Slash,
 		Shift_L, Shift_R, Ctrl_L, Ctrl_R, Alt_L, Alt_R, Meta_L, Fn,
 		Home, End, Up, Down, Left, Right,
+		PageUp, PageDown, Delete, Insert, Escape,
 	];
 
 	[Doc($$"""

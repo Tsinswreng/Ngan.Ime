@@ -168,6 +168,11 @@ public class RimeKeyCharConverter {
 
 			// ===== 功能鍵：X11 keysym =====
 			[KS.Backspace] = RimeKeysym.BackSpace,
+			[KS.Escape] = RimeKeysym.Escape,
+			[KS.PageUp] = RimeKeysym.Prior,
+			[KS.PageDown] = RimeKeysym.Next,
+			[KS.Delete] = RimeKeysym.Delete,
+			[KS.Insert] = RimeKeysym.Insert,
 			[KS.Tab] = RimeKeysym.Tab,
 			[KS.Enter] = RimeKeysym.Return,
 			[KS.CapsLock] = RimeKeysym.Caps_Lock,
@@ -221,6 +226,14 @@ public static class RimeKeysym {
 	public const i32 Down = 0xFF54;
 	[Doc("End 0xFF57。")]
 	public const i32 End = 0xFF57;
+	[Doc("Page Up 0xFF55（X11 名為 Prior）。")]
+	public const i32 Prior = 0xFF55;
+	[Doc("Page Down 0xFF56（X11 名為 Next）。")]
+	public const i32 Next = 0xFF56;
+	[Doc("Delete 0xFFFF。")]
+	public const i32 Delete = 0xFFFF;
+	[Doc("Insert 0xFF63。")]
+	public const i32 Insert = 0xFF63;
 	[Doc("左 Shift 0xFFE1。")]
 	public const i32 Shift_L = 0xFFE1;
 	[Doc("右 Shift 0xFFE2。")]

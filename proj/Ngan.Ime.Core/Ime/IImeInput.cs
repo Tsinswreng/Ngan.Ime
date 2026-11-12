@@ -33,9 +33,9 @@ public interface IImeInput{
 	同步處理一批按鍵並等待完成；失敗時拋出。
 	#Prm[{{nameof(KeyEvents)}}][本批按鍵，依發生順序。]
 	#Prm[{{nameof(Ct)}}][取消令牌。]
-	#Rtn[處理完成的任務。]
+	#Rtn[引擎的回應：上屏文本與「哪些鍵沒被吃掉」。呼叫方據此決定是否把按鍵放行給系統。]
 	""")]
-	public Task<nil> Input(IEnumerable<IKeyEvent> KeyEvents, CT Ct);
+	public Task<IRespOnKeyEvent> Input(IEnumerable<IKeyEvent> KeyEvents, CT Ct);
 
 	[Doc("連接／初始化引擎；可重複呼叫，失敗後再呼叫會重試。")]
 	public Task ConnectAsy(CT Ct = default);

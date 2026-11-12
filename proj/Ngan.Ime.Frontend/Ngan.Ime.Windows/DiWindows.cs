@@ -3,6 +3,7 @@ namespace Ngan.Ime.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Tsinswreng.CsCore;
 using Ngan.Ime.Core.Keys;
+using Ngan.Ime.UI;
 
 [Doc($$"""
 Windows 宿主的依賴注入裝配。
@@ -25,8 +26,14 @@ public static class DiWindows{
 	public static IServiceCollection SetupWindows(
 		this IServiceCollection z
 	){
-		// Rime 未處理的按鍵交給 Windows 的按鍵發送器。
-		z.AddSingleton<IOsKeyProcessor, WindowsKeyProcessor>();
+		// TSF 模式下「未處理的按鍵」要交回 TSF 外殼（回 IsEaten=0），由系統交給前景應用；
+		// 若在這裡再用 keybd_event 補發，按鍵會重新進入 TSF，形成同一顆鍵的無限迴圈。
+		if(App.DaemonMode){
+			z.AddSingleton<IOsKeyProcessor, NoopOsKeyProcessor>();
+		}else{
+			// 桌面視窗模式：界面持有焦點、沒有外殼代收，故由宿主合成按鍵給前景視窗。
+			z.AddSingleton<IOsKeyProcessor, WindowsKeyProcessor>();
+		}
 		return z;
 	}
 }

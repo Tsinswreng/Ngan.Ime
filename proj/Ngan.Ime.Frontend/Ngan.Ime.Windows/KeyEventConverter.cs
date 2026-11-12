@@ -88,6 +88,46 @@ public class KeyEventConverter{
 		AppLog.Warn($"[Windows] 未登記的按鍵名 `{Name}`，已當作無效鍵送出");
 	}
 
+	[Doc("虛擬鍵碼 → 鍵；TSF 宿主用它把管道請求還原成按鍵。未登記的鍵碼視為「不處理」。")]
+	public IReadOnlyDictionary<i32, IKeyChar> KeyByVk => KeyByVkField;
+
+	[Doc("反向表的實際存儲；靜態建一次。")]
+	static readonly IReadOnlyDictionary<i32, IKeyChar> KeyByVkField = MkKeyByVk();
+
+	[Doc("建立反向表：只放「未按 Shift 時的那個鍵」，上檔字符交由 Shift 狀態表達。")]
+	static Dictionary<i32, IKeyChar> MkKeyByVk(){
+		var Map = new Dictionary<i32, IKeyChar>{
+			// 字母與數字
+			[0x41] = LowerA, [0x42] = LowerB, [0x43] = LowerC, [0x44] = LowerD, [0x45] = LowerE,
+			[0x46] = LowerF, [0x47] = LowerG, [0x48] = LowerH, [0x49] = LowerI, [0x4A] = LowerJ,
+			[0x4B] = LowerK, [0x4C] = LowerL, [0x4D] = LowerM, [0x4E] = LowerN, [0x4F] = LowerO,
+			[0x50] = LowerP, [0x51] = LowerQ, [0x52] = LowerR, [0x53] = LowerS, [0x54] = LowerT,
+			[0x55] = LowerU, [0x56] = LowerV, [0x57] = LowerW, [0x58] = LowerX, [0x59] = LowerY,
+			[0x5A] = LowerZ,
+			[0x30] = D0, [0x31] = D1, [0x32] = D2, [0x33] = D3, [0x34] = D4,
+			[0x35] = D5, [0x36] = D6, [0x37] = D7, [0x38] = D8, [0x39] = D9,
+
+			// 控制與空白
+			[0x08] = Backspace, [0x09] = Tab, [0x0D] = Enter,
+			[0x1B] = Escape, [0x20] = Space, [0x14] = CapsLock,
+
+			// 導航與編輯
+			[0x21] = PageUp, [0x22] = PageDown, [0x23] = End, [0x24] = Home,
+			[0x25] = Left, [0x26] = Up, [0x27] = Right, [0x28] = Down,
+			[0x2D] = Insert, [0x2E] = Delete,
+
+			// 標點（OEM 鍵；上檔由 Shift 狀態表達）
+			[0xBA] = Semicolon, [0xBB] = Equal, [0xBC] = Comma, [0xBD] = Minus,
+			[0xBE] = Period, [0xBF] = Slash, [0xC0] = Grave,
+			[0xDB] = SquareBracket_L, [0xDC] = BackSlash,
+			[0xDD] = SquareBracket_R, [0xDE] = Apostrophe,
+
+			// 修飾鍵（左右不分的虛擬鍵碼歸到左側；左右由擴展鍵位另行處理）
+			[0x10] = Shift_L, [0x11] = Ctrl_L, [0x12] = Alt_L, [0x5B] = Meta_L,
+		};
+		return Map;
+	}
+
 	[Doc("鍵 → Win32 虛擬鍵碼；覆蓋 KeyChars 全表。")]
 	static readonly IReadOnlyDictionary<IKeyChar, byte> VirtualKeys = MkVirtualKeys();
 
@@ -116,6 +156,7 @@ public class KeyEventConverter{
 			[Meta_L] = 0x5B, [Fn] = 0xFF,
 			[CapsLock] = 0x14,
 			[Home] = 0x24, [End] = 0x23, [Up] = 0x26, [Down] = 0x28, [Left] = 0x25, [Right] = 0x27,
+			[PageUp] = 0x21, [PageDown] = 0x22, [Delete] = 0x2E, [Insert] = 0x2D, [Escape] = 0x1B,
 
 			// ===== 標點（OEM 鍵）=====
 			[Semicolon] = 0xBA, [Colon] = 0xBA,

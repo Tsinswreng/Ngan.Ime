@@ -433,12 +433,17 @@ internal static unsafe class NativeTsf {
     }
 
     /// <summary>可以交給宿主（Rime）判斷的按鍵範圍；其餘按鍵一律放行。</summary>
-    private static bool IsHostKey(int VirtualKey) {
-        return VirtualKey is >= 0x41 and <= 0x5A
-            or >= 0x30 and <= 0x39
-            or VkSpace or VkBackspace or 0x0D
-            or >= 0xBA and <= 0xC0
-            or >= 0xDB and <= 0xDE;
+    // 交給引擎的鍵：除了「送進去會破壞系統操作」的少數組合，其餘一律先問引擎。
+    // 舊版只放行字母／數字／標點，方向鍵與 - = 根本到不了引擎，
+    // 症狀就是「有候選時方向鍵沒反應」「按 - 或 = 直接把字上屏」。
+    private static bool IsHostKey(int VirtualKey, int Mods) {
+        // Win 鍵、PrintScreen、Alt+Tab、Ctrl+Esc、Alt+F4 由系統處理。
+        if (VirtualKey is 0x5B or 0x5C or 0x2C or 0x73) { return false; }
+        if (VirtualKey == 0x09 && (Mods & 4) != 0) { return false; }
+        if (VirtualKey == 0x1B && (Mods & 2) != 0) { return false; }
+        if (VirtualKey == 0x73 && (Mods & 4) != 0) { return false; }
+        if (VirtualKey is >= 0x70 and <= 0x7B) { return false; } // F1-F12
+        return true;
     }
 
     private static int GetModifiers() {
@@ -457,12 +462,15 @@ internal static unsafe class NativeTsf {
                 return EFail;
             }
             var VirtualKey = (int)WParam.ToInt64();
-            if (!IsHostKey(VirtualKey)) {
+            // 每次評估都先清掉上一次的結果，避免 OnKeyDown 讀到過期的回應。
+            State.Host = null;
+            var Mods = GetModifiers();
+            if (!IsHostKey(VirtualKey, Mods)) {
                 *IsEaten = 0;
                 return SOk;
             }
             UpdateCaretFromGui(State);
-            State.Host = QueryHost(VirtualKey, GetModifiers(), State.CaretX, State.CaretY);
+            State.Host = QueryHost(VirtualKey, Mods, State.CaretX, State.CaretY);
             *IsEaten = State.Host is not null && State.Host.Eaten ? 1 : 0;
             Log("OnTestKeyDown vk=" + VirtualKey + " eat=" + *IsEaten + " cand=" + (State.Host?.Candidates.Count ?? 0));
             return SOk;

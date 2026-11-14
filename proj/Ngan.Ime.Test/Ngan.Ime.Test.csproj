@@ -5,6 +5,8 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<PublishAot>false</PublishAot>
+		<!-- 用例一律異步簽名，同步邏輯直接返回 NIL，故容忍「無 await 的異步方法」。 -->
+		<NoWarn>$(NoWarn);CS1998</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,5 +21,7 @@
 		<ProjectReference Include="..\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
 		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.UI\Ngan.Ime.UI.csproj" />
 		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.Backend\Ngan.Ime.Backend.csproj" />
+		<!-- 測試框架走本地源：NuGet 上的 0.1.1-alpha 與本地 0.2.0-alpha 的 API 不相容。 -->
+		<ProjectReference Include="$(TswgLibsDir)CsTreeTest/proj/Tsinswreng.CsTreeTest/Tsinswreng.CsTreeTest.csproj" />
 	</ItemGroup>
 </Project>

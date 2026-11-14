@@ -1,6 +1,7 @@
 using Ngan.Ime.Test.Domains.Keys;
 using Ngan.Ime.Test.Domains.Layout;
 using Ngan.Ime.Test.Domains.Rime;
+using Ngan.Ime.Test.Domains.Tsf;
 using Ngan.Ime.Test.Domains.UI;
 using Ngan.Ime.Test.Domains.Voice;
 using Tsinswreng.CsTreeTest;
@@ -49,5 +50,7 @@ public class NganImeTester : Tester{
 		this.AddTester<TestKeyLayout>();
 		this.AddTester<TestVolcengineProtocolCodec>();
 		this.AddTester<TestImeUiState>();
+		this.AddTester<TestTsfIpc>();
+		this.AddTester<TestVmCandidatePopup>();
 	}
 }

@@ -14,7 +14,7 @@ namespace Ngan.Ime.Rime;
 逐鍵 `get_commit`；上屏文本與未處理鍵分別累積到回傳值。
 
 *Enter 的雙重語義*：某些方案會用 Enter 提交候選（產生 commit），此時不能再把同一顆 Enter
-當成「未處理鍵」交還給宿主，否則宿主會同時收到上屏文本與 Enter 鍵——等於提交兩次。
+當成「未處理鍵」交還給服務端，否則服務端會同時收到上屏文本與 Enter 鍵——等於提交兩次。
 這裡用 `suppressUnhandledEnter` 記住「本批的 Enter 已產生 commit」，只影響 Enter 本身。
 
 *日誌*：熱路徑只留 Trace；舊版每鍵兩條 Debug + 兩個 Stopwatch，一次按鍵就十幾條日誌。
@@ -24,7 +24,7 @@ unsafe public class RimeKeyProcessor : IImeKeyProcessor {
 	[Doc("取引擎單例的工廠；由 DI 注入，避免本類直接依賴靜態單例（可測性）。")]
 	readonly Func<RimeSetup> GetRimeSetup;
 
-	[Doc("錯誤事件；本實現目前不主動觸發（原生崩潰不可捕獲），保留供宿主統一掛接。")]
+	[Doc("錯誤事件；本實現目前不主動觸發（原生崩潰不可捕獲），保留供服務端統一掛接。")]
 	public event ErrHandler? OnErr;
 
 	[Doc($$"""

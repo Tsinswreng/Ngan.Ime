@@ -18,6 +18,8 @@
 		<ProjectReference Remove="@(ProjectReference)" />
 		<!-- 同理移除前端共用的 GlobalUsing：它導入 Ngan.Ime.Infra.*，而本專案不引用 Core。 -->
 		<Compile Remove="$(MSBuildThisFileDirectory)../../_shared/GlobalUsing.cs" />
+		<!-- 管道協議契約：與服務端、測試共用同一份型別與解析器（只依賴 BCL，不引入 CLR 庫）。 -->
+		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfIpc.cs" />
 	</ItemGroup>
 
 </Project>

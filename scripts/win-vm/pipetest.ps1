@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Ngan IME TSF 管道的煙霧測試：直接送按鍵碼給宿主，印回傳。
+    Ngan IME TSF 管道的煙霧測試：直接送按鍵碼給服務端，印回傳。
 .EXAMPLE
     .\pipetest.ps1 -Keys 'K|67|0|100|100','K|32|0|100|100'
 #>

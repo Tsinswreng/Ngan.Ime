@@ -1,5 +1,6 @@
 namespace Ngan.Ime.UI;
 
+using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Fonts;
 using Tsinswreng.CsCore;
@@ -97,6 +98,36 @@ public partial class UiCfg{
 
 	[Doc("候選之間的分隔線顏色。")]
 	public IBrush CandidateGapBrush{get;set;} = SolidColorBrush.Parse("#FFFFFF");
+
+	[Doc("浮窗候選詞字級（= BaseFontSize × 0.5，基準 32 時為 16）。")]
+	public f64 PopupCandidateFontSize => BaseFontSize * 0.5;
+
+	[Doc("浮窗候選註釋字級（= BaseFontSize × 0.375，基準 32 時為 12）。")]
+	public f64 PopupCommentFontSize => BaseFontSize * 0.375;
+
+	[Doc("浮窗候選序號字級（= BaseFontSize × 0.4375，基準 32 時為 14）。")]
+	public f64 PopupIndexFontSize => BaseFontSize * 0.4375;
+
+	[Doc("浮窗組字列字級（= BaseFontSize × 0.5）。")]
+	public f64 PopupPreeditFontSize => BaseFontSize * 0.5;
+
+	[Doc("浮窗候選行與行之間的間距；行與行緊貼，故為 0。")]
+	public f64 PopupRowSpacing => 0;
+
+	[Doc("浮窗行內序號與候選詞之間的間距（px）。")]
+	public f64 PopupInnerSpacing => BaseFontSize * 0.0625;
+
+	[Doc("浮窗內容內距；盡量貼邊，基準 32 時左右各 1px、上下各 0。")]
+	public Thickness PopupPadding => new(BaseFontSize * 0.03125, 0);
+
+	[Doc("浮窗底色；純黑。")]
+	public IBrush PopupBgColor{get;set;} = SolidColorBrush.Parse("#000000");
+
+	[Doc("浮窗文字顏色；純白。")]
+	public IBrush PopupForeColor{get;set;} = SolidColorBrush.Parse("#FFFFFF");
+
+	[Doc("浮窗高亮行底色。")]
+	public IBrush PopupHighlightColor{get;set;} = SolidColorBrush.Parse("#2F6FEB");
 
 	[Doc("鍵盤字體集合的註冊鍵；同一行程只註冊一次。")]
 	static readonly Uri KeyboardFontCollectionKey = new("fonts:keyboard");

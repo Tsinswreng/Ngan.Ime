@@ -3,6 +3,7 @@ namespace Ngan.Ime.UI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Ngan.Ime.UI.Infra;
+using Ngan.Ime.UI.Views.CandidatePopup;
 using Ngan.Ime.UI.Views.CandidatesBar;
 using Ngan.Ime.UI.Views.Clipboard;
 using Ngan.Ime.UI.Views.Ime;
@@ -59,6 +60,8 @@ public static class DiUi{
 		z.AddSingleton<VmVoiceInput>();
 		z.AddSingleton<VmVoiceInputLangSelector>();
 		z.AddTransient<VmKeyBoard>();
+		// 桌面候選浮窗：只有 TSF 服務端會解析它，其他宿主不碰就不會建視窗。
+		z.AddSingleton<ICandidatePopup, CandidatePopup>();
 		return z;
 	}
 

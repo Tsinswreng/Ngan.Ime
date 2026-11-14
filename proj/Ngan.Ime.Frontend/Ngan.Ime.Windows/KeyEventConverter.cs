@@ -88,7 +88,7 @@ public class KeyEventConverter{
 		AppLog.Warn($"[Windows] 未登記的按鍵名 `{Name}`，已當作無效鍵送出");
 	}
 
-	[Doc("虛擬鍵碼 → 鍵；TSF 宿主用它把管道請求還原成按鍵。未登記的鍵碼視為「不處理」。")]
+	[Doc("虛擬鍵碼 → 鍵；TSF 服務端用它把管道請求還原成按鍵。未登記的鍵碼視為「不處理」。")]
 	public IReadOnlyDictionary<i32, IKeyChar> KeyByVk => KeyByVkField;
 
 	[Doc("反向表的實際存儲；靜態建一次。")]
@@ -123,7 +123,9 @@ public class KeyEventConverter{
 			[0xDD] = SquareBracket_R, [0xDE] = Apostrophe,
 
 			// 修飾鍵（左右不分的虛擬鍵碼歸到左側；左右由擴展鍵位另行處理）
-			[0x10] = Shift_L, [0x11] = Ctrl_L, [0x12] = Alt_L, [0x5B] = Meta_L,
+			// 左右兩個 Win 鍵都歸到同一個 Meta_L：KeyChars 目前只有一個 Meta_L，
+			// 而 Rime 的 Super_L／Super_R 對應規則很少用到左右之分。
+			[0x10] = Shift_L, [0x11] = Ctrl_L, [0x12] = Alt_L, [0x5B] = Meta_L, [0x5C] = Meta_L,
 
 			// 功能鍵
 			[0x70] = F1, [0x71] = F2, [0x72] = F3, [0x73] = F4,

@@ -6,7 +6,7 @@ using Tsinswreng.CsCore;
 [Doc($$"""
 Windows 的「未處理按鍵 → 作業系統」轉發器。
 
-*為何是系統級注入*：Rime 未處理的鍵（例如 ASCII 模式下的 `a`）必須由宿主補發，
+*為何是系統級注入*：Rime 未處理的鍵（例如 ASCII 模式下的 `a`）必須由服務端補發，
 否則使用者打什麼都不會上屏。本類用 `keybd_event` 把鍵送給當前前臺視窗。
 
 *已知限制*（保留並記錄）：`keybd_event` 對以管理員權限執行的視窗無效（UIPI），
@@ -21,7 +21,7 @@ Windows 的「未處理按鍵 → 作業系統」轉發器。
 """)]
 public class WindowsKeyProcessor : IOsKeyProcessor{
 
-	[Doc("錯誤事件；本實現目前不主動觸發，保留供宿主統一掛接。")]
+	[Doc("錯誤事件；本實現目前不主動觸發，保留供服務端統一掛接。")]
 	public event ErrHandler? OnErr;
 
 	[Doc("把每個未處理按鍵原樣發給系統；已按鍵事件的按下／擡起狀態決定 `dwFlags`。")]

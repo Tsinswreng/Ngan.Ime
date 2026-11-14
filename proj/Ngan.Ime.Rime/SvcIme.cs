@@ -67,7 +67,7 @@ public class SvcIme : SvcImeBase {
 		RimeSetup.OnOptionChanged += OnOptionChanged;
 		// 每批按鍵處理完就從 librime 重抓一次狀態。
 		// 少了這一行，Preedit／Candidates 永遠停在連接時的快照：
-		// 宿主會以為「這顆鍵沒產生任何東西」而放行，症狀就是「打 a 直接上屏 a、候選框不彈」。
+		// 服務端會以為「這顆鍵沒產生任何東西」而放行，症狀就是「打 a 直接上屏 a、候選框不彈」。
 		AfterInput += OnAfterInputSync;
 	}
 
@@ -191,7 +191,7 @@ public class SvcIme : SvcImeBase {
 
 	[Doc("從引擎抓一次完整快照；未連接時先按需初始化，會話失效則清空狀態。")]
 	unsafe void SyncStateFromRime(){
-		// 按需初始化：宿主可能沒呼叫 ConnectAsy 就直接送鍵（TSF 外殼就是這樣，
+		// 按需初始化：服務端可能沒呼叫 ConnectAsy 就直接送鍵（TSF 外殼就是這樣，
 		// 按鍵由 RimeKeyProcessor 自己觸發引擎初始化）。若這裡堅持要求已連接，
 		// 狀態會永遠停在空的快照上——症狀是「按鍵有效、但 preedit 與候選永遠不出現」。
 		var Engine = Setup ??= GetRimeSetup();

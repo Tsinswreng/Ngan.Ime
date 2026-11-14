@@ -57,11 +57,14 @@ internal sealed partial class WinVmOpts{
 	/// 虛擬機的 `.vmx` 路徑。
 	public str VmxPath{get;set;} = @"E:\_\VM\Win10\Windows10x64.vmx";
 
-	/// guest 操作帳號（內建 Administrator 改名，可用於 HKLM 與排程工作）。
-	public str GuestUser{get;set;} = "Tsinswreng";
+	/// guest 操作帳號（內建 Administrator 改名，可用於 HKLM 與排程工作）；
+	/// 可用環境變數 `NGAN_VM_GUEST_USER` 覆蓋。
+	public str GuestUser{get;set;} = Environment.GetEnvironmentVariable("NGAN_VM_GUEST_USER") ?? "Tsinswreng";
 
 	/// guest 操作帳號的密碼。
-	public str GuestPass{get;set;} = "Tsinswreng";
+	/// *不再寫死在版控裡*：改由環境變數 `NGAN_VM_GUEST_PASS` 提供；
+	/// 未設定時部署會直接停下並提示，避免測試機密碼隨倉庫流傳。
+	public str GuestPass{get;set;} = Environment.GetEnvironmentVariable("NGAN_VM_GUEST_PASS") ?? "";
 
 	/// 實際登入桌面的使用者；輸入法要裝進這個使用者的 CTF 清單。
 	public str DesktopUser{get;set;} = @"DESKTOP-VSSDIT1\22900";

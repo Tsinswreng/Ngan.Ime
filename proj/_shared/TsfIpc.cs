@@ -1,0 +1,370 @@
+namespace Ngan.Ime.Tsf.Ipc;
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+using Tsinswreng.CsCore;
+
+[Doc($$"""
+TSF 外殼與服務端之間的管道契約：管道名、請求與回應的型別，以及它們的序列化。
+
+*為何是這一支檔案*：協議先前只靠兩邊註釋同步，管道名在三處各寫一次，
+欄位順序誰也不知道。本檔以 `Compile Include` 連結進外殼（`Ngan.Ime.Tsf.Windows`）、
+服務端（`Ngan.Ime.Windows`）與測試專案，三處共用同一份型別與同一個解析器。
+
+*為何不用 JSON*：外殼不帶 CLR 基礎庫以外的東西，也不該為了一次按鍵付出反射與配置成本。
+單行、以 `|` 分隔、字串走 Base64 的自訂格式已經足夠，且解析結果可預期。
+
+*版本*：{{nameof(Version)}} 寫在每一條請求與回應裡。收端版本不符就回
+{{nameof(ETsfErr.UnsupportedVersion)}}，不必成對升級也知道是誰對不上。
+
+*向後相容*：外殼省略請求末端的欄位時，服務端用預設值補；
+回應則永遠帶齊所有欄位。這讓舊版外殼還能送鍵，只是拿不到新欄位。
+
+#Eg[
+	```cs
+	var Req = new TsfKeyRequest{ VirtualKey = 67, IsUp = false };
+	str Line = Req.Format();          // K|1|67|0|0|0|0
+	TsfKeyRequest? Back = TsfKeyRequest.Parse(Line);
+	```
+]
+""")]
+public static class TsfIpc{
+
+	[Doc("協議版本；請求與回應都帶這一欄。")]
+	public const i32 Version = 1;
+
+	[Doc("管道名稱；外殼與服務端都取這裡的值，改名只改這一處。")]
+	public const str PipeName = "NganIme.Tsf.v1";
+
+	[Doc("單行長度上限（字元）；超過即視為畸形請求，避免一條超長行吃掉記憶體。")]
+	public const i32 MaxLineLength = 4096;
+
+	[Doc("請求首欄：按鍵。")]
+	public const str KeyTag = "K";
+
+	[Doc("請求首欄：收起候選窗。")]
+	public const str HideTag = "H";
+
+	[Doc("回應首欄。")]
+	public const str ReplyTag = "R";
+
+	[Doc("修飾鍵位：Shift。")]
+	public const i32 ModShift = 1;
+
+	[Doc("修飾鍵位：Ctrl。")]
+	public const i32 ModCtrl = 2;
+
+	[Doc("修飾鍵位：Alt。")]
+	public const i32 ModAlt = 4;
+
+	[Doc("把字串轉成 Base64；空字串轉成空字串，避免 `||` 被誤判成缺欄。")]
+	internal static str B64(str Text){
+		if(string.IsNullOrEmpty(Text)){
+			return "";
+		}
+		return Convert.ToBase64String(Encoding.UTF8.GetBytes(Text));
+	}
+
+	[Doc($$"""
+	把 Base64 還原成字串；空字串回空串。
+	#Prm[{{nameof(Text)}}][Base64 文本。]
+	#Rtn[還原後的字串；格式錯誤時回空串，不拋。]
+	""")]
+	internal static str UnB64(str Text){
+		if(string.IsNullOrEmpty(Text)){
+			return "";
+		}
+		try{
+			return Encoding.UTF8.GetString(Convert.FromBase64String(Text));
+		}catch(FormatException){
+			return "";
+		}
+	}
+
+	[Doc("把一欄文字解析成整數；失敗回 null。")]
+	internal static i32? ParseInt(str Text){
+		if(i32.TryParse(Text, out var Value)){
+			return Value;
+		}
+		return null;
+	}
+
+	[Doc("把欄位切成單行；去除尾端多餘的空欄（格式末尾總有一個 `|`）。")]
+	internal static str[] Split(str Line){
+		return Line.Split('|');
+	}
+}
+
+[Doc($$"""
+請求種類。
+
+*為何要分類*：先前 `HIDE` 是一條裸字串，與 `K|...` 混在同一條判斷裡。
+新增請求（切換方案、查狀態）時這種寫法必然愈來愈亂，故先立型別。
+""")]
+public enum ETsfReqKind{
+	[Doc("按鍵請求。")]
+	Key = 0,
+
+	[Doc("收起候選窗。")]
+	Hide = 1,
+}
+
+[Doc($$"""
+回應的錯誤碼。
+
+*為何要錯誤碼*：先前所有失敗都回同一條空回應，外殼分不出「服務端不在」
+「鍵碼不認識」「引擎壞了」，排查時只能猜。錯誤碼只進日誌，不影響是否吞鍵。
+""")]
+public enum ETsfErr{
+	[Doc("沒有錯誤。")]
+	None = 0,
+
+	[Doc("請求格式錯誤（欄位缺失、數字解析失敗、方向欄非法）。")]
+	BadRequest = 1,
+
+	[Doc("協議版本不符。")]
+	UnsupportedVersion = 2,
+
+	[Doc("虛擬鍵碼沒有對應的按鍵。")]
+	UnknownKey = 3,
+
+	[Doc("引擎未就緒或處理時拋例外。")]
+	EngineFailed = 4,
+
+	[Doc("請求行超過長度上限。")]
+	LineTooLong = 5,
+}
+
+[Doc($$"""
+一條按鍵請求。
+
+*欄位*：版本、虛擬鍵碼、修飾鍵位、插入點座標、方向。
+座標允許 0，代表外殼拿不到插入點，候選窗會落在左上角。
+
+#Eg[
+	```cs
+	var Req = new TsfKeyRequest{ VirtualKey = 65, Mods = 0, X = 100, Y = 200 };
+	```
+]
+""")]
+public sealed class TsfKeyRequest{
+
+	[Doc("協議版本。")]
+	public i32 Ver{get;set;} = TsfIpc.Version;
+
+	[Doc("按鍵種類。")]
+	public ETsfReqKind Kind{get;set;} = ETsfReqKind.Key;
+
+	[Doc("Win32 虛擬鍵碼。")]
+	public i32 VirtualKey{get;set;}
+
+	[Doc("修飾鍵位；見 `TsfIpc.ModShift` 等常量。")]
+	public i32 Mods{get;set;}
+
+	[Doc("插入點螢幕 X（像素）。")]
+	public i32 X{get;set;}
+
+	[Doc("插入點螢幕 Y（像素）。")]
+	public i32 Y{get;set;}
+
+	[Doc("true 表示擡起，false 表示按下。")]
+	public bool IsUp{get;set;}
+
+	[Doc($$"""
+	序列化成一行。
+	#Rtn[請求行；按鍵為 `K|<ver>|<vk>|<mods>|<x>|<y>|<0或1>`，收起為 `H|<ver>`。]
+	""")]
+	public str Format(){
+		if(Kind == ETsfReqKind.Hide){
+			return TsfIpc.HideTag + "|" + Ver;
+		}
+		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0");
+	}
+
+	[Doc($$"""
+	解析一行請求。
+	#Prm[{{nameof(Line)}}][請求行。]
+	#Rtn[請求物件；格式錯誤或版本不符時為 null（呼叫端應回錯誤碼，而不是拋）。]
+	""")]
+	public static TsfKeyRequest? Parse(str Line){
+		if(string.IsNullOrEmpty(Line) || Line.Length > TsfIpc.MaxLineLength){
+			return null;
+		}
+		var Parts = TsfIpc.Split(Line);
+		if(Parts.Length < 2){
+			return null;
+		}
+		var Ver = TsfIpc.ParseInt(Parts[1]);
+		if(Ver is null){
+			return null;
+		}
+		if(Parts[0] == TsfIpc.HideTag){
+			return new TsfKeyRequest{ Ver = Ver.Value, Kind = ETsfReqKind.Hide };
+		}
+		if(Parts[0] != TsfIpc.KeyTag || Parts.Length < 6){
+			return null;
+		}
+		var Vk = TsfIpc.ParseInt(Parts[2]);
+		var Mods = TsfIpc.ParseInt(Parts[3]);
+		if(Vk is null || Mods is null){
+			return null;
+		}
+		var X = TsfIpc.ParseInt(Parts[4]) ?? 0;
+		var Y = TsfIpc.ParseInt(Parts[5]) ?? 0;
+		// 方向欄可省略（舊版外殼只有五欄），但一旦出現就必須是 0 或 1。
+		var IsUp = false;
+		if(Parts.Length > 6){
+			var State = TsfIpc.ParseInt(Parts[6]);
+			if(State is not 0 and not 1){
+				return null;
+			}
+			IsUp = State == 1;
+		}
+		return new TsfKeyRequest{
+			Ver = Ver.Value,
+			Kind = ETsfReqKind.Key,
+			VirtualKey = Vk.Value,
+			Mods = Mods.Value,
+			X = X,
+			Y = Y,
+			IsUp = IsUp,
+		};
+	}
+}
+
+[Doc("一個候選詞的文字與註釋；協議層的型別，與 Core 的 `ICandidate` 解耦。")]
+public sealed class TsfCandidate{
+
+	[Doc("候選詞本體。")]
+	public str Text{get;set;} = "";
+
+	[Doc("候選詞註釋；可為空串。")]
+	public str Comment{get;set;} = "";
+}
+
+[Doc($$"""
+一條回應。
+
+*欄位*：版本、是否吞掉、錯誤碼、高亮序號、組字串、候選清單、上屏清單。
+字串全走 Base64，避免 `|` 與 `~` 出現在負載裡。
+
+#Eg[
+	```cs
+	var Reply = new TsfReply{ Eaten = true, Preedit = "ni" };
+	str Line = Reply.Format();
+	```
+]
+""")]
+public sealed class TsfReply{
+
+	[Doc("協議版本。")]
+	public i32 Ver{get;set;} = TsfIpc.Version;
+
+	[Doc("引擎是否吃掉了這顆鍵。")]
+	public bool Eaten{get;set;}
+
+	[Doc("錯誤碼；不影響 {{nameof(Eaten)}}，只供日誌與排查。")]
+	public ETsfErr Err{get;set;}
+
+	[Doc("高亮候選的序號；沒有候選時為 0。")]
+	public i32 Highlight{get;set;}
+
+	[Doc("組字串；沒有組字時為空串。")]
+	public str Preedit{get;set;} = "";
+
+	[Doc("本頁候選；永不為 null。")]
+	public List<TsfCandidate> Candidates{get;set;} = [];
+
+	[Doc("本次上屏的文字；沒有上屏時為空清單。")]
+	public List<str> Commits{get;set;} = [];
+
+	[Doc("建立一條「沒有吃掉、沒有錯誤」的回應，供失敗路徑使用。")]
+	public static TsfReply Empty(){
+		return new TsfReply();
+	}
+
+	[Doc("建立一條帶錯誤碼的空回應。")]
+	public static TsfReply Fail(ETsfErr Err){
+		return new TsfReply{ Err = Err };
+	}
+
+	[Doc($$"""
+	序列化成一行。末尾固定留一個 `|`，解析端因此不必特別處理最後一欄。
+
+	#Rtn[回應行。]
+	""")]
+	public str Format(){
+		var Sb = new StringBuilder();
+		Sb.Append(TsfIpc.ReplyTag).Append('|')
+			.Append(Ver).Append('|')
+			.Append(Eaten ? 1 : 0).Append('|')
+			.Append((i32)Err).Append('|')
+			.Append(Highlight).Append('|')
+			.Append(TsfIpc.B64(Preedit)).Append('|')
+			.Append(Candidates.Count).Append('|');
+		foreach(var One in Candidates){
+			Sb.Append(TsfIpc.B64(One.Text)).Append('~').Append(TsfIpc.B64(One.Comment)).Append('|');
+		}
+		Sb.Append(Commits.Count).Append('|');
+		foreach(var One in Commits){
+			Sb.Append(TsfIpc.B64(One)).Append('|');
+		}
+		return Sb.ToString();
+	}
+
+	[Doc($$"""
+	解析一行回應。
+	#Prm[{{nameof(Line)}}][回應行。]
+	#Rtn[回應物件；格式錯誤時為 null（呼叫端據此放行按鍵）。]
+	""")]
+	public static TsfReply? Parse(str Line){
+		if(string.IsNullOrEmpty(Line) || Line.Length > TsfIpc.MaxLineLength){
+			return null;
+		}
+		var Parts = TsfIpc.Split(Line);
+		if(Parts.Length < 7 || Parts[0] != TsfIpc.ReplyTag){
+			return null;
+		}
+		var Ver = TsfIpc.ParseInt(Parts[1]);
+		var Eaten = TsfIpc.ParseInt(Parts[2]);
+		var Err = TsfIpc.ParseInt(Parts[3]);
+		var Highlight = TsfIpc.ParseInt(Parts[4]);
+		var CandCount = TsfIpc.ParseInt(Parts[6]);
+		if(Ver is null || Eaten is null || Err is null || Highlight is null || CandCount is null || CandCount < 0){
+			return null;
+		}
+		var Reply = new TsfReply{
+			Ver = Ver.Value,
+			Eaten = Eaten != 0,
+			Err = (ETsfErr)Err.Value,
+			Highlight = Highlight.Value,
+			Preedit = TsfIpc.UnB64(Parts[5]),
+		};
+		var Index = 7;
+		for(var I = 0; I < CandCount.Value; I++){
+			if(Index >= Parts.Length){
+				return null;
+			}
+			var Pair = Parts[Index++].Split('~');
+			Reply.Candidates.Add(new TsfCandidate{
+				Text = TsfIpc.UnB64(Pair[0]),
+				Comment = Pair.Length > 1 ? TsfIpc.UnB64(Pair[1]) : "",
+			});
+		}
+		if(Index >= Parts.Length){
+			return null;
+		}
+		var CommitCount = TsfIpc.ParseInt(Parts[Index++]);
+		if(CommitCount is null || CommitCount < 0){
+			return null;
+		}
+		for(var I = 0; I < CommitCount.Value; I++){
+			if(Index >= Parts.Length){
+				return null;
+			}
+			Reply.Commits.Add(TsfIpc.UnB64(Parts[Index++]));
+		}
+		return Reply;
+	}
+}

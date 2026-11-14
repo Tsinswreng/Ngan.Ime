@@ -6,8 +6,8 @@
 ## 檔案
 
 - `vm-common.ps1`：`vmrun` 的小包裝（copy 進出 guest、在 guest 執行、列 guest 行程）。
-- `register-install-start.ps1`：在 guest 內註冊 TSF DLL、加入使用者輸入法清單、以分離方式常駐啟動宿主。
-- `pipetest.ps1`：直接連 `NganIme.Tsf.v1` 管道送按鍵碼，驗證 TSF 與宿主的鏈路。
+- `register-install-start.ps1`：在 guest 內註冊 TSF DLL、加入使用者輸入法清單、以分離方式常駐啟動服務端。
+- `pipetest.ps1`：直接連 `NganIme.Tsf.v1` 管道送按鍵碼，驗證 TSF 外殼與服務端的鏈路。
 - `peek_dump.py`：解析 Windows minidump（module 清單、exception、暫存器、stack 掃描），不需要 cdb。
 - `Capture-VmwareWindow.ps1`：抓 VMware 視窗截圖，用於回報畫面。
 
@@ -23,10 +23,13 @@ Get-GuestProcesses | Select-String 'Ngan.Ime'
 
 ## 注意
 
-- guest 的 guest-ops 帳號是 `Tsinswreng`（內建 Administrator 改名），密碼同帳號名。
+- guest 的 guest-ops 帳號是 `Tsinswreng`（內建 Administrator 改名）。
+  密碼**不寫在版控裡**：`DeployWinVm` 從環境變數 `NGAN_VM_GUEST_PASS` 讀，帳號可用 `NGAN_VM_GUEST_USER` 覆蓋。
 - 桌面使用者是 `22900`；INTERACTIVE 排程工作才能在該使用者的 session 執行程式。
-- `rime.dll` 是 **x86**，宿主必須用 win-x86 發佈，否則載入會得到 `BadImageFormatException`。
-- 宿主若用 cmd 視窗直接跑，關掉視窗會把行程一起帶走；請用 `start /b` 分離啟動。
+- `rime.dll` 是 **x86**，服務端必須用 win-x86 發佈，否則載入會得到 `BadImageFormatException`。
+- 服務端若用 cmd 視窗直接跑，關掉視窗會把行程一起帶走；請用 `start /b` 或啟動器腳本分離啟動。
+- `StartServer.vbs`／`InstallStartServer.cmd`：手動啟動服務端並裝到桌面與啟動資料夾（VM 重啟後不必重新部署）。
+- `deploy-guest.ps1`：部署腳本本體，由 `DeployWinVm` 複製進 guest 執行；必須維持 UTF-8 BOM。
 
 ## 一鍵部署（推薦）
 
@@ -37,13 +40,13 @@ Get-GuestProcesses | Select-String 'Ngan.Ime'
 dotnet run --project proj/Ngan.Ime.Scripts -- DeployWinVm
 ```
 
-它會：確認 VM（`-StartVm` 時自動開機）→ 增量建置三個產物（TSF x64／註冊工具 x64／宿主 x86）
-→ 打包複製進 guest → 停舊宿主 → 註冊新 TSF DLL（版本化檔名，避開 explorer 鎖檔）
-→ 以桌面使用者啟動宿主 → 管道煙霧測試 → 抓回 `last-run.log` 並印尾段。
+它會：確認 VM（`-StartVm` 時自動開機）→ 增量建置三個產物（TSF x64／註冊工具 x64／服務端 x86）
+→ 打包複製進 guest → 清掉改名遺留（舊排程工作與舊目錄）→ 停舊服務端 → 註冊新 TSF DLL（版本化檔名，避開 explorer 鎖檔）
+→ 以桌面使用者啟動服務端 → 管道煙霧測試（斷言版本、吃掉、候選、擡起、F4 方案選單）→ 抓回 `last-run.log` 並印尾段。
 
 常用選項：
 
-- `-Fast`：宿主改用 framework-dependent x86（秒級，但 guest 需要 x86 的 .NET 10 runtime）。
+- `-Fast`：服務端改用 framework-dependent x86（秒級，但 guest 需要 x86 的 .NET 10 runtime）。
 - `-NoBuild`：跳過建置，直接部署上次的產物。
 - `-StartVm`：VM 沒開機時自動開（nogui）。
 - `-OpenNotepad`：部署完在桌面開記事本，方便立刻測。
@@ -67,9 +70,9 @@ guest 端需要先有一次性的目錄與 Rime 資源（`C:\NganImeVm\rime\rime
 - `copyFileFromHostToGuest` 偶爾「回 0 但沒寫檔」或「寫完不返回」。故每次複製後都用
   guest 端 PowerShell 比對檔案大小，逾時會殺掉子行程並重試一次。
 - 部署包裡的 `Ngan.Ime.Rw.jsonc` 是主機上的配置（`D:/Program Files/Rime/...`），
-  直接用會得到 `DllNotFoundException` 並讓宿主當場退出；`deploy.ps1` 會在 guest 內
+  直接用會得到 `DllNotFoundException` 並讓服務端當場退出；`deploy-guest.ps1` 會在 guest 內
   把 `DllPath`／`user_data_dir`／`log_dir` 改寫成本機路徑。
-- 宿主的 TSF 管道是「一請求一連線」，同一條連線送第二個請求會得到「管道已中斷」。
+- 管道的每條連線可送多個請求（逐行讀、逐行回）；早期「一請求一連線」的寫法已廢除。
 - guest 端 `.ps1` 必須存成 **帶 BOM 的 UTF-8**：Windows PowerShell 5.1 對無 BOM 的
   檔案用 ANSI 解碼，中文註釋會變成亂碼並吞掉引號，整份腳本語法錯誤。
 

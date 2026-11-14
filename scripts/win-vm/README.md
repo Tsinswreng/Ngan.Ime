@@ -44,6 +44,30 @@ dotnet run --project proj/Ngan.Ime.Scripts -- DeployWinVm
 → 打包複製進 guest → 清掉改名遺留（舊排程工作與舊目錄）→ 停舊服務端 → 註冊新 TSF DLL（版本化檔名，避開 explorer 鎖檔）
 → 以桌面使用者啟動服務端 → 管道煙霧測試（斷言版本、吃掉、候選、擡起、F4 方案選單）→ 抓回 `last-run.log` 並印尾段。
 
+### 發布 Windows 安裝包（不碰 VM，命令名 PubWinX86／別名 PubWin）
+
+```powershell
+dotnet run --project proj/Ngan.Ime.Scripts -- PubWinX86
+```
+
+產出 `artifacts/publish/win/`（已在 .gitignore），**所有執行時產物攤在同一層**：
+
+- `Ngan.Ime.Tsf.dll`：TSF 外殼，x64 NativeAOT
+- `Ngan.Ime.Windows.exe` 與 Skia／HarfBuzz 等依賴：服務端，x86 NativeAOT
+- `Ngan.Ime.Tsf.Registration.exe` 與其框架依賴（約 20 個托管 dll）：x64，框架依賴
+- `install.ps1`／`install-user.cmd`／`uninstall.ps1`／`StartServer.vbs`／`README.txt`
+
+安裝流程：管理員跑 `install.ps1 -RimeDll <rime.dll>`，再以本人身分跑 `install-user.cmd`，
+登出再登入。安裝腳本會建立登入自啟的排程工作 `NganIme-Server`，並把 Rime 用戶資料
+複製到 `%LOCALAPPDATA%\NganIme\rime-user`，避免與小狼毫共用。
+
+- `-Out <目錄>`：改輸出位置。
+- `-KeepSymbols`：保留 `.pdb`。
+- `-DryRun`：只印步驟。
+
+腳本檔的編碼有講究：`.ps1` 要 UTF-8 BOM（PowerShell 5.1 對無 BOM 的 UTF-8 用 ANSI 解），
+`.cmd` 用 GBK（主控台碼頁），`.vbs` 用 UTF-16 BOM（WSH 支援 Unicode）。
+
 常用選項：
 
 - `-Fast`：服務端改用 framework-dependent x86（秒級，但 guest 需要 x86 的 .NET 10 runtime）。

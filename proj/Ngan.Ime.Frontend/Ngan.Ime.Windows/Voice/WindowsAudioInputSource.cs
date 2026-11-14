@@ -9,9 +9,12 @@ namespace Ngan.Ime.Windows.Voice;
 /// 後續只替換此平台實現爲原生 WASAPI，不改動 Core 音頻契約或火山後端。
 public sealed partial class WindowsAudioInputSource : IAudioInputSource{
 	/// 枚舉和打開 Windows 音頻端點的 NAudio 管理器。
-	readonly NAudio.CoreAudioApi.MMDeviceEnumerator DeviceEnumerator;
+	/// *延後建立*：NAudio 的 WASAPI 走 `[ComImport]` 類介面，NativeAOT 不支援這條路徑；
+	/// 若在建構子就 `new`，整個界面在啟動時就會因 `InvalidProgramException` 崩掉
+	/// （桌面模式建 MainView 時就會解析到本服務）。故改成第一次錄音時才建。
+	NAudio.CoreAudioApi.MMDeviceEnumerator? DeviceEnumerator;
 
-	/// 建立 Windows 麥克風採集器；設備選擇和權限錯誤在 Start 時報告。
+	/// 建立 Windows 麥克風採集器；不碰 COM，設備選擇和權限錯誤在 Start 時報告。
 	public partial WindowsAudioInputSource();
 
 	/// 啟動默認輸入設備的 PCM 採集會話。

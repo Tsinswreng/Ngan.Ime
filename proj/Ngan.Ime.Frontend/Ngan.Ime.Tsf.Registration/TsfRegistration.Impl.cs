@@ -20,10 +20,11 @@ internal static partial class TsfRegistration {
         if (Args.Length == 1 && Args[0] == "--unregister-system") {
             return UnregisterSystem();
         }
-        Console.Error.WriteLine("用法：AvlnImeDemo.Tsf.Registration --register <AvlnImeDemo.Tsf.comhost.dll>");
-        Console.Error.WriteLine("      AvlnImeDemo.Tsf.Registration --install-user");
-        Console.Error.WriteLine("      AvlnImeDemo.Tsf.Registration --uninstall-user");
-        Console.Error.WriteLine("      AvlnImeDemo.Tsf.Registration --unregister-system");
+        // 用法文字要和實際命令列一致：舊名是 POC 時期的 AvlnImeDemo，早已改成 Ngan。
+        Console.Error.WriteLine("用法：Ngan.Ime.Tsf.Registration --register <Ngan.Ime.Tsf.dll>");
+        Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --install-user");
+        Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --uninstall-user");
+        Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --unregister-system");
         return 2;
     }
 

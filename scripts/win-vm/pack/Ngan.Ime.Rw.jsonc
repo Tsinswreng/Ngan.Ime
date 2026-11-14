@@ -1,0 +1,12 @@
+{
+	"Librime": {
+		"AutoLinkDll": false,
+		"DllPath": "",
+		"RimeTraits": {
+			"user_data_dir": "",
+			"log_dir": "",
+			"distribution_code_name": "Ngan.Ime.Windows",
+			"app_name": "Ngan.Ime.Windows"
+		}
+	}
+}

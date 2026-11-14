@@ -5,9 +5,20 @@ using NAudio.Wave;
 namespace Ngan.Ime.Windows.Voice;
 
 public sealed partial class WindowsAudioInputSource{
-	/// 复用一个端点枚举器，避免每次录音创建 COM 枚举器。
+	/// 建構子刻意不碰 COM：NAudio 的 WASAPI 在 NativeAOT 下無法建立（`[ComImport]` 類介面），
+	/// 若在這裡就 new，桌面模式一建界面就會崩。真正的建立延到第一次錄音。
 	public partial WindowsAudioInputSource(){
-		DeviceEnumerator = new MMDeviceEnumerator();
+	}
+
+	/// 取得（必要時建立）端點枚舉器。
+	/// AOT 版本直接給出可讀的錯誤，而不是讓 `InvalidProgramException` 冒到界面上。
+	MMDeviceEnumerator EnsureEnumerator(){
+		if(!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported){
+			throw new VoiceRecognitionException(
+				EVoiceRecognitionErrorKind.AudioDevice,
+				"此版本以 NativeAOT 發佈，不支援 WASAPI 的 COM 互操作，故無法錄音；請改用非 AOT 版本。");
+		}
+		return DeviceEnumerator ??= new MMDeviceEnumerator();
 	}
 
 	/// 打开默认通信麦克风，建立转换链路并在所有资源就绪后开始采集。
@@ -22,7 +33,8 @@ public sealed partial class WindowsAudioInputSource{
 		BufferedWaveProvider? TargetBuffer = null;
 
 		try{
-			Device = DeviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+			// 先把「本版本能不能用 WASAPI」這件事講清楚，再碰 NAudio。
+			Device = EnsureEnumerator().GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
 			Capture = new WasapiCapture(Device);
 			SourceBuffer = new BufferedWaveProvider(Capture.WaveFormat){
 				DiscardOnBufferOverflow = false,

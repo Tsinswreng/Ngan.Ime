@@ -156,8 +156,8 @@ internal static unsafe class NativeTsf {
         public uint PendingOperation;
         /// <summary>待上屏的文字（由宿主回傳的 commit 合併）。</summary>
         public string PendingCommit = "";
-        /// <summary>最近一次按鍵查詢宿主的結果。</summary>
-        public HostResult? Host;
+        /// <summary>最近一次按鍵查詢服務端的結果。</summary>
+        public EngineReply? Reply;
         /// <summary>游標在螢幕上的左邊界（像素）。</summary>
         public int CaretX;
         /// <summary>游標在螢幕上的下邊界（像素）。</summary>
@@ -432,20 +432,6 @@ internal static unsafe class NativeTsf {
         }
     }
 
-    /// <summary>可以交給宿主（Rime）判斷的按鍵範圍；其餘按鍵一律放行。</summary>
-    // 交給引擎的鍵：除了「送進去會破壞系統操作」的少數組合，其餘一律先問引擎。
-    // 舊版只放行字母／數字／標點，方向鍵與 - = 根本到不了引擎，
-    // 症狀就是「有候選時方向鍵沒反應」「按 - 或 = 直接把字上屏」。
-    private static bool IsHostKey(int VirtualKey, int Mods) {
-        // Win 鍵、PrintScreen、Alt+Tab、Ctrl+Esc、Alt+F4 由系統處理。
-        if (VirtualKey is 0x5B or 0x5C or 0x2C or 0x73) { return false; }
-        if (VirtualKey == 0x09 && (Mods & 4) != 0) { return false; }
-        if (VirtualKey == 0x1B && (Mods & 2) != 0) { return false; }
-        if (VirtualKey == 0x73 && (Mods & 4) != 0) { return false; }
-        if (VirtualKey is >= 0x70 and <= 0x7B) { return false; } // F1-F12
-        return true;
-    }
-
     private static int GetModifiers() {
         var Mods = 0;
         if ((GetKeyState(0x10) & 0x8000) != 0) { Mods |= 1; }
@@ -463,16 +449,13 @@ internal static unsafe class NativeTsf {
             }
             var VirtualKey = (int)WParam.ToInt64();
             // 每次評估都先清掉上一次的結果，避免 OnKeyDown 讀到過期的回應。
-            State.Host = null;
+            State.Reply = null;
             var Mods = GetModifiers();
-            if (!IsHostKey(VirtualKey, Mods)) {
-                *IsEaten = 0;
-                return SOk;
-            }
+            // 不篩選按鍵：所有按鍵都先問引擎，由引擎決定吃不吃。
             UpdateCaretFromGui(State);
-            State.Host = QueryHost(VirtualKey, Mods, State.CaretX, State.CaretY);
-            *IsEaten = State.Host is not null && State.Host.Eaten ? 1 : 0;
-            Log("OnTestKeyDown vk=" + VirtualKey + " eat=" + *IsEaten + " cand=" + (State.Host?.Candidates.Count ?? 0));
+            State.Reply = QueryEngine(VirtualKey, Mods, State.CaretX, State.CaretY, false);
+            *IsEaten = State.Reply is not null && State.Reply.Eaten ? 1 : 0;
+            Log("OnTestKeyDown vk=" + VirtualKey + " eat=" + *IsEaten + " cand=" + (State.Reply?.Candidates.Count ?? 0));
             return SOk;
         }
         catch (Exception Exception) {
@@ -489,19 +472,14 @@ internal static unsafe class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            var Result = State.Host;
-            State.Host = null;
+            var Result = State.Reply;
+            State.Reply = null;
             if (Result is null || !Result.Eaten) {
                 *IsEaten = 0;
                 return SOk;
             }
             *IsEaten = 1;
-            if (Result.Commits.Count > 0) {
-                State.PendingCommit = string.Concat(Result.Commits);
-                State.PendingOperation = 2;
-                var Hr = RequestEditSession(State, Context);
-                Log("Commit len=" + State.PendingCommit.Length + " hr=0x" + Hr.ToString("X8"));
-            }
+            CommitIfAny(State, Context, Result);
             return SOk;
         }
         catch (Exception Exception) {
@@ -512,15 +490,61 @@ internal static unsafe class NativeTsf {
     }
 
     private static int OnTestKeyUpCore(IntPtr ThisPtr, IntPtr Context, IntPtr WParam, IntPtr LParam, int* IsEaten) {
-        Log("OnTestKeyUp");
-        *IsEaten = 0;
-        return SOk;
+        try {
+            var State = GetState(ThisPtr);
+            if (State is null) {
+                *IsEaten = 0;
+                return EFail;
+            }
+            var VirtualKey = (int)WParam.ToInt64();
+            State.Reply = null;
+            var Mods = GetModifiers();
+            UpdateCaretFromGui(State);
+            State.Reply = QueryEngine(VirtualKey, Mods, State.CaretX, State.CaretY, true);
+            *IsEaten = State.Reply is not null && State.Reply.Eaten ? 1 : 0;
+            Log("OnTestKeyUp vk=" + VirtualKey + " eat=" + *IsEaten);
+            return SOk;
+        }
+        catch (Exception Exception) {
+            Log("OnTestKeyUp EX " + Exception);
+            *IsEaten = 0;
+            return EFail;
+        }
     }
 
     private static int OnKeyUpCore(IntPtr ThisPtr, IntPtr Context, IntPtr WParam, IntPtr LParam, int* IsEaten) {
-        Log("OnKeyUp");
-        *IsEaten = 0;
-        return SOk;
+        try {
+            var State = GetState(ThisPtr);
+            if (State is null) {
+                *IsEaten = 0;
+                return EFail;
+            }
+            var Result = State.Reply;
+            State.Reply = null;
+            if (Result is null || !Result.Eaten) {
+                *IsEaten = 0;
+                return SOk;
+            }
+            *IsEaten = 1;
+            CommitIfAny(State, Context, Result);
+            return SOk;
+        }
+        catch (Exception Exception) {
+            Log("OnKeyUp EX " + Exception);
+            *IsEaten = 0;
+            return EFail;
+        }
+    }
+
+    /// <summary>回應帶了上屏文字時，開一次可寫的編輯會話把它寫進應用。</summary>
+    private static void CommitIfAny(TsfState State, IntPtr Context, EngineReply Result) {
+        if (Result.Commits.Count == 0) {
+            return;
+        }
+        State.PendingCommit = string.Concat(Result.Commits);
+        State.PendingOperation = 2;
+        var Hr = RequestEditSession(State, Context);
+        Log("Commit len=" + State.PendingCommit.Length + " hr=0x" + Hr.ToString("X8"));
     }
 
     private static int OnPreservedKeyCore(IntPtr ThisPtr, IntPtr Context, Guid* PreservedKey, int* IsEaten) {
@@ -618,7 +642,7 @@ internal static unsafe class NativeTsf {
         public string Comment = "";
     }
 
-    private sealed class HostResult {
+    private sealed class EngineReply {
         public bool Eaten;
         public string Preedit = "";
         public int Highlight;
@@ -630,8 +654,8 @@ internal static unsafe class NativeTsf {
     private static extern short GetKeyState(int VirtualKey);
 
     /// <summary>
-    /// 把按鍵送給 Ngan.Ime 宿主（Rime）處理，並取回是否吃掉、preedit、候選與 commit。
-    /// 宿主沒開或超時就回 null，呼叫端必須放行按鍵，避免整個系統打不了字。
+    /// 把按鍵送給 Ngan.Ime 服務端（Rime）處理，並取回是否吃掉、preedit、候選與 commit。
+    /// 服務端沒開或超時就回 null，呼叫端必須放行按鍵，避免整個系統打不了字。
     /// </summary>
     private static readonly object PipeLock = new();
     private static NamedPipeClientStream? Pipe;
@@ -648,9 +672,9 @@ internal static unsafe class NativeTsf {
     }
 
     /// <summary>
-    /// 與宿主保持長連線；連線斷了才重連。避免每個按鍵都重新 Connect 撞上宿主換連線的空窗。
+    /// 與服務端保持長連線；連線斷了才重連。避免每個按鍵都重新 Connect 撞上服務端換連線的空窗。
     /// </summary>
-    private static HostResult? QueryHost(int Vk, int Mods, int X, int Y) {
+    private static EngineReply? QueryEngine(int Vk, int Mods, int X, int Y, bool IsUp) {
         lock (PipeLock) {
             for (var Attempt = 0; Attempt < 2; Attempt++) {
                 try {
@@ -661,16 +685,16 @@ internal static unsafe class NativeTsf {
                         PipeWriter = new StreamWriter(Pipe, new UTF8Encoding(false)) { AutoFlush = true };
                         PipeReader = new StreamReader(Pipe, Encoding.UTF8);
                     }
-                    PipeWriter!.WriteLine("K|" + Vk + "|" + Mods + "|" + X + "|" + Y);
+                    PipeWriter!.WriteLine("K|" + Vk + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0"));
                     var Line = PipeReader!.ReadLine();
                     if (Line is null) {
                         ResetPipe();
                         continue;
                     }
-                    return ParseHostReply(Line);
+                    return ParseReply(Line);
                 }
                 catch (Exception Exception) {
-                    Log("QueryHost attempt " + Attempt + " failed " + Exception.GetType().Name + ": " + Exception.Message);
+                    Log("QueryEngine attempt " + Attempt + " failed " + Exception.GetType().Name + ": " + Exception.Message);
                     ResetPipe();
                 }
             }
@@ -678,12 +702,12 @@ internal static unsafe class NativeTsf {
         }
     }
 
-    private static HostResult? ParseHostReply(string Line) {
+    private static EngineReply? ParseReply(string Line) {
         if (!Line.StartsWith("R|", StringComparison.Ordinal)) {
             return null;
         }
         var Parts = Line.Split('|');
-        var Result = new HostResult {
+        var Result = new EngineReply {
             Eaten = Parts[1] == "1",
             Highlight = int.Parse(Parts[2]),
             Preedit = Encoding.UTF8.GetString(Convert.FromBase64String(Parts[3])),

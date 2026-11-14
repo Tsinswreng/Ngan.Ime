@@ -68,7 +68,7 @@ internal static partial class Program{
 		Console.Error.WriteLine("Usage: dotnet run --project proj/Ngan.Ime.Frontend/Ngan.Ime.Scripts -- <entry>");
 		Console.Error.WriteLine("Entries: Test, TestAotWin, GenAppJsonCtx, RunWin, DeployWinVm");
 		Console.Error.WriteLine("GenAppJsonCtx：改過 DTO／實體之後跑一次，重寫 Ngan.Ime.Core/Tsinswreng.SrcGen/Ngan.Ime.Gen.g.cs。");
-		Console.Error.WriteLine("RunWin：把配置檔放到輸出目錄，再以 win-x86 啟動 Windows 宿主。");
+		Console.Error.WriteLine("RunWin：把配置檔放到輸出目錄，再以 win-x86 啟動 Windows 服務端。");
 		Console.Error.WriteLine("DeployWinVm：建置並部署 Windows 版到測試虛擬機（-Fast／-NoBuild／-StartVm／-OpenNotepad／-SkipSmoke／-DryRun）。");
 	}
 

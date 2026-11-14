@@ -190,6 +190,18 @@ public class RimeKeyCharConverter {
 			[KS.Down] = RimeKeysym.Down,
 			[KS.Left] = RimeKeysym.Left,
 			[KS.Right] = RimeKeysym.Right,
+			[KS.F1] = RimeKeysym.F1,
+			[KS.F2] = RimeKeysym.F2,
+			[KS.F3] = RimeKeysym.F3,
+			[KS.F4] = RimeKeysym.F4,
+			[KS.F5] = RimeKeysym.F5,
+			[KS.F6] = RimeKeysym.F6,
+			[KS.F7] = RimeKeysym.F7,
+			[KS.F8] = RimeKeysym.F8,
+			[KS.F9] = RimeKeysym.F9,
+			[KS.F10] = RimeKeysym.F10,
+			[KS.F11] = RimeKeysym.F11,
+			[KS.F12] = RimeKeysym.F12,
 		};
 		return Map;
 	}
@@ -252,4 +264,28 @@ public static class RimeKeysym {
 	public const i32 Super_L = 0xFFEB;
 	[Doc("Menu／Fn 0xFF67。")]
 	public const i32 Menu = 0xFF67;
+	[Doc("F1 0xFFBE（X11 的 F 鍵從 0xFFBE 起連續排列）。")]
+	public const i32 F1 = 0xFFBE;
+	[Doc("F2 0xFFBF。")]
+	public const i32 F2 = 0xFFBF;
+	[Doc("F3 0xFFC0。")]
+	public const i32 F3 = 0xFFC0;
+	[Doc("F4 0xFFC1。")]
+	public const i32 F4 = 0xFFC1;
+	[Doc("F5 0xFFC2。")]
+	public const i32 F5 = 0xFFC2;
+	[Doc("F6 0xFFC3。")]
+	public const i32 F6 = 0xFFC3;
+	[Doc("F7 0xFFC4。")]
+	public const i32 F7 = 0xFFC4;
+	[Doc("F8 0xFFC5。")]
+	public const i32 F8 = 0xFFC5;
+	[Doc("F9 0xFFC6。")]
+	public const i32 F9 = 0xFFC6;
+	[Doc("F10 0xFFC7。")]
+	public const i32 F10 = 0xFFC7;
+	[Doc("F11 0xFFC8。")]
+	public const i32 F11 = 0xFFC8;
+	[Doc("F12 0xFFC9。")]
+	public const i32 F12 = 0xFFC9;
 }

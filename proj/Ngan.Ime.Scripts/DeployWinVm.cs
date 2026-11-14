@@ -8,8 +8,8 @@ using Tsinswreng.CsSh;
 /// 屬於「超過 16 行的複雜腳本」，按倉庫規範用 CsSh 寫；只有**必須在 guest 內執行**的部分
 /// （排程工作、HKLM 註冊、以桌面使用者身分啟動）才以 PowerShell 腳本的形式丟進 VM 執行。
 ///
-/// 流程：確認 VM → 增量建置三個產物（TSF DLL／註冊工具／x86 宿主）→ 打包 → 複製進 guest →
-/// 執行 guest 端腳本（停舊宿主、解包、註冊、啟動、煙霧測試）→ 抓回日誌並回報。
+/// 流程：確認 VM → 增量建置三個產物（TSF DLL／註冊工具／x86 服務端）→ 打包 → 複製進 guest →
+/// 執行 guest 端腳本（停舊服務端、解包、註冊、啟動、煙霧測試）→ 抓回日誌並回報。
 ///
 /// 用法：
 ///   dotnet run --project proj/Ngan.Ime.Frontend/Ngan.Ime.Scripts -- DeployWinVm
@@ -44,7 +44,7 @@ internal static partial class DeployWinVm{
 	/// 在 guest 內執行部署腳本（會阻塞到腳本結束）。
 	private static partial Task<nil> RunGuestDeploy(WinVmOpts O, WinVmPaths P, CT Ct);
 
-	/// 抓回 guest 的執行日誌與宿主日誌，印出尾段並決定退出碼。
+	/// 抓回 guest 的執行日誌與服務端日誌，印出尾段並決定退出碼。
 	private static partial Task<nil> CollectLogs(WinVmOpts O, WinVmPaths P, CT Ct);
 }
 
@@ -69,7 +69,7 @@ internal sealed partial class WinVmOpts{
 	/// guest 端的工作根目錄。
 	public str WorkDir{get;set;} = @"C:\NganImeVm";
 
-	/// 宿主要載入的 rime.dll 在 guest 的位置。
+	/// 服務端要載入的 rime.dll 在 guest 的位置。
 	public str RimeDll{get;set;} = @"C:\NganImeVm\rime\rime.dll";
 
 	/// Rime 用戶資料在 guest 的位置。
@@ -87,7 +87,7 @@ internal sealed partial class WinVmOpts{
 	/// true 時跳過建置，直接用上次的發布輸出。
 	public bool NoBuild{get;set;}
 
-	/// true 時宿主用 framework-dependent（快，但 guest 需要 x86 .NET 10 runtime）。
+	/// true 時服務端用 framework-dependent（快，但 guest 需要 x86 .NET 10 runtime）。
 	public bool Fast{get;set;}
 
 	/// true 時自動開機 VM（`vmrun start … nogui`）。
@@ -124,8 +124,8 @@ internal sealed partial class WinVmPaths{
 	/// 註冊工具的發布目錄。
 	public Pth RegPublish{get;set;} = default!;
 
-	/// 宿主的發布目錄。
-	public Pth HostPublish{get;set;} = default!;
+	/// 服務端的發布目錄。
+	public Pth ServerPublish{get;set;} = default!;
 
 	/// 三個產物打包後的位置。
 	public Pth TsfZip{get;set;} = default!;
@@ -133,8 +133,8 @@ internal sealed partial class WinVmPaths{
 	/// 註冊工具的 zip。
 	public Pth RegZip{get;set;} = default!;
 
-	/// 宿主的 zip。
-	public Pth HostZip{get;set;} = default!;
+	/// 服務端的 zip。
+	public Pth ServerZip{get;set;} = default!;
 
 	/// guest 端腳本與參數檔。
 	public Pth GuestScript{get;set;} = default!;

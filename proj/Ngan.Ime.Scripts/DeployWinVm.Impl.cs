@@ -24,14 +24,14 @@ internal static partial class DeployWinVm{
 	/// 註冊工具專案目錄。
 	const str RegProjRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Tsf.Registration";
 
-	/// Windows 宿主專案（x86，要載 x86 的 rime.dll）。
-	const str HostCsprojRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Windows/Ngan.Ime.Windows.csproj";
+	/// Windows 服務端專案（x86，要載 x86 的 rime.dll）。
+	const str ServerCsprojRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Windows/Ngan.Ime.Windows.csproj";
 
-	/// 宿主的配置檔；要一起放進發布輸出（儲存區根目錄＝執行檔目錄）。
-	static readonly str[] HostCfgFiles = ["Ngan.Ime.Ro.jsonc", "Ngan.Ime.Rw.jsonc"];
+	/// 服務端的配置檔；要一起放進發布輸出（儲存區根目錄＝執行檔目錄）。
+	static readonly str[] ServerCfgFiles = ["Ngan.Ime.Ro.jsonc", "Ngan.Ime.Rw.jsonc"];
 
-	/// 宿主原始碼目錄（與其依賴），用來判斷是否需要重建。
-	static readonly str[] HostSrcRelPaths = [
+	/// 服務端原始碼目錄（與其依賴），用來判斷是否需要重建。
+	static readonly str[] ServerSrcRelPaths = [
 		"proj/Ngan.Ime.Frontend/Ngan.Ime.Windows",
 		"proj/Ngan.Ime.Frontend/Ngan.Ime.UI",
 		"proj/Ngan.Ime.Frontend/Ngan.Ime.Backend",
@@ -46,7 +46,7 @@ internal static partial class DeployWinVm{
 		Console.WriteLine("[DeployWinVm] 本次設定：");
 		Console.WriteLine($"  VM        : {O.VmxPath}");
 		Console.WriteLine($"  guest 帳號: {O.GuestUser} / 桌面使用者 {O.DesktopUser}");
-		Console.WriteLine($"  宿主模式  : {(O.Fast ? "Fast（framework-dependent x86）" : "AOT（self-contained x86）")}");
+		Console.WriteLine($"  服務端模式  : {(O.Fast ? "Fast（framework-dependent x86）" : "AOT（self-contained x86）")}");
 		Console.WriteLine($"  TSF 版本  : {O.TsfVersion}");
 		Console.WriteLine($"  staging   : {P.OutRoot}");
 
@@ -69,7 +69,7 @@ internal static partial class DeployWinVm{
 		// 4: 複製進 guest。
 		await CopyToGuest(O, P, Ct);
 
-		// 5: guest 內部署（停舊宿主、解包、註冊、啟動、煙霧測試）。
+		// 5: guest 內部署（停舊服務端、解包、註冊、啟動、煙霧測試）。
 		await RunGuestDeploy(O, P, Ct);
 
 		// 6: 抓回日誌並回報。
@@ -141,7 +141,7 @@ internal static partial class DeployWinVm{
 		Mkdir(P.OutRoot);
 		Mkdir(P.TsfPublish);
 		Mkdir(P.RegPublish);
-		Mkdir(P.HostPublish);
+		Mkdir(P.ServerPublish);
 
 		var Root = (Pth)P.OutRoot/""; // 佔位，避免未使用警告
 		_ = Root;
@@ -174,34 +174,34 @@ internal static partial class DeployWinVm{
 			Console.WriteLine("[DeployWinVm] 註冊工具無變更，沿用既有產物。");
 		}
 
-		// 宿主：預設 AOT x86；-Fast 時 framework-dependent（快，但 guest 需 x86 runtime）。
-		if(DryRun || NeedBuild(P, P.HostPublish/"Ngan.Ime.Windows.exe", HostSrcRelPaths)){
+		// 服務端：預設 AOT x86；-Fast 時 framework-dependent（快，但 guest 需 x86 runtime）。
+		if(DryRun || NeedBuild(P, P.ServerPublish/"Ngan.Ime.Windows.exe", ServerSrcRelPaths)){
 			var Extra = O.Fast
 				? new List<str>{ "--self-contained", "false", "-p:PublishAot=false", "-p:PublishReadyToRun=false" }
 				: new List<str>();
-			Console.WriteLine($"[DeployWinVm] 發布宿主（win-x86, {(O.Fast ? "framework-dependent" : "NativeAOT")}）…");
+			Console.WriteLine($"[DeployWinVm] 發布服務端（win-x86, {(O.Fast ? "framework-dependent" : "NativeAOT")}）…");
 			if(!DryRun){
-				var Args = new List<str>{ "publish", (str)(P.RepoRoot/HostCsprojRelPath), "-c", "Release", "-r", "win-x86", "-o", (str)P.HostPublish };
+				var Args = new List<str>{ "publish", (str)(P.RepoRoot/ServerCsprojRelPath), "-c", "Release", "-r", "win-x86", "-o", (str)P.ServerPublish };
 				Args.AddRange(Extra);
 				await Exe("dotnet", Args, Ct);
 			}
 		}else{
-			Console.WriteLine("[DeployWinVm] 宿主無變更，沿用既有產物。");
+			Console.WriteLine("[DeployWinVm] 服務端無變更，沿用既有產物。");
 		}
 		return NIL;
 	}
 
 	private static async partial Task<nil> Stage(WinVmOpts O, WinVmPaths P, CT Ct, bool DryRun){
-		// 把配置檔一起放進宿主目錄：宿主以執行檔目錄為儲存區根，找不到配置就會用默認值。
-		var HostProj = P.RepoRoot/"proj/Ngan.Ime.Frontend/Ngan.Ime.Windows";
-		foreach(var Name in HostCfgFiles){
-			var Src = HostProj/Name;
+		// 把配置檔一起放進服務端目錄：服務端以執行檔目錄為儲存區根，找不到配置就會用默認值。
+		var ServerProj = P.RepoRoot/"proj/Ngan.Ime.Frontend/Ngan.Ime.Windows";
+		foreach(var Name in ServerCfgFiles){
+			var Src = ServerProj/Name;
 			if(IsFile(Src)){
 				if(!DryRun){
-					Cp(Src, P.HostPublish/Name, new CpOptions(Overwrite: true));
+					Cp(Src, P.ServerPublish/Name, new CpOptions(Overwrite: true));
 				}
 			}else{
-				Console.Error.WriteLine($"[DeployWinVm] 警告：缺少配置檔 {Src}（宿主會用鍵上默認值）。");
+				Console.Error.WriteLine($"[DeployWinVm] 警告：缺少配置檔 {Src}（服務端會用鍵上默認值）。");
 			}
 		}
 
@@ -209,10 +209,10 @@ internal static partial class DeployWinVm{
 			// 打包：一次複製一個 zip，比逐檔複製快很多。
 			if(File.Exists(P.TsfZip)){ File.Delete(P.TsfZip); }
 			if(File.Exists(P.RegZip)){ File.Delete(P.RegZip); }
-			if(File.Exists(P.HostZip)){ File.Delete(P.HostZip); }
+			if(File.Exists(P.ServerZip)){ File.Delete(P.ServerZip); }
 			ZipFile.CreateFromDirectory((str)P.TsfPublish, (str)P.TsfZip, CompressionLevel.Fastest, includeBaseDirectory: false);
 			ZipFile.CreateFromDirectory((str)P.RegPublish, (str)P.RegZip, CompressionLevel.Fastest, includeBaseDirectory: false);
-			ZipFile.CreateFromDirectory((str)P.HostPublish, (str)P.HostZip, CompressionLevel.Fastest, includeBaseDirectory: false);
+			ZipFile.CreateFromDirectory((str)P.ServerPublish, (str)P.ServerZip, CompressionLevel.Fastest, includeBaseDirectory: false);
 
 			// 必須帶 BOM：guest 是 Windows PowerShell 5.1，它對 .ps1 的預設解碼是 ANSI，
 			// 無 BOM 的 UTF-8 會把中文註釋讀成亂碼，進而吞掉引號、整份腳本語法錯誤。
@@ -237,7 +237,7 @@ internal static partial class DeployWinVm{
 		foreach(var (Local, Remote) in new (Pth, str)[]{
 			(P.TsfZip, InDir + @"\tsf.zip"),
 			(P.RegZip, InDir + @"\reg.zip"),
-			(P.HostZip, InDir + @"\host.zip"),
+			(P.ServerZip, InDir + @"\server.zip"),
 			(P.GuestScript, InDir + @"\deploy.ps1"),
 			(P.GuestArgs, InDir + @"\deploy-args.txt"),
 		}){
@@ -251,7 +251,7 @@ internal static partial class DeployWinVm{
 	}
 
 	private static async partial Task<nil> RunGuestDeploy(WinVmOpts O, WinVmPaths P, CT Ct){
-		Console.WriteLine("[DeployWinVm] 在 guest 內部署（停舊宿主 → 解包 → 註冊 → 啟動 → 煙霧測試）…");
+		Console.WriteLine("[DeployWinVm] 在 guest 內部署（停舊服務端 → 解包 → 註冊 → 啟動 → 煙霧測試）…");
 		// 直接叫 powershell.exe，不經 cmd：實測 vmrun 在 session 0 起的 cmd.exe 一律 exit 1。
 		// 同一段參數偶爾會在「剛複製完檔案」時瞬間失敗（日志檔都沒更新），故最多重試兩次。
 		for(var Attempt = 1; Attempt <= 2; Attempt++){
@@ -319,10 +319,10 @@ internal static partial class DeployWinVm{
 			OutRoot = Out,
 			TsfPublish = Out/"tsf",
 			RegPublish = Out/"reg",
-			HostPublish = Out/"host",
+			ServerPublish = Out/"server",
 			TsfZip = Out/"tsf.zip",
 			RegZip = Out/"reg.zip",
-			HostZip = Out/"host.zip",
+			ServerZip = Out/"server.zip",
 			GuestScript = Out/"deploy.ps1",
 			GuestArgs = Out/"deploy-args.txt",
 			LastRunLog = Out/"last-run.log",
@@ -463,7 +463,7 @@ if([string]::IsNullOrWhiteSpace($Cfg.WorkDir)){ Write-Error 'deploy-args.txt 解
 $WorkDir = $Cfg.WorkDir
 $In      = Join-Path $WorkDir 'in'
 $Apps    = Join-Path $WorkDir 'apps'
-$HostDir = Join-Path $Apps 'ngan-host-x86'
+$ServerDir = Join-Path $Apps 'ngan-server-x86'
 $TsfDir  = Join-Path $Apps 'ngan-tsf'
 $RegDir  = Join-Path $Apps 'ngan-reg'
 $Log     = Join-Path $WorkDir 'last-run.log'
@@ -481,26 +481,26 @@ function New-PsTask([string]$Name, [string]$ScriptPath, [string]$UserId, [string
     Register-ScheduledTask -TaskName $Name -Action $Act -Principal $Prn -Force | Out-Null
 }
 
-foreach($D in @($In, $Apps, $HostDir, $TsfDir, $RegDir)){ New-Item -ItemType Directory -Force -Path $D | Out-Null }
+foreach($D in @($In, $Apps, $ServerDir, $TsfDir, $RegDir)){ New-Item -ItemType Directory -Force -Path $D | Out-Null }
 
-# ---- 1 停舊宿主 ----
-Log '停止舊宿主'
+# ---- 1 停舊服務端 ----
+Log '停止舊服務端'
 Get-Process -Name 'Ngan.Ime.Windows' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
 # ---- 2 解包 ----
 Log '解包產物'
 try {
-    Get-ChildItem -Path $HostDir -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Expand-Archive -Path (Join-Path $In 'host.zip') -DestinationPath $HostDir -Force
-} catch { Fail ('解包宿主失敗：' + $_.Exception.Message) }
+    Get-ChildItem -Path $ServerDir -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Expand-Archive -Path (Join-Path $In 'server.zip') -DestinationPath $ServerDir -Force
+} catch { Fail ('解包服務端失敗：' + $_.Exception.Message) }
 try { Expand-Archive -Path (Join-Path $In 'reg.zip') -DestinationPath $RegDir -Force } catch { Fail ('解包註冊工具失敗：' + $_.Exception.Message) }
 try { Expand-Archive -Path (Join-Path $In 'tsf.zip') -DestinationPath $TsfDir -Force } catch { Fail ('解包 TSF 失敗：' + $_.Exception.Message) }
 
-# ---- 2.5 修正宿主配置裡的本機路徑 ----
+# ---- 2.5 修正服務端配置裡的本機路徑 ----
 # 部署包裡的 jsonc 是在主機上跑的配置，DllPath 之類會指向主機路徑；
-# 直接啟動會得到 DllNotFoundException 並讓宿主當場退出，故在 guest 內改寫成本機路徑。
-$CfgFile = Join-Path $HostDir 'Ngan.Ime.Rw.jsonc'
+# 直接啟動會得到 DllNotFoundException 並讓服務端當場退出，故在 guest 內改寫成本機路徑。
+$CfgFile = Join-Path $ServerDir 'Ngan.Ime.Rw.jsonc'
 if(Test-Path $CfgFile){
     try {
         $Json = Get-Content $CfgFile -Raw -Encoding utf8 | ConvertFrom-Json
@@ -582,29 +582,29 @@ if($Stale.Count -gt 0){
     Log '沒有行程載入舊版 TSF'
 }
 
-# ---- 6 以桌面使用者身分常駐啟動宿主 ----
-$HostExe = Join-Path $HostDir 'Ngan.Ime.Windows.exe'
-if(-not (Test-Path $HostExe)){ Fail ('缺少宿主：' + $HostExe) }
-$HostPs1 = Join-Path $In 'do-start-host.ps1'
+# ---- 6 以桌面使用者身分常駐啟動服務端 ----
+$ServerExe = Join-Path $ServerDir 'Ngan.Ime.Windows.exe'
+if(-not (Test-Path $ServerExe)){ Fail ('缺少服務端：' + $ServerExe) }
+$ServerPs1 = Join-Path $In 'do-start-server.ps1'
 @"
 `$env:NGAN_RIME_DLL = '$($Cfg.RimeDll)'
 `$env:NGAN_RIME_USER_DATA = '$($Cfg.RimeUserData)'
-Start-Process -FilePath '$HostExe' -ArgumentList '--tsf' -WindowStyle Hidden
-"@ | Set-Content -Path $HostPs1 -Encoding utf8
-New-PsTask -Name ($Cfg.TaskPrefix + '-Host') -ScriptPath $HostPs1 -UserId $Cfg.DesktopUser -LogonType 'Interactive' -RunLevel 'Limited'
-Start-ScheduledTask -TaskName ($Cfg.TaskPrefix + '-Host')
+Start-Process -FilePath '$ServerExe' -ArgumentList '--tsf' -WindowStyle Hidden
+"@ | Set-Content -Path $ServerPs1 -Encoding utf8
+New-PsTask -Name ($Cfg.TaskPrefix + '-Server') -ScriptPath $ServerPs1 -UserId $Cfg.DesktopUser -LogonType 'Interactive' -RunLevel 'Limited'
+Start-ScheduledTask -TaskName ($Cfg.TaskPrefix + '-Server')
 Start-Sleep -Seconds 8
 
 $Proc = Get-Process -Name 'Ngan.Ime.Windows' -ErrorAction SilentlyContinue
 if($null -eq $Proc){
-    $HostLog = Join-Path $HostDir 'logs/Ngan.Ime.Windows.log'
-    if(Test-Path $HostLog){
-        Log '宿主日誌尾段：'
-        Get-Content $HostLog -Tail 12 -Encoding utf8 | ForEach-Object { Log ('  ' + $_) }
+    $ServerLog = Join-Path $ServerDir 'logs/Ngan.Ime.Windows.log'
+    if(Test-Path $ServerLog){
+        Log '服務端日誌尾段：'
+        Get-Content $ServerLog -Tail 12 -Encoding utf8 | ForEach-Object { Log ('  ' + $_) }
     }
-    Fail '宿主沒有起來（行程不存在）'
+    Fail '服務端沒有起來（行程不存在）'
 }
-Log ('宿主 pid=' + ($Proc | Select-Object -First 1).Id)
+Log ('服務端 pid=' + ($Proc | Select-Object -First 1).Id)
 
 # ---- 7 管道煙霧測試（以桌面使用者身分） ----
 if($Cfg.SkipSmoke -ne '1'){
@@ -613,7 +613,7 @@ if($Cfg.SkipSmoke -ne '1'){
     @"
 `$out = '$SmokeLog'
 try {
-    # 宿主是一請求一連線：每次連線只送一個請求，重複使用連線會得到「管道已中斷」。
+    # 一條連線可送多個請求；這裡仍每次重連，讓每顆鍵互不影響。
     function Send-Key([string]`$payload){
         `$c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'NganIme.Tsf.v1')
         `$c.Connect(5000)
@@ -624,8 +624,8 @@ try {
         `$c.Dispose()
         return `$line
     }
-    `$a = Send-Key 'K|67|0|100|100'
-    `$b = Send-Key 'K|32|0|100|100'
+    `$a = Send-Key 'K|67|0|100|100|0'
+    `$b = Send-Key 'K|32|0|100|100|0'
     'SMOKE OK: ' + `$a + ' / ' + `$b | Set-Content -Path `$out -Encoding utf8
 } catch {
     'SMOKE FAIL: ' + `$_.Exception.Message | Set-Content -Path `$out -Encoding utf8

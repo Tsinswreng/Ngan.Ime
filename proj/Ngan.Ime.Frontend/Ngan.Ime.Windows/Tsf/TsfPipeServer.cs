@@ -9,19 +9,21 @@ using Ngan.Ime.Core.Keys;
 using Tsinswreng.CsCore;
 
 [Doc($$"""
-TSF 外殼的宿主端：按鍵經具名管道送進來，交給引擎處理，再把 preedit／候選／commit 回給外殼。
+TSF 服務端：按鍵經具名管道送進來，交給引擎處理，再把 preedit／候選／commit 回給外殼。
 
 *協議*（單行 UTF-8，欄位以 `|` 分隔）：
-- 請求：`K|<vk>|<mods>|<x>|<y>`；
+- 請求：`K|<vk>|<mods>|<x>|<y>|<state>`，state 為 0 表示按下、1 表示擡起，省略時視為按下；
+- 收起請求：`HIDE`，外殼在失焦或停用時送出；
 - 回應：`R|<eaten>|<highlight>|<preedit b64>|<n>|<cand b64>~<comment b64>|…|<m>|<commit b64>|…`。
 外殼端（`Ngan.Ime.Tsf.Windows`）是另一份獨立實現，改協議時兩邊必須同步；
 本版尚未帶協議版本號，故只能成對升級。
 
-*為何只送 KeyDown*：TSF 外殼攔的是「按下」；引擎只要看到按下就能更新 preedit 與候選。
-補送 Up 會被 Rime 判成未處理鍵，再被轉發回系統，等於同一顆鍵被應用收兩次。
+*方向*：外殼把按下與擡起都送進來，由引擎自己判斷要不要處理。
+引擎靠 `kReleaseMask` 分辨方向（見 `RimeKeyCharConverter`），
+靠 release 才能生效的規則（例如修飾鍵鬆開時切換中英）因此拿得到事件。
 
 *AOT*：鍵名表直接取自 {{nameof(KeyChars)}} 的手寫登記表（`KeyChars.ByName`），
-不再用 `typeof(KeyChars).GetProperties()` 反射——那在 NativeAOT 裁剪後會得到空表，
+不再用 `typeof(KeyChars).GetProperties()` 反射，那在 NativeAOT 裁剪後會得到空表，
 症狀是「所有鍵都解析失敗」。
 
 *安全*：管道使用默認 ACL（建立者與管理員可存取），同一使用者下的行程仍可連上。
@@ -29,11 +31,11 @@ TSF 外殼的宿主端：按鍵經具名管道送進來，交給引擎處理，�
 
 #Eg[
 	```cs
-	TsfHostServer.Start();
+	TsfPipeServer.Start();
 	```
 ]
 """)]
-public static class TsfHostServer{
+public static class TsfPipeServer{
 
 	[Doc("管道名稱；外殼端有同名常量，改名時兩邊都要改。")]
 	public const str PipeName = "NganIme.Tsf.v1";
@@ -61,7 +63,7 @@ public static class TsfHostServer{
 					await Input.ConnectAsy();
 				}
 			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfHost] 連接引擎失敗，將在首次按鍵時重試");
+				AppLog.Error(Ex, "[TsfPipe] 連接引擎失敗，將在首次按鍵時重試");
 			}
 		});
 	}
@@ -80,7 +82,7 @@ public static class TsfHostServer{
 				await Server.WaitForConnectionAsync();
 				_ = Task.Run(() => ServeAsy(Server));
 			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfHost] 接受連線失敗");
+				AppLog.Error(Ex, "[TsfPipe] 接受連線失敗");
 				Server.Dispose();
 				await Task.Delay(RetryDelayMs);
 			}
@@ -112,9 +114,9 @@ public static class TsfHostServer{
 				}
 			}catch(IOException){
 				// 客戶端正常斷線（外殼端換行程、使用者切換輸入法）會走到這裡，不是錯誤。
-				AppLog.Trace("[TsfHost] 連線結束（客戶端斷線）");
+				AppLog.Trace("[TsfPipe] 連線結束（客戶端斷線）");
 			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfHost] 連線異常結束");
+				AppLog.Error(Ex, "[TsfPipe] 連線異常結束");
 			}
 		}
 	}
@@ -125,6 +127,11 @@ public static class TsfHostServer{
 	#Rtn[回應行。]
 	""")]
 	static async Task<str> HandleAsync(str Line){
+		// 外殼在失焦或停用時送 HIDE，這裡只收起候選窗，不碰引擎狀態。
+		if(Line == "HIDE"){
+			HideWindow();
+			return EmptyReply();
+		}
 		var Parts = Line.Split('|');
 		if(Parts.Length < 5 || Parts[0] != "K"){
 			return EmptyReply();
@@ -136,11 +143,14 @@ public static class TsfHostServer{
 			X = 0;
 			Y = 0;
 		}
+		// 方向欄可省略：省略時視為按下，讓舊版外殼與煙霧測試仍然可用。
+		var IsUp = Parts.Length > 5 && Parts[5] == "1";
 		var Svc = Di.SvcProviderOrNull?.GetService<IImeInput>();
 		var State = Di.SvcProviderOrNull?.GetService<IImeState>();
 		var Key = Resolve(Vk);
 		if(Svc is null || State is null || Key is null){
-			HideWindow();
+			// 認不出來的鍵不算錯誤：回「沒吃掉」，由系統交給前景應用。
+			// 此時不收起候選窗，否則按一下 Shift 以外的未登記鍵就會把組字中的候選窗閃掉。
 			return EmptyReply();
 		}
 
@@ -156,13 +166,12 @@ public static class TsfHostServer{
 			if((Mods & 4) != 0){
 				Board.AllDownKeys.Add(KeyChars.Alt_L);
 			}
-			// 只送 KeyDown：引擎只需要「按下」就能更新 preedit 與候選。
-			// 全部按鍵都交給引擎，由它回報「哪些沒被吃掉」，這裡再據此回 IsEaten。
+			// 按下與擡起都送：引擎靠 release 掩碼分辨方向，靠 release 生效的規則才拿得到事件。
 			Resp = await Svc.Input([
-				new KeyEvent{ KeyChar = Key, KeyState = KeyStates.Down, KeyBoardState = Board },
+				new KeyEvent{ KeyChar = Key, KeyState = IsUp ? KeyStates.Up : KeyStates.Down, KeyBoardState = Board },
 			], CancellationToken.None);
 		}catch(Exception Ex){
-			AppLog.Error(Ex, "[TsfHost] 送鍵失敗");
+			AppLog.Error(Ex, "[TsfPipe] 送鍵失敗");
 			return EmptyReply();
 		}
 
@@ -170,7 +179,7 @@ public static class TsfHostServer{
 		var Preedit = State.Preedit ?? "";
 		var Page = State.Candidates;
 		// Eaten 的唯一判據：引擎把所有鍵都吃掉了。
-		// 不能用「有沒有 preedit／候選」來判斷——退格刪到空、Escape 取消組字這類按鍵
+		// 不能用「有沒有 preedit／候選」來判斷，退格刪到空、Escape 取消組字這類按鍵
 		// 引擎吃掉了卻不留下任何狀態，用狀態判斷會把它們放行給應用，等於同時刪兩次。
 		var Eaten = Resp.UnhandledKeys.Count == 0;
 		PostUpdate(Preedit, Page, X, Y);
@@ -210,16 +219,16 @@ public static class TsfHostServer{
 		return Convert.ToBase64String(Encoding.UTF8.GetBytes(Text ?? ""));
 	}
 
+	[Doc("收起候選窗。")]
+	static void HideWindow(){
+		Dispatcher.UIThread.Post(() => Window?.HideIfVisible());
+	}
+
 	[Doc("切回 UI 線程更新候選窗（控件只能在 UI 線程碰）。")]
 	static void PostUpdate(str Preedit, CandidatePage? Page, i32 X, i32 Y){
 		Dispatcher.UIThread.Post(() => {
 			Window ??= new TsfCandidateWindow();
 			Window.Update(Preedit, Page, X, Y);
 		});
-	}
-
-	[Doc("收起候選窗。")]
-	static void HideWindow(){
-		Dispatcher.UIThread.Post(() => Window?.HideIfVisible());
 	}
 }

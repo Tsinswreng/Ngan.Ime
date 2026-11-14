@@ -124,6 +124,11 @@ public class KeyEventConverter{
 
 			// 修飾鍵（左右不分的虛擬鍵碼歸到左側；左右由擴展鍵位另行處理）
 			[0x10] = Shift_L, [0x11] = Ctrl_L, [0x12] = Alt_L, [0x5B] = Meta_L,
+
+			// 功能鍵
+			[0x70] = F1, [0x71] = F2, [0x72] = F3, [0x73] = F4,
+			[0x74] = F5, [0x75] = F6, [0x76] = F7, [0x77] = F8,
+			[0x78] = F9, [0x79] = F10, [0x7A] = F11, [0x7B] = F12,
 		};
 		return Map;
 	}
@@ -157,6 +162,9 @@ public class KeyEventConverter{
 			[CapsLock] = 0x14,
 			[Home] = 0x24, [End] = 0x23, [Up] = 0x26, [Down] = 0x28, [Left] = 0x25, [Right] = 0x27,
 			[PageUp] = 0x21, [PageDown] = 0x22, [Delete] = 0x2E, [Insert] = 0x2D, [Escape] = 0x1B,
+			[F1] = 0x70, [F2] = 0x71, [F3] = 0x72, [F4] = 0x73,
+			[F5] = 0x74, [F6] = 0x75, [F7] = 0x76, [F8] = 0x77,
+			[F9] = 0x78, [F10] = 0x79, [F11] = 0x7A, [F12] = 0x7B,
 
 			// ===== 標點（OEM 鍵）=====
 			[Semicolon] = 0xBA, [Colon] = 0xBA,

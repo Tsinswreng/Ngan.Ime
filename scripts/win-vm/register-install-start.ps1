@@ -13,7 +13,7 @@
         -Dll 'C:\NganImeVm\apps\ngan-tsf\Ngan.Ime.Tsf.dll' `
         -RimeDll 'C:\NganImeVm\rime\rime.dll' `
         -RimeUserData 'C:\NganImeVm\rime-user' `
-        -HostExe 'C:\NganImeVm\apps\ngan-host-x86\Ngan.Ime.Windows.exe'
+        -HostExe 'C:\NganImeVm\apps\ngan-server-x86\Ngan.Ime.Windows.exe'
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Registrar,
@@ -63,9 +63,9 @@ $HostBat = Join-Path $WorkDir 'host.bat'
     ('set NGAN_RIME_USER_DATA=' + $RimeUserData),
     ('start "" /b "' + $HostExe + '" --tsf')
 ) | Set-Content -Encoding ascii $HostBat
-New-Task -Name "$TaskPrefix`Host" -Command $HostBat -Arguments '' `
+New-Task -Name "$TaskPrefix`Server" -Command $HostBat -Arguments '' `
     -UserId $User -LogonType 'Interactive' -RunLevel 'Limited' -AtLogOn
-Start-ScheduledTask -TaskName "$TaskPrefix`Host"
+Start-ScheduledTask -TaskName "$TaskPrefix`Server"
 Start-Sleep -Seconds 6
 
 Write-Output 'register-install-start 完成；可用 pipetest.ps1 驗證管道。'

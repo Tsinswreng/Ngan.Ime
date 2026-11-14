@@ -57,8 +57,8 @@ sealed class Program{
 			},
 			AfterBuild = _ => {
 				SetupWindowsCfg();
-				// TSF 宿主：接受系統輸入法轉來的按鍵，交給 Rime 並顯示候選窗。
-				Tsf.TsfHostServer.Start();
+				// TSF 服務端：接受系統輸入法轉來的按鍵，交給 Rime 並顯示候選窗。
+				Tsf.TsfPipeServer.Start();
 			},
 		});
 		BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);

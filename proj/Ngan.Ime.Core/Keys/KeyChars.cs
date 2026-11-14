@@ -270,6 +270,33 @@ public static class KeyChars {
 	public static readonly IK Fn = KeyChar.Mk(nameof(Fn));
 	#endregion
 
+	#region 功能鍵
+	[Doc("F1。")]
+	public static readonly IK F1 = KeyChar.Mk(nameof(F1));
+	[Doc("F2。")]
+	public static readonly IK F2 = KeyChar.Mk(nameof(F2));
+	[Doc("F3。")]
+	public static readonly IK F3 = KeyChar.Mk(nameof(F3));
+	[Doc("F4；Rime 的默認方案選單熱鍵。")]
+	public static readonly IK F4 = KeyChar.Mk(nameof(F4));
+	[Doc("F5。")]
+	public static readonly IK F5 = KeyChar.Mk(nameof(F5));
+	[Doc("F6。")]
+	public static readonly IK F6 = KeyChar.Mk(nameof(F6));
+	[Doc("F7。")]
+	public static readonly IK F7 = KeyChar.Mk(nameof(F7));
+	[Doc("F8。")]
+	public static readonly IK F8 = KeyChar.Mk(nameof(F8));
+	[Doc("F9。")]
+	public static readonly IK F9 = KeyChar.Mk(nameof(F9));
+	[Doc("F10。")]
+	public static readonly IK F10 = KeyChar.Mk(nameof(F10));
+	[Doc("F11。")]
+	public static readonly IK F11 = KeyChar.Mk(nameof(F11));
+	[Doc("F12。")]
+	public static readonly IK F12 = KeyChar.Mk(nameof(F12));
+	#endregion
+
 	#region 導航
 	[Doc("行首。")]
 	public static readonly IK Home = KeyChar.Mk(nameof(Home));
@@ -311,6 +338,7 @@ public static class KeyChars {
 		Braces_L, SquareBracket_L, Braces_R, SquareBracket_R, BackSlash, Pipe,
 		Colon, Semicolon, Apostrophe, Quote, Less, Comma, Greater, Period, Question, Slash,
 		Shift_L, Shift_R, Ctrl_L, Ctrl_R, Alt_L, Alt_R, Meta_L, Fn,
+		F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
 		Home, End, Up, Down, Left, Right,
 		PageUp, PageDown, Delete, Insert, Escape,
 	];

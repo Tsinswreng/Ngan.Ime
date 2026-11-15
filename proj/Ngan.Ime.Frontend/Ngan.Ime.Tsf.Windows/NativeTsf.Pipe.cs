@@ -28,6 +28,20 @@ internal static unsafe partial class NativeTsf {
 	/// <summary>讀取回應的逾時（毫秒）；太長會讓應用明顯卡頓。</summary>
 	private const int ReadTimeoutMs = 300;
 
+	/// <summary>
+	/// 服務端失聯後的冷卻期（毫秒）：這段時間內直接放棄查詢，不再嘗試連線。
+	/// </summary>
+	/// <remarks>
+	/// *為何需要*：這段程式跑在應用行程的 UI 執行緒上。服務端一旦死掉，每顆鍵都要付
+	/// <see cref="ConnectTimeoutMs"/> 的連線逾時，連按十六顆鍵就是一秒以上的卡頓
+	/// （AltNav 這類連發按鍵的工具尤其明顯）。冷卻期內直接回 null、把按鍵交給應用，
+	/// 逾時後再試一次。
+	/// </remarks>
+	private const int FailureBackoffMs = 2000;
+
+	/// <summary>冷卻期截止的 Environment.TickCount64；小於等於目前時間表示可以重試。</summary>
+	private static long RetryAfterTick;
+
 	/// <summary>序列化存取管道；多個應用行程各有一份，行程內只有 UI 執行緒會用。</summary>
 	private static readonly object PipeLock = new();
 
@@ -78,8 +92,13 @@ internal static unsafe partial class NativeTsf {
 	/// <returns>服務端的回應；連不上、逾時或回應壞掉時為 null。</returns>
 	private static TsfReply? QueryKey(int VirtualKey, int Mods, int X, int Y, bool IsUp) {
 		lock (PipeLock) {
+			// 服務端剛失敗過就先不試：這段路徑在 UI 執行緒上，等不起。
+			if (Environment.TickCount64 < RetryAfterTick) {
+				return null;
+			}
 			for (var Attempt = 0; Attempt < 2; Attempt++) {
 				if (!EnsureConnected()) {
+					MarkFailed();
 					return null;
 				}
 				try {
@@ -96,6 +115,7 @@ internal static unsafe partial class NativeTsf {
 						ResetPipe();
 						continue;
 					}
+					RetryAfterTick = 0;
 					return TsfReply.Parse(Line);
 				}
 				catch (Exception Exception) {
@@ -103,9 +123,92 @@ internal static unsafe partial class NativeTsf {
 					ResetPipe();
 				}
 			}
+			MarkFailed();
 			return null;
 		}
 	}
+
+	/// <summary>記下這次失敗，接下來 <see cref="FailureBackoffMs"/> 內不再嘗試連線。</summary>
+	private static void MarkFailed() {
+		RetryAfterTick = Environment.TickCount64 + FailureBackoffMs;
+		Log("server unreachable; backoff " + FailureBackoffMs + "ms");
+		TryStartServer();
+	}
+
+	/// <summary>上次嘗試拉起服務端的時間（TickCount64）；用來節流，避免每顆鍵都開一個行程。</summary>
+	private static long LastStartAttemptTick;
+
+	/// <summary>兩次拉起服務端之間的最小間隔。</summary>
+	private const int StartServerCooldownMs = 30000;
+
+	/// <summary>
+	/// 服務端不在時，嘗試把它拉起來（與 Weasel 的 on-demand start 同一個思路）。
+	/// </summary>
+	/// <remarks>
+	/// *為何要這樣*：服務端崩掉之後沒有任何東西會重啟它，使用者看到的現象是「輸入法突然完全沒了」，
+	/// 而且要自己去按啟動器才會好。外殼就在安裝目錄裡，服務端是它的兄弟檔案，直接開一次即可。
+	/// 失敗（檔案不在、被政策擋住）就什麼都不做，下次按鍵再說；這裡絕不拋例外，
+	/// 因為呼叫端是應用行程的 UI 執行緒。
+	/// </remarks>
+	private static void TryStartServer() {
+		var Now = Environment.TickCount64;
+		if (Now - LastStartAttemptTick < StartServerCooldownMs) {
+			return;
+		}
+		LastStartAttemptTick = Now;
+		try {
+			var Dir = Path.GetDirectoryName(GetOwnModulePath());
+			if (string.IsNullOrEmpty(Dir)) {
+				return;
+			}
+			var Exe = Path.Combine(Dir, "Ngan.Ime.Windows.exe");
+			if (!File.Exists(Exe)) {
+				return;
+			}
+			var Info = new System.Diagnostics.ProcessStartInfo(Exe) {
+				Arguments = "--tsf",
+				WorkingDirectory = Dir,
+				UseShellExecute = false,
+				CreateNoWindow = true,
+			};
+			System.Diagnostics.Process.Start(Info);
+			Log("started server on demand");
+		}
+		catch (Exception Exception) {
+			Log("start server failed " + Exception.GetType().Name);
+		}
+	}
+
+	/// <summary>取得本外殼 DLL 的完整路徑；NativeAOT 下不能用組件位置。</summary>
+	private static string GetOwnModulePath() {
+		var Handle = IntPtr.Zero;
+		if (GetModuleHandleEx(ModuleHandleFromAddress | ModuleHandleUnchangedRefCount, GetOwnModuleAnchor(), out Handle) && Handle != IntPtr.Zero) {
+			var Buffer = new StringBuilder(1024);
+			var Length = GetModuleFileName(Handle, Buffer, (uint)Buffer.Capacity);
+			if (Length > 0) {
+				return Buffer.ToString(0, (int)Length);
+			}
+		}
+		return string.Empty;
+	}
+
+	/// <summary>取一個「位在本模組裡」的函式位址，供 GetModuleHandleEx 反查模組。</summary>
+	private static IntPtr GetOwnModuleAnchor() {
+		delegate* unmanaged<IntPtr> Anchor = &MarkerForModuleLookup;
+		return (IntPtr)Anchor;
+	}
+
+	[System.Runtime.InteropServices.UnmanagedCallersOnly]
+	private static IntPtr MarkerForModuleLookup() => IntPtr.Zero;
+
+	private const uint ModuleHandleFromAddress = 0x00000004;
+	private const uint ModuleHandleUnchangedRefCount = 0x00000001;
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	private static extern bool GetModuleHandleEx(uint Flags, IntPtr ModuleName, out IntPtr Module);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+	private static extern uint GetModuleFileName(IntPtr Module, StringBuilder FileName, uint Size);
 
 	/// <summary>
 	/// 在逾時內讀一行；逾時回 null 並放棄連線。

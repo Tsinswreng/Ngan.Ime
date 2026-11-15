@@ -21,13 +21,19 @@ internal static partial class PubWinX86{
 	/// 預設輸出目錄（相對倉庫根）；`artifacts/` 已在 .gitignore 裡。
 	const str DfltOutRelPath = "artifacts/publish/win";
 
+	/// 帶時間戳發布時的根目錄（相對倉庫根）；`current.txt` 也放在這裡。
+	const str PublishRootRelPath = "artifacts/publish";
+
 	/// 三個產物的暫存目錄（相對輸出目錄）；攤平後刪掉。
 	const str StageRelPath = "_stage";
 
 	internal static async partial Task Main(ISCtx Ctx, CT Ct){
 		var Opts = ParseOpts();
 		if(Opts.OutDir.Length == 0){
-			Opts.OutDir = Ctx.RootDir/DfltOutRelPath;
+			// 帶時間戳發布：每次都是新目錄，不會去刪使用中的舊目錄。
+			Opts.OutDir = Opts.Snapshot
+				? Ctx.RootDir/PublishRootRelPath/("win-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"))
+				: Ctx.RootDir/DfltOutRelPath;
 		}
 
 		Console.WriteLine("[PubWinX86] 本次設定：");
@@ -50,6 +56,9 @@ internal static partial class PubWinX86{
 		await CopyPack(Ctx, Opts);
 		await StripSymbols(Opts);
 		await Verify(Opts);
+		if(Opts.Snapshot){
+			await WriteCurrentPointer(Opts);
+		}
 	}
 
 	private static partial PubOpts ParseOpts(){
@@ -71,16 +80,20 @@ internal static partial class PubWinX86{
 				case "keepsymbols":
 					Opts.KeepSymbols = true;
 					break;
+				case "snap":
+				case "timestamp":
+					Opts.Snapshot = true;
+					break;
 				case "dryrun":
 					Opts.DryRun = true;
 					break;
 				case "help":
 				case "h":
-					Console.Error.WriteLine("用法: dotnet run --project proj/Ngan.Ime.Scripts -- PubWin [-Out <目錄>] [-KeepSymbols] [-DryRun]");
+					Console.Error.WriteLine("用法: dotnet run --project proj/Ngan.Ime.Scripts -- PubWinX86 [-Snap] [-Out <目錄>] [-KeepSymbols] [-DryRun]");
 					Environment.Exit(0);
 					break;
 				default:
-					throw new ArgumentException($"未知選項：{Arg}。可用：-Out -KeepSymbols -DryRun");
+					throw new ArgumentException($"未知選項：{Arg}。可用：-Snap -Out -KeepSymbols -DryRun");
 			}
 		}
 		return Opts;
@@ -183,6 +196,27 @@ internal static partial class PubWinX86{
 		Console.WriteLine($"[PubWinX86] 完成：{Opts.OutDir}");
 		Console.WriteLine($"[PubWinX86] 共 {Count} 個檔案、{Size / (1024.0 * 1024.0):F1} MB。");
 		Console.WriteLine("[PubWinX86] 安裝：管理員執行 install.ps1 -RimeDll <rime.dll>，再以本人身分執行 install-user.cmd。");
+		return Task.FromResult(NIL);
+	}
+
+	/// <summary>指向「最近一次成功發布目錄」的檔案名；放在發布根目錄下。</summary>
+	const str CurrentPointerName = "current.txt";
+
+	/// <summary>
+	/// 寫下本次發布目錄的絕對路徑，供安裝腳本與排程工作讀取。
+	/// </summary>
+	/// <remarks>
+	/// 帶時間戳發布時，目錄名每次都不同；若不留下指針，使用端就得自己猜哪個是最新的。
+	/// 指針只在上一步驗證通過後才寫，故它一定指向一份完整的包。
+	/// </remarks>
+	private static partial Task<nil> WriteCurrentPointer(PubOpts Opts){
+		var Dir = Path.GetDirectoryName((string)Opts.OutDir);
+		if(string.IsNullOrEmpty(Dir)){
+			throw new InvalidOperationException($"輸出目錄沒有上層目錄：{Opts.OutDir}");
+		}
+		var Pointer = Path.Combine(Dir, CurrentPointerName);
+		File.WriteAllText(Pointer, ((string)Opts.OutDir).Replace('\\', '/'));
+		Console.WriteLine($"[PubWinX86] 已更新指針：{Pointer}");
 		return Task.FromResult(NIL);
 	}
 }

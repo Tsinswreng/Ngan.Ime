@@ -620,24 +620,49 @@ internal static unsafe partial class NativeTsf {
 
     /// <summary>
     /// 用 Win32 的 GUI thread info 取得插入點位置。
-    /// TSF 的 ITfContextView::GetTextExt 在這版 Windows 的 ABI 與文件不一致（會把 edit cookie
-    /// 當成指標），先用 caret 矩形代替；記事本這類原生控件都拿得到。
     /// </summary>
+    /// <remarks>
+    /// *為何要看前景視窗的執行緒*：GUITHREADINFO 是「某個 GUI 執行緒」的狀態，
+    /// 而 TSF 的 OnTestKeyDown 不一定跑在應用建立視窗的那條執行緒上（Chromium 系就是另一條）。
+    /// 先前用 GetCurrentThreadId() 取，常常拿到空的，Caret 為 0，候選窗就永遠貼在螢幕左上角。
+    /// 改取前景視窗所屬執行緒；仍取不到時保留上一次的位置，不要退回 (0,0)。
+    /// </remarks>
     private static void UpdateCaretFromGui(TsfState State) {
         try {
+            var Foreground = GetForegroundWindow();
+            var ThreadId = Foreground != IntPtr.Zero
+                ? GetWindowThreadProcessId(Foreground, out _)
+                : GetCurrentThreadId();
             var Info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
-            if (GetGUIThreadInfo(GetCurrentThreadId(), ref Info) && Info.Caret != IntPtr.Zero) {
-                var Point = new NativePoint { X = Info.CaretRect.Left, Y = Info.CaretRect.Bottom };
-                if (ClientToScreen(Info.Caret, ref Point)) {
-                    State.CaretX = Point.X;
-                    State.CaretY = Point.Y;
-                }
+            if (!GetGUIThreadInfo(ThreadId, ref Info)) {
+                return;
+            }
+            // 插入點矩形為空表示這個控件不回報 caret（部分自繪控件），維持原位置。
+            if (Info.CaretRect.Right == 0 && Info.CaretRect.Bottom == 0) {
+                return;
+            }
+            var Hwnd = Info.Caret != IntPtr.Zero
+                ? Info.Caret
+                : (Info.Focus != IntPtr.Zero ? Info.Focus : Foreground);
+            if (Hwnd == IntPtr.Zero) {
+                return;
+            }
+            var Point = new NativePoint { X = Info.CaretRect.Left, Y = Info.CaretRect.Bottom };
+            if (ClientToScreen(Hwnd, ref Point)) {
+                State.CaretX = Point.X;
+                State.CaretY = Point.Y;
             }
         }
         catch (Exception Exception) {
             Log("UpdateCaretFromGui EX " + Exception);
         }
     }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr Hwnd, out uint ProcessId);
 
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int VirtualKey);

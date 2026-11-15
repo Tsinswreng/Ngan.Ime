@@ -46,6 +46,9 @@ internal static partial class PubWinX86{
 
 	/// 檢查關鍵產物存在並印出目錄大小；缺檔視為失敗。
 	private static partial Task<nil> Verify(PubOpts Opts);
+
+	/// 把本次發布目錄寫進 `current.txt`（只在 `-Snap` 時呼叫）。
+	private static partial Task<nil> WriteCurrentPointer(PubOpts Opts);
 }
 
 /// 本命令的選項。
@@ -59,6 +62,10 @@ internal sealed partial class PubOpts{
 
 	/// true 時保留 .pdb。
 	public bool KeepSymbols{get;set;}
+
+	/// true 時輸出到帶時間戳的新目錄，並把路徑寫進 `current.txt`；
+	/// 這樣每次發布都不會碰到使用中的舊目錄，也就沒有「檔案被佔用」的問題。
+	public bool Snapshot{get;set;}
 
 	/// true 時只印步驟、不真的發布。
 	public bool DryRun{get;set;}

@@ -80,11 +80,17 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			var Ct = LoopCts.Token;
 			_ = Task.Run(() => AcceptLoopAsy(Ct), Ct);
 			// 主動連接一次，讓界面狀態反映實情；失敗也不影響之後按需初始化。
+			// *必須與按鍵處理共用同一把引擎鎖*：引擎的 setup／initialize 不是執行緒安全的，
+			// 這裡若與首次按鍵的按需初始化並行，就會初始化同一個引擎兩次；
+			// 輕則會話沒有方案（按鍵全部不處理），重則原生層存取違規直接崩掉。
 			_ = Task.Run(async () => {
+				await EngineLock.WaitAsync(Ct);
 				try{
 					await Input.ConnectAsy(Ct);
 				}catch(Exception Ex){
 					AppLog.Error(Ex, "[TsfPipe] 連接引擎失敗，將在首次按鍵時重試");
+				}finally{
+					EngineLock.Release();
 				}
 			}, Ct);
 		}

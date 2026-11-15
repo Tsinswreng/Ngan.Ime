@@ -93,3 +93,59 @@ internal partial interface ITfKeystrokeMgrGen {
 	/// <summary>徵詢擡起；本殼不用。</summary>
 	[PreserveSig] int TestKeyUp(IntPtr WParam, IntPtr LParam, out int PfEaten);
 }
+
+/// <summary>`ITfInsertAtSelection` 的前 4 個方法；本殼只用到 3。</summary>
+/// <remarks>
+/// 3 InsertTextAtSelection(ec, dwFlags, pchText, cch, ppRange)、
+/// 4 InsertEmbeddedAtSelection(...)。
+/// 用 `TF_IAS_QUERYONLY` 呼叫時不插入文字，只取回「插入點所在的範圍」，
+/// 這正是 Weasel 建立組字範圍的起點（`WeaselTSF/Composition.cpp:34`）。
+/// </remarks>
+[GeneratedComInterface]
+[Guid("55CE16BA-3014-41C1-9CEB-FADE1446AC6C")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ITfInsertAtSelectionGen {
+	/// <summary>在插入點插入文字，或只取回插入點的範圍。</summary>
+	[PreserveSig] int InsertTextAtSelection(uint Ec, uint DwFlags, IntPtr PchText, int Cch, out IntPtr PpRange);
+	/// <summary>在插入點插入內嵌物件；本殼不用。</summary>
+	[PreserveSig] int InsertEmbeddedAtSelection(uint Ec, uint DwFlags, IntPtr PDataObject, out IntPtr PpRange);
+}
+
+/// <summary>`ITfContextComposition` 的前 4 個方法；本殼只用到 3。</summary>
+/// <remarks>
+/// 3 StartComposition(ecWrite, pCompositionRange, pSink, ppComposition)、
+/// 4 EnumCompositions、5 FindComposition、6 TakeOwnership。
+/// 官方標頭檔在這之後還有 EndComposition；本殼用 `ITfComposition::EndComposition` 結束，因此不必宣告它。
+/// </remarks>
+[GeneratedComInterface]
+[Guid("D40C8AAE-AC92-4FC7-9A11-0EE0E23AA39B")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ITfContextCompositionGen {
+	/// <summary>在指定範圍上開始一次組字。</summary>
+	[PreserveSig] int StartComposition(uint EcWrite, IntPtr PCompositionRange, IntPtr PSink, out IntPtr PpComposition);
+	/// <summary>列舉組字；本殼不用。</summary>
+	[PreserveSig] int EnumCompositions(out IntPtr PpEnum);
+	/// <summary>找出範圍所在的組字；本殼不用。</summary>
+	[PreserveSig] int FindComposition(uint EcRead, IntPtr PTestRange, out IntPtr PpEnum);
+	/// <summary>接管既有的組字；本殼不用。</summary>
+	[PreserveSig] int TakeOwnership(uint EcWrite, IntPtr PComposition, IntPtr PSink, out IntPtr PpComposition);
+}
+
+/// <summary>`ITfComposition` 的 4 個方法。</summary>
+/// <remarks>
+/// 3 GetRange、4 ShiftStart、5 ShiftEnd、6 EndComposition。
+/// 上屏流程是：取組字範圍 → 寫入最終文字 → 收成插入點 → 結束組字。
+/// </remarks>
+[GeneratedComInterface]
+[Guid("20168D64-5A8F-4A5A-B7BD-CFA29F4D0FD9")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal partial interface ITfCompositionGen {
+	/// <summary>取得組字的範圍。</summary>
+	[PreserveSig] int GetRange(out IntPtr PpRange);
+	/// <summary>移動組字起點；本殼不用。</summary>
+	[PreserveSig] int ShiftStart(uint EcWrite, IntPtr PNewStart);
+	/// <summary>移動組字終點；本殼不用。</summary>
+	[PreserveSig] int ShiftEnd(uint EcWrite, IntPtr PNewEnd);
+	/// <summary>結束組字。</summary>
+	[PreserveSig] int EndComposition(uint EcWrite);
+}

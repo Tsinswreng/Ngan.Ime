@@ -26,6 +26,9 @@ PAIRS = {
 	"ITfKeyEventSinkGen": "ITfKeyEventSink",
 	"ITfEditSessionGen": "ITfEditSession",
 	"IClassFactoryGen": "IClassFactory",
+	"ITfInsertAtSelectionGen": "ITfInsertAtSelection",
+	"ITfContextCompositionGen": "ITfContextComposition",
+	"ITfCompositionGen": "ITfComposition",
 }
 
 

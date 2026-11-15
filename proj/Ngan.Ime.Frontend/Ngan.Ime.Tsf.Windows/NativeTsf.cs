@@ -2,21 +2,24 @@ namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Threading;
 using Ngan.Ime.Tsf.Ipc;
 
 /// <summary>
-/// NativeAOT 版的 TSF 薄外殼。整個 DLL 不帶 CLR，只做三件事：
+/// NativeAOT 版的 TSF 薄外殼。整個 DLL 不帶 CLR，只做四件事：
 /// 1. 提供 DllGetClassObject 與 IClassFactory，讓 Windows 建立文字服務；
-/// 2. 實作 ITfTextInputProcessor 與 ITfKeyEventSink 的 vtable（手寫；不以 `[ComImport]` 走內建 COM）；
-/// 3. 把 preedit 透過既有命名管道丟給 Avalonia 候選窗，文件內容留到後續階段。
+/// 2. 實作 ITfTextInputProcessor、ITfKeyEventSink、ITfEditSession、ITfCompositionSink 的 vtable
+///    （手寫；不以 `[ComImport]` 走內建 COM）；
+/// 3. 把每一顆按鍵送給服務端，吃不吃照引擎的回答；
+/// 4. 上屏照 Weasel：在真正的組字範圍裡寫字。
 /// </summary>
 /// <remarks>
 /// 對外呼叫的介面分兩類，別搞混：
-/// + *已被呼叫端*（實作 ITfTextInputProcessor、ITfKeyEventSink、ITfEditSession、IClassFactory）：
-///   仍舊手寫 vtable，表格見下。
+/// + *已被呼叫端*（實作 ITfTextInputProcessor、ITfKeyEventSink、ITfEditSession、
+///   ITfCompositionSink、IClassFactory）：仍舊手寫 vtable，表格見下。
 /// + *呼叫端*（ITfContext、ITfContextView、ITfRange、ITfKeystrokeMgr）：
 ///   ITfContextView 已改用生成式宣告（見 `ITfContextViewGen.cs`），其餘仍舊手寫。
 ///   遷移中的狀態，兩者在同一個檔案裏並存是刻意的，不是漏改。
@@ -28,17 +31,30 @@ using Ngan.Ime.Tsf.Ipc;
 /// + `ITfContextView`：3 GetRangeFromPoint、4 GetTextExt、5 GetScreenExt、6 GetWnd。
 /// + `ITfRange`：3 GetText、4 SetText、…、15 Collapse。
 /// + `ITfEditSession`：3 DoEditSession。
+/// + `ITfCompositionSink`：3 OnCompositionTerminated（`msctf.h:7071-7093`）。
 /// + `ITfKeystrokeMgr`：3 AdviseKeyEventSink、4 UnadviseKeyEventSink。
 /// + `ITfTextInputProcessor`：3 Activate、4 Deactivate。
 /// + `ITfKeyEventSink`：3 OnSetFocus、4 OnTestKeyDown、5 OnTestKeyUp、6 OnKeyDown、
 ///   7 OnKeyUp、8 OnPreservedKey。
 ///
-/// *目前沒有組字範圍（composition）*：本殼只做「送鍵 → 取回上屏文字 → SetText」。
-/// 先前有一組 SetCompositionText／EndCompositionCore 的殘留代碼，但沒有任何 StartComposition
-/// 的呼叫點，等於死代碼；已於 2026-11-15 的審查中移除，免得下一個人以為 inline preedit 只差一步。
-/// 真要支援 inline preedit（或讓 Chromium 的 GetTextExt 可靠），必須照 Weasel 的做法
-/// 建一個真正的組字範圍並塞零寬空格（WeaselTSF/Composition.cpp:45-56，issue #883），
-/// 那是獨立一輪的工作，見本檔 RequestCaretMeasure 的註釋。
+/// *上屏照 Weasel 的組字生命週期*（2026-11-15 重寫）：一顆會上屏的鍵，依序排三個
+/// **非同步可寫**編輯會話——開始組字、把最終文字寫進組字範圍、結束組字
+/// （Weasel `EditSession.cpp:26-30` 的提交段，各步的會話在 `Composition.cpp:73`、`:365`、`:121`）。
+/// 三個會話都走 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`，**沒有任何同步會話**：
+/// Weasel 整份原始碼一次都沒用 `TF_ES_SYNC`，而我們的會話是從按鍵回調裏發出的，
+/// 同步等待等於在別人的 UI 執行緒上等一個只有它自己才能給的鎖。
+///
+/// *為何一定要有真的組字*：Chromium 的 EditContext 只把「替換組字範圍」當正常上屏；
+/// 直接往選取範圍塞字，它會用自己的路徑再插一次，使用者看到的就是同一個字重複。
+/// 微軟拼音只有直接上屏的符號（，。數字）會重複，正是因為那些也沒有組字。
+///
+/// *與 Weasel 的唯一差別*：Weasel 的組字從第一個鍵活到整段輸入結束（inline preedit 要它），
+/// 我們沒有 inline preedit，所以每次上屏都「建 → 寫 → 結束」，組字只活三個會話。
+/// 因為活得這麼短，Weasel 那個「先塞零寬空格給 CUAS 量 GetTextExt」的手術（`Composition.cpp:45-56`）
+/// 我們不做——那段時間裏我們一次 GetTextExt 都不會叫。
+///
+/// *組字被應用結束*：`ITfCompositionSink::OnCompositionTerminated` 一定接（Weasel 也接）。
+/// 不接的話，Chromium 這類會主動終止組字的應用會讓我們握着一個已死的 `ITfComposition`。
 /// </remarks>
 internal static unsafe partial class NativeTsf {
     /// <summary>標準 COM 介面識別碼。</summary>
@@ -52,6 +68,12 @@ internal static unsafe partial class NativeTsf {
     /// <summary>ITfKeystrokeMgr。</summary>
     private static readonly Guid IidKeystrokeMgr = new("AA80E7F0-2021-11D2-93E0-0060B067B86E");
     private static readonly Guid IidEditSession = new("AA80E803-2021-11D2-93E0-0060B067B86E");
+    /// <summary>ITfInsertAtSelection：取插入點範圍用。</summary>
+    private static readonly Guid IidInsertAtSelection = new("55CE16BA-3014-41C1-9CEB-FADE1446AC6C");
+    /// <summary>ITfContextComposition：開組字用。</summary>
+    private static readonly Guid IidContextComposition = new("D40C8AAE-AC92-4FC7-9A11-0EE0E23AA39B");
+    /// <summary>ITfCompositionSink：組字被應用結束時的通知介面（msctf.h:7057）。</summary>
+    private static readonly Guid IidCompositionSink = new("A781718C-579A-4B15-A280-32B8577ACC5E");
 
     private const int SOk = 0;
     private const int SFalse = 1;
@@ -61,12 +83,41 @@ internal static unsafe partial class NativeTsf {
     private const int ENoAggregation = unchecked((int)0x80040110);
 
 
-    private const uint TfEsSync = 0x1;
+    /// <summary>
+    /// 編輯會話旗標；數值一律照 `msctf.h:2278-2286`，不憑記憶（先前把 ASYNCDONTCARE 寫成 0x8，那其實是 ASYNC）。
+    /// </summary>
+    /// <remarks>
+    /// `TF_ES_ASYNCDONTCARE` 就是 0，Weasel 每一次 `RequestEditSession` 用的都是它配 READ 或 READWRITE。
+    /// 我們所有會話也都用非同步：這段程式跑在應用行程的 UI 執行緒上，
+    /// 同步會話（`TF_ES_SYNC`）在應用正持有文件鎖時只能等，而等的那個人就是被呼叫的自己。
+    /// </remarks>
     private const uint TfEsRead = 0x2;
     private const uint TfEsReadWrite = 0x6;
-    /// <summary>非同步、不急：TSF 會排進佇列，量插入點用這一個。</summary>
-    private const uint TfEsAsyncDontCare = 0x8;
+    /// <summary>`TF_ES_ASYNCDONTCARE`（msctf.h:2278）：值就是 0，不是 0x8。</summary>
+    private const uint TfEsAsyncDontCare = 0x0;
+    /// <summary>`TF_ES_ASYNC`（msctf.h:2286）：0x8。本殼不用它；留著是為了別再把兩者搞混。</summary>
+    private const uint TfEsAsync = 0x8;
+    /// <summary>`TF_ANCHOR_START`（msctf.h）：把組字範圍收成起點。</summary>
+    private const uint TfAnchorStart = 0;
+    /// <summary>`TF_ANCHOR_END`：把範圍收成終點，游標留在文字之後。</summary>
     private const uint TfAnchorEnd = 1;
+    /// <summary>`TF_S_ASYNC`（msctf.h:581）：非同步會話已排入佇列。</summary>
+    private const int TfSAsync = 0x00040300;
+    /// <summary>TF_IAS_QUERYONLY：只取插入點範圍，不插入文字（msctf.h:6545）。</summary>
+    private const uint TfIasQueryOnly = 0x2;
+    /// <summary>TF_ST_CORRECTION：把這次寫入標成「修正」（msctf.h:5817）；Weasel 塞零寬空格時用它。</summary>
+    private const uint TfStCorrection = 1;
+
+    /// <summary>
+    /// 零寬空格（U+200B）；組字範圍在組字期間用它佔位，讓範圍非空。
+    /// </summary>
+    /// <remarks>
+    /// 照 Weasel `Composition.cpp:45-56`：沒有 inline preedit 時，組字範圍裏先放一個零寬空格，
+    /// 再把選取收在起點。2026-11-15 23:20 的實測說明了為何非這樣不可——
+    /// 我們的「空組字 + 立刻寫字 + 立刻結束」在記事本上正常，在 VSCode（Chromium 的 EditContext）
+    /// 上卻照樣重複上屏，代表那個空的、只活一毫秒的組字並沒有被當成一次組字。
+    /// </remarks>
+    private const string ZeroWidthSpace = "\u200B";
 
     /// <summary>螢幕矩形；手寫 vtable 與生成式宣告共用這一個結構。</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -91,6 +142,8 @@ internal static unsafe partial class NativeTsf {
     private static readonly IntPtr* EditSessionVtbl;
     /// <summary>量插入點專用的 ITfEditSession vtable（與上屏用的那一個完全分開）。</summary>
     private static readonly IntPtr* CaretSessionVtbl;
+    /// <summary>ITfCompositionSink 的 vtable；組字被應用結束時 TSF 從這裡叫回來。</summary>
+    private static readonly IntPtr* CompositionSinkVtbl;
 
     private static readonly object FactoryGate = new();
     private static IntPtr FactoryView;
@@ -136,11 +189,42 @@ internal static unsafe partial class NativeTsf {
         CaretSessionVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&ReleaseEntry;
         CaretSessionVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, uint, int>)&DoCaretSessionEntry;
 
+        // ITfCompositionSink：IUnknown 三個 + OnCompositionTerminated（msctf.h:7071-7093）。
+        // 交給 ITfContextComposition::StartComposition 當第三個參數——
+        // Weasel 傳的是自己（WeaselTSF），我們傳這個 view。
+        CompositionSinkVtbl = (IntPtr*)NativeMemory.Alloc(4, (nuint)sizeof(IntPtr));
+        CompositionSinkVtbl[0] = (IntPtr)(delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)&CompositionSinkQueryEntry;
+        CompositionSinkVtbl[1] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&AddRefEntry;
+        CompositionSinkVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&ReleaseEntry;
+        CompositionSinkVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, uint, IntPtr, int>)&OnCompositionTerminatedEntry;
+
+        // 先算出模組標籤：之後每一行日誌都帶著它，才分得出是哪一版的外殼寫的。
+        SelfTag = ComputeSelfTag();
         RegisterCfgTargets();
         AddVectoredExceptionHandler(1, (IntPtr)(delegate* unmanaged<IntPtr, int>)&VectoredExceptionHandler);
         // 一律落盤：行程一載入這支 DLL 就留一行，連「TSF 有沒有來要 class factory」都還沒發生。
         // 排查「某個應用切不過來」時，這一行有沒有出現就是第一個分界。
         LogWarn("shell loaded pid=" + Environment.ProcessId + " path=" + (GetOwnModulePath() is { Length: > 0 } P ? P : "?"));
+    }
+
+    /// <summary>上屏的三個步驟，一一對應 Weasel 的三個編輯會話。</summary>
+    private enum ECompositionStep {
+        /// <summary>開始組字（Weasel `CStartCompositionEditSession`）。</summary>
+        Start = 0,
+        /// <summary>把最終文字寫進組字範圍（Weasel `CInsertTextEditSession`）。</summary>
+        Insert = 1,
+        /// <summary>結束組字（Weasel `CEndCompositionEditSession`）。</summary>
+        End = 2,
+    }
+
+    /// <summary>佇列裏的一步組字操作；一步只做一件事，對應一次非同步編輯會話。</summary>
+    private struct CompositionJob {
+        /// <summary>這一步要做什麼。</summary>
+        public ECompositionStep Step;
+        /// <summary>Insert 用：要上屏的文字。</summary>
+        public string Text;
+        /// <summary>End 用：結束前要不要把組字範圍清空（Weasel 上屏時傳 false，保留剛寫進去的字）。</summary>
+        public bool Clear;
     }
 
     /// <summary>單一文字服務執行個體的狀態；兩個介面指標共用同一份參考計數。</summary>
@@ -169,10 +253,27 @@ internal static unsafe partial class NativeTsf {
         public IntPtr CaretSessionHandle;
         /// <summary>目前按鍵所屬的 ITfContext（只在 edit session 內有效）。</summary>
         public IntPtr Context;
-        /// <summary>待執行的編輯操作：0 無、2 上屏。</summary>
-        public uint PendingOperation;
-        /// <summary>待上屏的文字（由宿主回傳的 commit 合併）。</summary>
-        public string PendingCommit = "";
+        /// <summary>
+        /// 目前的組字（ITfComposition，自己持有一份參考）；0 表示沒有組字。
+        /// </summary>
+        /// <remarks>
+        /// 只由三個地方改：開始組字（寫入）、結束組字與 <see cref="OnCompositionTerminatedCore"/>
+        /// （兩者都用 Interlocked 換出再釋放，避免重複釋放同一個指標）。
+        /// </remarks>
+        public IntPtr Composition;
+        /// <summary>ITfCompositionSink 的介面指標；交給 StartComposition 當第三個參數。</summary>
+        public IntPtr CompositionSinkView;
+        /// <summary>ITfCompositionSink 的 GCHandle。</summary>
+        public IntPtr CompositionSinkHandle;
+        /// <summary>
+        /// 待執行的組字步驟佇列；一個步驟對應一次非同步編輯會話。
+        /// </summary>
+        /// <remarks>
+        /// *為何要佇列*：上屏不是一個動作，而是「開始組字→寫入→結束」三個會話
+        /// （照 Weasel）。會話是非同步的，同一個 edit session 物件只能表達「這次要做哪一步」，
+        /// 所以步驟必須排隊；少了佇列，第二顆很快的上屏鍵會把第一步覆蓋掉，字就丟了。
+        /// </remarks>
+        public readonly List<CompositionJob> CompositionJobs = new();
         /// <summary>按下鍵的查詢結果；等 OnKeyDown 領取。</summary>
         public TsfReply? ReplyDown;
         /// <summary>擡起鍵的查詢結果；等 OnKeyUp 領取。</summary>
@@ -327,6 +428,8 @@ internal static unsafe partial class NativeTsf {
             State.EditSessionHandle = EditSessionHandle;
             State.CaretSessionView = MakeView(CaretSessionVtbl, State, out var CaretSessionHandle);
             State.CaretSessionHandle = CaretSessionHandle;
+            State.CompositionSinkView = MakeView(CompositionSinkVtbl, State, out var CompositionSinkHandle);
+            State.CompositionSinkHandle = CompositionSinkHandle;
 
             if (*Riid == IidIUnknown || *Riid == IidTextInputProcessor) {
                 *Ppv = State.TipView;
@@ -388,6 +491,8 @@ internal static unsafe partial class NativeTsf {
             }
             State.KeystrokeMgr = KeystrokeMgr;
             LogWarn("Activate ok clientId=" + ClientId + " pid=" + Environment.ProcessId);
+            // 只有在真的掛上按鍵接收器之後才需要看門狗：它要回答的是「這個行程卡死時停在誰身上」。
+            EnsureWatchdog();
             return SOk;
         }
         catch (Exception Exception) {
@@ -412,6 +517,7 @@ internal static unsafe partial class NativeTsf {
             }
             State.Policy.Reset();
             CancelCaretMeasure(State);
+            AbandonComposition(State);
             SendHide();
             LogWarn("Deactivate done clientId=" + State.ClientId);
             return SOk;
@@ -424,7 +530,7 @@ internal static unsafe partial class NativeTsf {
 
     private static int OnSetFocusCore(IntPtr ThisPtr, int IsForeground) {
         try {
-            Log("OnSetFocus fg=" + IsForeground);
+            LogWarn("OnSetFocus fg=" + IsForeground + " pid=" + Environment.ProcessId);
             var State = GetState(ThisPtr);
             if (State is null) {
                 return SOk;
@@ -434,6 +540,7 @@ internal static unsafe partial class NativeTsf {
                 State.Policy.Reset();
                 CancelCaretMeasure(State);
                 State.CaretValid = false;
+                AbandonComposition(State);
                 SendHide();
             }
             return SOk;
@@ -476,30 +583,27 @@ internal static unsafe partial class NativeTsf {
     /// <param name="IsEaten">回報給 TSF 的「是否吃掉」。</param>
     private static void HandleKeyEvent(TsfState State, IntPtr Context, int VirtualKey, bool IsUp, bool IsTest, IntPtr LParam, int* IsEaten) {
         *IsEaten = 0;
+        // 高解析度時鐘：這段程式跑在別人的 UI 執行緒上，逐鍵耗時（尤其管道往返）要能直接讀，
+        // 不能用 15.6ms 粒度的 TickCount。
+        var StartedTs = Stopwatch.GetTimestamp();
         var Mods = GetModifiers();
         // lParam 第 16 到 23 位是掃描碼、第 24 位是擴展鍵位：
         // VK_SHIFT 對左右是同一個值，只有靠掃描碼才分得出 El 左 Shift 與右 Shift。
         var Scan = (int)((LParam.ToInt64() >> 16) & 0xFF);
         var Ext = (int)((LParam.ToInt64() >> 24) & 1);
         TsfReply? Reply = null;
+        // 記下「目前正在處理哪一顆鍵」，只存在記憶體裏：看門狗在卡死時會把它寫出來，
+        // 於是「卡在我們自己的回調裏」與「我們早就交還了、應用自己卡」可以直接分辨，
+        // 又不必為每一顆鍵多寫一行檔（那是每顆鍵都要付的 IO 成本）。
+        Interlocked.Exchange(ref CurrentOpVk, VirtualKey + 1);
+        Interlocked.Exchange(ref CurrentOpFlags, (IsUp ? 1 : 0) | (IsTest ? 2 : 0));
+        Interlocked.Exchange(ref CurrentOpStart, StartedTs);
         try {
             // step 1: 結算反方向尚未領走的徵詢結論（應用可能只送其中一半的事件）。
             State.Policy.SettleOpposite(IsUp);
-            // step 2: 排一次插入點量測（非同步；量到的位置給下一次顯示用）。
-            BeginCaretMeasure(State, Context);
-            // step 3: 修飾鍵不參與吃鍵決策，但 Shift 要送給引擎。
-            // Rime 的中英切換與 `hold: Shift_L` 這類綁定全靠 Shift 的按下與鬆開；
-            // 先前把修飾鍵整批擋在門外（連問都不問），結果是引擎永遠收不到 Shift，
-            // 左右 Shift 切換中英因此完全失效（2026-11-15 使用者回報）。
-            // Ctrl／Alt／Win／CapsLock 仍然不送：引擎用不到，送進去只會給它機會吃掉應用快捷鍵。
-            if (TsfKeyPolicy.IsPassThrough(VirtualKey)) {
-                if (VirtualKey is TsfKeyPolicy.VkShift or TsfKeyPolicy.VkLShift or TsfKeyPolicy.VkRShift) {
-                    ResolveKeyAnchor(State, out var ModAnchorX, out var ModAnchorY);
-                    Reply = QueryKey(VirtualKey, Mods, ModAnchorX, ModAnchorY, IsUp, Scan, Ext);
-                }
-                *IsEaten = 0;
-                return;
-            }
+            // 照 Weasel：所有認得的鍵都送引擎，吃不吃由引擎的回答決定，
+            // 不為修飾鍵另立例外（Weasel `KeyEventSink.cpp:11` 就是這樣做的）。
+            // 先前那條「修飾鍵一律放行」讓 Alt 永遠到不了引擎，引擎因此沒有機會處理它。
             var Cached = IsUp ? State.ReplyUp : State.ReplyDown;
             if (IsTest) {
                 // 同一顆鍵的重複徵詢：沿用上一次的結論，不再送管道（否則引擎會處理兩次）。
@@ -516,7 +620,8 @@ internal static unsafe partial class NativeTsf {
                 if (Cached is not null) {
                     // 上屏只在「執行」這條路徑做一次。
                     // 先前徵詢那條也上屏，同一份回應因此被插進文件兩次（同字重複上屏）。
-                    CommitIfAny(State, Context, Cached);
+                    ScheduleCompositionWork(State, Context, Cached);
+                    MaybeMeasureCaret(State, Context, Cached);
                     ClearReply(State, IsUp);
                 }
                 return;
@@ -536,16 +641,39 @@ internal static unsafe partial class NativeTsf {
                 // 兩條上屏路徑只留這一條：
                 // + 應用送「徵詢 → 執行」時，上屏發生在執行那條（上面 TryTakeKey 的分支）；
                 // + 應用只送「執行」時，上屏發生在這裏。
-                CommitIfAny(State, Context, Reply);
+                ScheduleCompositionWork(State, Context, Reply);
+                MaybeMeasureCaret(State, Context, Reply);
             }
             if (IsTest && Eat) {
                 State.Policy.SetTest(IsUp, VirtualKey, true);
             }
         }
         finally {
+            Interlocked.Exchange(ref CurrentOpVk, 0);
+            Interlocked.Exchange(ref LastCallbackTs, Stopwatch.GetTimestamp());
             // 每一條返回路徑都留一行；修飾鍵提早放行那條也記，否則看不到 Alt 的 down／up。
-            DiagKey(VirtualKey, Mods, IsUp, IsTest, LParam, *IsEaten, Reply);
+            // 附上「這顆鍵在我們這裏花了多少毫秒」，用來分辨「我們拖慢了按鍵」與「應用自己慢」。
+            DiagKey(State, VirtualKey, Mods, IsUp, IsTest, LParam, *IsEaten, Reply, StartedTs);
         }
+    }
+
+    /// <summary>
+    /// 只有在「有東西要顯示」時才量插入點。
+    /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="Context">按鍵所屬的 context。</param>
+    /// <param name="Reply">引擎這次的回答。</param>
+    /// <remarks>
+    /// *為何不再每顆鍵都量*：`ITfContextView::GetTextExt` 在 Chromium 是同步問 renderer 的，
+    /// 而我們是在應用的 UI 執行緒上叫它。退格、方向鍵、修飾鍵這些根本不會顯示候選窗的鍵，
+    /// 先前也各量一次，等於把 UI 執行緒借給應用去等 renderer。現在只在這顆鍵的回應
+    /// 真的帶了候選或 preedit 時才量；位置仍然是一顆鍵的延遲（本來就是），但風險面積小得多。
+    /// </remarks>
+    private static void MaybeMeasureCaret(TsfState State, IntPtr Context, TsfReply Reply) {
+        if (Reply.Candidates.Count == 0 && string.IsNullOrEmpty(Reply.Preedit)) {
+            return;
+        }
+        BeginCaretMeasure(State, Context);
     }
 
     /// <summary>記下這一顆鍵的引擎回應，等對向回調領取。</summary>
@@ -564,17 +692,6 @@ internal static unsafe partial class NativeTsf {
         } else {
             State.ReplyDown = null;
         }
-    }
-
-    /// <summary>逐鍵日誌；只在 NGAN_TSF_LOG=1 時寫（由 Log 自己判斷）。</summary>
-    private static void LogKey(bool IsUp, bool IsTest, int VirtualKey, int Eaten, TsfReply? Reply) {
-        if (!VerboseLog) {
-            return;
-        }
-        Log((IsUp ? "Up" : "Down") + (IsTest ? "(test)" : "") + " vk=" + VirtualKey
-            + " eat=" + Eaten + " cand=" + (Reply?.Candidates.Count ?? 0)
-            + " preedit=" + (Reply?.Preedit?.Length ?? 0)
-            + " err=" + (Reply?.Err.ToString() ?? "none"));
     }
 
     private static int OnTestKeyDownCore(IntPtr ThisPtr, IntPtr Context, IntPtr WParam, IntPtr LParam, int* IsEaten) {
@@ -646,30 +763,134 @@ internal static unsafe partial class NativeTsf {
     }
 
     /// <summary>
-    /// 回應帶了上屏文字時，開一次可寫的編輯會話把它寫進應用。
+    /// 依引擎這一輪的回答，安排組字要做的動作：開組字、寫入上屏文字、結束組字。
     /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="Context">按鍵所屬的 context。</param>
+    /// <param name="Reply">引擎的回答。</param>
     /// <remarks>
-    /// *為何要看 SessionResult*：`RequestEditSession` 回 `S_OK` 只代表請求排進去了，
-    /// session 真正執行的結果在 `SessionResult`。上屏失敗是使用者直接看得到的錯
-    /// （字沒進輸入框），必須升到 Error，不能只記 Trace。
+    /// *這是照 Weasel `WeaselTSF::DoEditSession`（`EditSession.cpp:18-45`）搬過來的判斷*：
+    /// + 有上屏文字：若還沒組字就先開組字 → 寫入最終文字 → 結束組字（保留文字）；
+    /// + 沒有上屏但有 preedit：若還沒組字就開組字，讓它在打字期間一直存在；
+    /// + 兩者都沒有而我們還握着組字：結束它並清空。
+    ///
+    /// *與舊版最關鍵的差別*：組字不再是「上屏那一刻才建、一毫秒內拆掉」，而是從組字開始
+    /// 活到上屏或取消。Chromium 的 EditContext 只認得這種有生命週期的組字；
+    /// 空的、瞬生瞬滅的組字它會當成不存在，於是文字又被它自己插一次（VSCode 的重複上屏）。
+    ///
+    /// *為何不在這裏等結果*：非同步會話的成敗由各自的 `DoEditSession` 寫進日誌，
+    /// 按鍵路徑只負責排隊。要嘛相信日誌，要嘛就會為了知道結果去阻塞別人的 UI 執行緒。
     /// </remarks>
-    private static void CommitIfAny(TsfState State, IntPtr Context, TsfReply Result) {
-        if (Result.Commits.Count == 0) {
+    private static void ScheduleCompositionWork(TsfState State, IntPtr Context, TsfReply Reply) {
+        var HasCommit = Reply.Commits.Count > 0;
+        var HasPreedit = !string.IsNullOrEmpty(Reply.Preedit);
+        var HasComposition = Volatile.Read(ref State.Composition) != IntPtr.Zero;
+        if (!HasCommit && !HasPreedit) {
+            // 引擎說沒有組字了（上屏完畢、取消、或本來就沒在組字）。
+            if (HasComposition) {
+                EnqueueCompositionJob(State, ECompositionStep.End, "", true);
+            }
             return;
         }
-        State.PendingCommit = string.Concat(Result.Commits);
-        State.PendingOperation = 2;
-        var Hr = RequestEditSession(State, Context);
-        if (Hr < 0) {
-            LogError("Commit RequestEditSession hr=0x" + Hr.ToString("X8") + " len=" + State.PendingCommit.Length);
+        State.Context = Context;
+        if (HasCommit) {
+            var Text = string.Concat(Reply.Commits);
+            LogWarn("Commit begin text=[" + Text + "] len=" + Text.Length
+                + " ctx=" + Context.ToString("X")
+                + " comp=" + (HasComposition ? "有" : "無"));
+            if (!HasComposition) {
+                EnqueueCompositionJob(State, ECompositionStep.Start, "", false);
+            }
+            EnqueueCompositionJob(State, ECompositionStep.Insert, Text, false);
+            EnqueueCompositionJob(State, ECompositionStep.End, "", false);
+            if (HasPreedit) {
+                // 自動上屏之後引擎可能立刻開始下一段組字（Weasel 同一個分支）。
+                EnqueueCompositionJob(State, ECompositionStep.Start, "", false);
+            }
+            return;
         }
-        else {
-            Log("Commit len=" + State.PendingCommit.Length);
+        // 只有 preedit：組字開始。Weasel 也是在這裏讓組字活起來，而不是等到上屏才建。
+        if (!HasComposition) {
+            LogWarn("組字 開始（引擎組字中） ctx=" + Context.ToString("X"));
+            EnqueueCompositionJob(State, ECompositionStep.Start, "", false);
         }
     }
 
+    /// <summary>組字佇列的上限；到頂就代表「會話排了卻沒被執行」，記錄下來，不讓它無界成長。</summary>
+    private const int MaxCompositionJobs = 32;
+
+    /// <summary>把一步組字操作排進佇列，並替它排一次非同步編輯會話。</summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="Step">要做哪一步。</param>
+    /// <param name="Text">Insert 用的上屏文字。</param>
+    /// <param name="Clear">End 用：結束前是否清空組字範圍。</param>
+    private static void EnqueueCompositionJob(TsfState State, ECompositionStep Step, string Text, bool Clear) {
+        var Job = new CompositionJob { Step = Step, Text = Text, Clear = Clear };
+        lock (State.CompositionJobs) {
+            if (State.CompositionJobs.Count >= MaxCompositionJobs) {
+                LogError("組字佇列已滿（" + State.CompositionJobs.Count + "），丟棄 step=" + Step + " text=[" + Text + "]");
+                return;
+            }
+            State.CompositionJobs.Add(Job);
+        }
+        var Hr = RequestCompositionSession(State, State.Context, Step);
+        if (Hr < 0) {
+            // 排不進去就收回剛加的那一步：留著會讓下一個會話拿到錯的步驟，整段上屏都會亂。
+            lock (State.CompositionJobs) {
+                if (State.CompositionJobs.Count > 0) {
+                    State.CompositionJobs.RemoveAt(State.CompositionJobs.Count - 1);
+                }
+            }
+            LogError("組字步驟排不進會話 step=" + Step + " hr=0x" + Hr.ToString("X8") + " text=[" + Text + "]");
+        }
+    }
+
+    /// <summary>
+    /// 替佇列裏的一步排一次非同步、可寫的編輯會話（與 Weasel 的旗標完全相同）。
+    /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="Context">按鍵所屬的 context。</param>
+    /// <param name="Step">這一步的名稱，只用於日誌。</param>
+    /// <returns>排入結果；小於 0 表示排不進去。</returns>
+    private static int RequestCompositionSession(TsfState State, IntPtr Context, ECompositionStep Step) {
+        var ContextGen = ToContextGen(Context, "排入編輯會話");
+        if (ContextGen is null) {
+            return EFail;
+        }
+        var Flags = TfEsAsyncDontCare | TfEsReadWrite;
+        var SessionResult = 0;
+        var Hr = ContextGen.RequestEditSession(State.ClientId, State.EditSessionView, Flags, out SessionResult);
+        LogWarn("RequestEditSession step=" + Step
+            + " flags=0x" + Flags.ToString("X")
+            + " hr=0x" + Hr.ToString("X8")
+            + " phr=0x" + SessionResult.ToString("X8")
+            + (SessionResult == TfSAsync ? "（TF_S_ASYNC）" : ""));
+        if (Hr < 0) {
+            return Hr;
+        }
+        return SessionResult < 0 ? SessionResult : SOk;
+    }
+
+    /// <summary>
+    /// 換焦點或停用時放棄還沒結束的組字（照 Weasel `OnSetFocus(false)` → `_AbortComposition`）。
+    /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <remarks>
+    /// 只排一個「結束並清空」的會話，不直接呼叫 COM：這條路徑同樣在 TSF 的回調裏，
+    /// 直接叫 `EndComposition` 需要寫入 cookie，而我們手上沒有。
+    /// 會話排不進去時 `EnqueueCompositionJob` 會記 Error，組字就留在應用那邊——
+    /// 那會在日誌裏留下痕跡，不會變成一個沒有人知道的空組字。
+    /// </remarks>
+    private static void AbandonComposition(TsfState State) {
+        if (Volatile.Read(ref State.Composition) == IntPtr.Zero) {
+            return;
+        }
+        LogWarn("離開焦點／停用：排入結束組字（清空） comp=" + State.Composition.ToString("X"));
+        EnqueueCompositionJob(State, ECompositionStep.End, "", true);
+    }
+
     private static int OnPreservedKeyCore(IntPtr ThisPtr, IntPtr Context, Guid* PreservedKey, int* IsEaten) {
-        Log("OnPreservedKey");
+        LogWarn("OnPreservedKey key=" + *PreservedKey + " pid=" + Environment.ProcessId);
         *IsEaten = 0;
         return SOk;
     }
@@ -1018,39 +1239,69 @@ internal static unsafe partial class NativeTsf {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetWindowRect(IntPtr Hwnd, out NativeRect Rect);
 
-    private static int RequestEditSession(TsfState State, IntPtr Context) {
-        State.Context = Context;
-        var ContextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)Context);
-        if (ContextGen is null) {
-            LogError("RequestEditSession: context 轉換失敗 ctx=" + Context.ToString("X"));
-            return EFail;
+    /// <summary>把 context 指標換成托管介面；失敗時把原因寫進日誌並回 null。</summary>
+    /// <param name="Context">ITfContext 的原始指標。</param>
+    /// <param name="Where">呼叫端名稱，只用於日誌。</param>
+    /// <returns>托管介面；失敗為 null。</returns>
+    private static ITfContextGen? ToContextGen(IntPtr Context, string Where) {
+        if (Context == IntPtr.Zero) {
+            LogError(Where + ": context 是 0");
+            return null;
         }
-        var SessionResult = 0;
-        // 上屏一定要同步讀寫：呼叫端要立刻知道字有沒有進去。
-        var Hr = ContextGen.RequestEditSession(State.ClientId, State.EditSessionView, TfEsSync | TfEsReadWrite, out SessionResult);
-        if (Hr < 0) {
-            LogError("RequestEditSession hr=0x" + Hr.ToString("X8"));
-            return Hr;
+        var Gen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)Context);
+        if (Gen is null) {
+            LogError(Where + ": context 轉換失敗 ctx=" + Context.ToString("X"));
         }
-        return SessionResult;
+        return Gen;
     }
 
+    /// <summary>
+    /// 執行佇列裏的一步組字操作。
+    /// </summary>
+    /// <remarks>
+    /// 一個 edit session 物件、一個佇列、三種步驟：TSF 依排入順序叫回來，
+    /// 每次取走最前面那一步。這正是 Weasel 用三個不同的 `CEditSession` 子類別做的事，
+    /// 差別只在我們少了三次 `new`。
+    /// </remarks>
     private static int DoEditSessionCore(IntPtr ThisPtr, uint EditCookie) {
         try {
             var State = GetState(ThisPtr);
             if (State is null) {
                 return EFail;
             }
-            uint Operation;
-            lock (State) {
-                Operation = State.PendingOperation;
-                State.PendingOperation = 0;
+            CompositionJob Job;
+            int Remaining;
+            lock (State.CompositionJobs) {
+                if (State.CompositionJobs.Count == 0) {
+                    // 遲到的會話：排入時被收回、或應用重放了請求。記下來，不要再做任何事。
+                    LogWarn("DoEditSession 沒有待辦步驟（多餘或遲到的會話） ec=0x" + EditCookie.ToString("X"));
+                    return SOk;
+                }
+                Job = State.CompositionJobs[0];
+                State.CompositionJobs.RemoveAt(0);
+                Remaining = State.CompositionJobs.Count;
             }
-            Log("DoEditSession op=" + Operation + " ec=0x" + EditCookie.ToString("X"));
-            return Operation switch {
-                2 => InsertTextCore(State, EditCookie),
-                _ => SOk,
-            };
+            LogWarn("DoEditSession step=" + Job.Step
+                + " ec=0x" + EditCookie.ToString("X")
+                + " 剩餘=" + Remaining
+                + (Job.Text.Length > 0 ? " text=[" + Job.Text + "]" : ""));
+            int Hr;
+            switch (Job.Step) {
+                case ECompositionStep.Start:
+                    Hr = StartCompositionCore(State, EditCookie);
+                    break;
+                case ECompositionStep.Insert:
+                    Hr = InsertCommitTextCore(State, EditCookie, Job.Text);
+                    break;
+                case ECompositionStep.End:
+                    Hr = EndCompositionCore(State, EditCookie, Job.Clear);
+                    break;
+                default:
+                    Hr = SOk;
+                    break;
+            }
+            LogWarn("DoEditSession done step=" + Job.Step + " hr=0x" + Hr.ToString("X8"));
+            return Hr;
         }
         catch (Exception Exception) {
             LogError("DoEditSession EX " + Exception);
@@ -1059,43 +1310,272 @@ internal static unsafe partial class NativeTsf {
     }
 
     /// <summary>
-    /// 把目前 preedit 緩衝區的文字插入游標位置。
-    /// 打字過程中完全不碰文件，只有空白鍵上屏時才呼叫 ITfRange::SetText。
+    /// 開始一次組字（照 Weasel `CStartCompositionEditSession::DoEditSession`，`Composition.cpp:26-70`）。
     /// </summary>
-    private static int InsertTextCore(TsfState State, uint EditCookie) {
-        var ContextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)State.Context);
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="EditCookie">這次編輯會話的 cookie。</param>
+    /// <returns>HRESULT。</returns>
+    /// <remarks>
+    /// 步驟與 Weasel 一字不差：
+    /// `ITfInsertAtSelection::InsertTextAtSelection(TF_IAS_QUERYONLY)` 取插入點範圍 →
+    /// `ITfContextComposition::StartComposition(ec, 範圍, sink, &組字)` →
+    /// 在範圍裏寫一個**零寬空格**（`SetText(TF_ST_CORRECTION)`）→
+    /// `Collapse(TF_ANCHOR_START)` → `SetSelection(ec, 1, &選取)`。
+    /// sink 是我們自己實作的 `ITfCompositionSink`（Weasel 傳的是 WeaselTSF 自己）。
+    ///
+    /// *為何一定要塞那個零寬空格*：2026-11-15 23:20 的實測——只建空組字、立刻寫字、立刻結束，
+    /// 記事本正常、VSCode 照樣重複上屏。空的組字範圍在 Chromium 眼裏等於不存在；
+    /// 這也是 Weasel 在沒有 inline preedit 時仍然塞零寬空格的原因。
+    /// </remarks>
+    private static int StartCompositionCore(TsfState State, uint EditCookie) {
+        if (Volatile.Read(ref State.Composition) != IntPtr.Zero) {
+            LogWarn("組字已存在，略過開始 comp=" + State.Composition.ToString("X"));
+            return SOk;
+        }
+        var InsertIid = IidInsertAtSelection;
+        var Qhr = Marshal.QueryInterface(State.Context, in InsertIid, out var InsertPtr);
+        Log("組字 QI(ITfInsertAtSelection) hr=0x" + Qhr.ToString("X8") + " ptr=" + InsertPtr.ToString("X"));
+        if (Qhr < 0 || InsertPtr == IntPtr.Zero) {
+            return Qhr < 0 ? Qhr : EFail;
+        }
+        try {
+            var Insert = ComInterfaceMarshaller<ITfInsertAtSelectionGen>.ConvertToManaged((void*)InsertPtr);
+            if (Insert is null) {
+                LogError("組字: ITfInsertAtSelection 轉換失敗");
+                return EFail;
+            }
+            var RangeHr = Insert.InsertTextAtSelection(EditCookie, TfIasQueryOnly, IntPtr.Zero, 0, out var InsertRange);
+            LogWarn("組字 InsertTextAtSelection hr=0x" + RangeHr.ToString("X8") + " range=" + InsertRange.ToString("X"));
+            if (RangeHr < 0 || InsertRange == IntPtr.Zero) {
+                return RangeHr < 0 ? RangeHr : EFail;
+            }
+            try {
+                var CompIid = IidContextComposition;
+                var Chr = Marshal.QueryInterface(State.Context, in CompIid, out var CompPtr);
+                Log("組字 QI(ITfContextComposition) hr=0x" + Chr.ToString("X8") + " ptr=" + CompPtr.ToString("X"));
+                if (Chr < 0 || CompPtr == IntPtr.Zero) {
+                    return Chr < 0 ? Chr : EFail;
+                }
+                try {
+                    var Comp = ComInterfaceMarshaller<ITfContextCompositionGen>.ConvertToManaged((void*)CompPtr);
+                    if (Comp is null) {
+                        LogError("組字: ITfContextComposition 轉換失敗");
+                        return EFail;
+                    }
+                    var StartHr = Comp.StartComposition(EditCookie, InsertRange, State.CompositionSinkView, out var CompositionPtr);
+                    LogWarn("組字 StartComposition hr=0x" + StartHr.ToString("X8")
+                        + " comp=" + CompositionPtr.ToString("X")
+                        + " sink=" + State.CompositionSinkView.ToString("X"));
+                    if (StartHr < 0 || CompositionPtr == IntPtr.Zero) {
+                        return StartHr < 0 ? StartHr : EFail;
+                    }
+                    var Old = Interlocked.Exchange(ref State.Composition, CompositionPtr);
+                    if (Old != IntPtr.Zero) {
+                        Marshal.Release(Old);
+                    }
+                    LogWarn("組字 已建立 comp=" + CompositionPtr.ToString("X"));
+                    // 照 Weasel `Composition.cpp:45-66`：先塞零寬空格讓範圍非空，再把選取收在起點。
+                    var Range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)InsertRange);
+                    if (Range is not null) {
+                        int ZwspHr;
+                        fixed (char* Zwsp = ZeroWidthSpace) {
+                            ZwspHr = Range.SetText(EditCookie, TfStCorrection, (IntPtr)Zwsp, ZeroWidthSpace.Length);
+                        }
+                        LogWarn("組字 塞零寬空格 hr=0x" + ZwspHr.ToString("X8"));
+                        var CollapseHr = Range.Collapse(EditCookie, TfAnchorStart);
+                        LogWarn("組字 Collapse(START) hr=0x" + CollapseHr.ToString("X8"));
+                        var Selection = new TfSelection { Range = InsertRange, ActiveEnd = 0, Interim = 0 };
+                        var ContextGen = ToContextGen(State.Context, "組字 SetSelection");
+                        if (ContextGen is not null) {
+                            var SelectHr = ContextGen.SetSelection(EditCookie, 1, (IntPtr)(&Selection));
+                            LogWarn("組字 SetSelection hr=0x" + SelectHr.ToString("X8"));
+                        }
+                    }
+                    else {
+                        LogError("組字: ITfRange 轉換失敗，零寬空格沒塞（應用可能不認這次組字）");
+                    }
+                    return SOk;
+                }
+                finally {
+                    Marshal.Release(CompPtr);
+                }
+            }
+            finally {
+                Marshal.Release(InsertRange);
+            }
+        }
+        finally {
+            Marshal.Release(InsertPtr);
+        }
+    }
+
+    /// <summary>
+    /// 把上屏文字寫進組字範圍（照 Weasel `CInsertTextEditSession::DoEditSession`，`Composition.cpp:334-360`）。
+    /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="EditCookie">這次編輯會話的 cookie。</param>
+    /// <param name="Text">要上屏的文字。</param>
+    /// <returns>HRESULT。</returns>
+    /// <remarks>
+    /// Weasel 的順序照抄：`GetRange` → `SetText(ec, 0, 文字)` → `Collapse(TF_ANCHOR_END)` →
+    /// `SetSelection(ec, 1, &選取)`。少了 `SetSelection`，Chromium 會以為游標還在原處。
+    ///
+    /// *沒有組字時走退回路徑*：開始組字失敗（應用不支援）就退回
+    /// 「取選取範圍 → SetText → Collapse → SetSelection」，至少讓字進得去。
+    /// 日誌會明說走的是哪一條，不讓「照 Weasel」變成一句空話。
+    /// </remarks>
+    private static int InsertCommitTextCore(TsfState State, uint EditCookie, string Text) {
+        if (Text.Length == 0) {
+            LogWarn("上屏步驟沒有文字，略過");
+            return SOk;
+        }
+        var ContextGen = ToContextGen(State.Context, "上屏");
         if (ContextGen is null) {
-            LogError("InsertText: context 轉換失敗");
             return EFail;
         }
+        var CompPtr = Volatile.Read(ref State.Composition);
+        if (CompPtr == IntPtr.Zero) {
+            LogWarn("沒有組字（開始步驟失敗或應用已終止），退回選取範圍上屏 text=[" + Text + "]");
+            return InsertBySelectionCore(ContextGen, EditCookie, Text);
+        }
+        var Comp = ComInterfaceMarshaller<ITfCompositionGen>.ConvertToManaged((void*)CompPtr);
+        if (Comp is null) {
+            LogError("上屏: ITfComposition 轉換失敗 comp=" + CompPtr.ToString("X"));
+            return InsertBySelectionCore(ContextGen, EditCookie, Text);
+        }
+        var GetHr = Comp.GetRange(out var RangePtr);
+        Log("上屏 Composition.GetRange hr=0x" + GetHr.ToString("X8") + " range=" + RangePtr.ToString("X"));
+        if (GetHr < 0 || RangePtr == IntPtr.Zero) {
+            return GetHr < 0 ? GetHr : EFail;
+        }
+        try {
+            var Range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)RangePtr);
+            if (Range is null) {
+                LogError("上屏: ITfRange 轉換失敗");
+                return EFail;
+            }
+            int Hr;
+            fixed (char* TextPtr = Text) {
+                Hr = Range.SetText(EditCookie, 0, (IntPtr)TextPtr, Text.Length);
+            }
+            LogWarn("上屏 組字 SetText hr=0x" + Hr.ToString("X8") + " len=" + Text.Length + " text=[" + Text + "]");
+            if (Hr < 0) {
+                return Hr;
+            }
+            var CollapseHr = Range.Collapse(EditCookie, TfAnchorEnd);
+            Log("上屏 組字 Collapse hr=0x" + CollapseHr.ToString("X8"));
+            var Selection = new TfSelection { Range = RangePtr, ActiveEnd = 0, Interim = 0 };
+            var SelectHr = ContextGen.SetSelection(EditCookie, 1, (IntPtr)(&Selection));
+            if (SelectHr < 0) {
+                LogError("上屏 組字 SetSelection hr=0x" + SelectHr.ToString("X8"));
+            }
+            else {
+                Log("上屏 組字 SetSelection hr=0x" + SelectHr.ToString("X8"));
+            }
+            return Hr;
+        }
+        finally {
+            Marshal.Release(RangePtr);
+        }
+    }
+
+    /// <summary>
+    /// 退回路徑：取目前的選取範圍、把文字寫進去、收成插入點、設定選取。
+    /// </summary>
+    /// <param name="ContextGen">目前的 context。</param>
+    /// <param name="EditCookie">這次編輯會話的 cookie。</param>
+    /// <param name="Text">要上屏的文字。</param>
+    /// <returns>HRESULT。</returns>
+    /// <remarks>
+    /// 這條路 Chromium 會再插一次（見本檔類註釋），所以只要日誌裏出現「退回」兩個字，
+    /// 就代表那個應用上屏會重複——不是猜測，是這條路的已知後果。
+    /// </remarks>
+    private static int InsertBySelectionCore(ITfContextGen ContextGen, uint EditCookie, string Text) {
         var Selection = default(TfSelection);
         var Hr = ContextGen.GetSelection(EditCookie, 0, 1, out Selection, out var Fetched);
-        Log("InsertText GetSelection hr=0x" + Hr.ToString("X8") + " fetched=" + Fetched);
+        LogWarn("上屏(退回) GetSelection hr=0x" + Hr.ToString("X8") + " fetched=" + Fetched + " text=[" + Text + "]");
         if (Hr < 0) {
             return Hr;
         }
         if (Fetched != 1 || Selection.Range == IntPtr.Zero) {
+            LogError("上屏(退回): 取不到選取範圍");
             return EFail;
         }
-        var RangeGen = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)Selection.Range);
-        if (RangeGen is null) {
-            LogError("InsertText: range 轉換失敗");
-            ReleaseCom(Selection.Range);
-            return EFail;
+        try {
+            var Range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)Selection.Range);
+            if (Range is null) {
+                LogError("上屏(退回): ITfRange 轉換失敗");
+                return EFail;
+            }
+            int SetHr;
+            fixed (char* TextPtr = Text) {
+                SetHr = Range.SetText(EditCookie, 0, (IntPtr)TextPtr, Text.Length);
+            }
+            LogWarn("上屏(退回) SetText hr=0x" + SetHr.ToString("X8") + " len=" + Text.Length + " text=[" + Text + "]");
+            if (SetHr < 0) {
+                return SetHr;
+            }
+            var CollapseHr = Range.Collapse(EditCookie, TfAnchorEnd);
+            Log("上屏(退回) Collapse hr=0x" + CollapseHr.ToString("X8"));
+            var Select = new TfSelection { Range = Selection.Range, ActiveEnd = 0, Interim = 0 };
+            var SelectHr = ContextGen.SetSelection(EditCookie, 1, (IntPtr)(&Select));
+            if (SelectHr < 0) {
+                LogError("上屏(退回) SetSelection hr=0x" + SelectHr.ToString("X8"));
+            }
+            else {
+                Log("上屏(退回) SetSelection hr=0x" + SelectHr.ToString("X8"));
+            }
+            return SetHr;
         }
-        var Text = State.PendingCommit;
-        fixed (char* TextPtr = Text) {
-            Hr = RangeGen.SetText(EditCookie, 0, (IntPtr)TextPtr, Text.Length);
+        finally {
+            Marshal.Release(Selection.Range);
         }
-        Log("InsertText SetText hr=0x" + Hr.ToString("X8") + " len=" + Text.Length);
-        if (Hr >= 0) {
-            var CollapseHr = RangeGen.Collapse(EditCookie, TfAnchorEnd);
-            Log("InsertText Collapse hr=0x" + CollapseHr.ToString("X8"));
-        }
-        ReleaseCom(Selection.Range);
-        State.PendingCommit = "";
-        return Hr;
     }
+
+    /// <summary>
+    /// 結束組字（照 Weasel `CEndCompositionEditSession::DoEditSession`，`Composition.cpp:100-120`）。
+    /// </summary>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="EditCookie">這次編輯會話的 cookie。</param>
+    /// <param name="Clear">true 表示結束前把組字範圍清空（取消組字用）；上屏時傳 false，保留剛寫進去的字。</param>
+    /// <returns>HRESULT。</returns>
+    private static int EndCompositionCore(TsfState State, uint EditCookie, bool Clear) {
+        var CompPtr = Interlocked.Exchange(ref State.Composition, IntPtr.Zero);
+        if (CompPtr == IntPtr.Zero) {
+            LogWarn("結束組字：沒有組字（可能已被應用終止） clear=" + (Clear ? 1 : 0));
+            return SOk;
+        }
+        try {
+            var Comp = ComInterfaceMarshaller<ITfCompositionGen>.ConvertToManaged((void*)CompPtr);
+            if (Comp is null) {
+                LogError("結束組字: ITfComposition 轉換失敗 comp=" + CompPtr.ToString("X"));
+                return EFail;
+            }
+            if (Clear) {
+                var GetHr = Comp.GetRange(out var RangePtr);
+                if (GetHr >= 0 && RangePtr != IntPtr.Zero) {
+                    try {
+                        var Range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)RangePtr);
+                        if (Range is not null) {
+                            var ClearHr = Range.SetText(EditCookie, 0, IntPtr.Zero, 0);
+                            Log("結束組字 清空範圍 hr=0x" + ClearHr.ToString("X8"));
+                        }
+                    }
+                    finally {
+                        Marshal.Release(RangePtr);
+                    }
+                }
+            }
+            var Hr = Comp.EndComposition(EditCookie);
+            LogWarn("結束組字 EndComposition hr=0x" + Hr.ToString("X8") + " clear=" + (Clear ? 1 : 0));
+            return Hr;
+        }
+        finally {
+            Marshal.Release(CompPtr);
+        }
+    }
+
+
 
     /// <summary>編輯會話所屬的物件查詢；只支援 IUnknown 與 ITfEditSession。</summary>
     private static int EditSessionQueryCore(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) {
@@ -1110,6 +1590,54 @@ internal static unsafe partial class NativeTsf {
         }
         *Ppv = IntPtr.Zero;
         return ENoInterface;
+    }
+
+    /// <summary>ITfCompositionSink 的 QueryInterface；只支援 IUnknown 與自己。</summary>
+    private static int CompositionSinkQueryCore(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) {
+        var State = GetState(ThisPtr);
+        if (State is null) {
+            return ENoInterface;
+        }
+        if (*Riid == IidIUnknown || *Riid == IidCompositionSink) {
+            *Ppv = ThisPtr;
+            Interlocked.Increment(ref State.RefCount);
+            return SOk;
+        }
+        *Ppv = IntPtr.Zero;
+        return ENoInterface;
+    }
+
+    /// <summary>
+    /// 應用主動結束組字時的通知（Weasel `WeaselTSF::OnCompositionTerminated`，`Composition.cpp:389-398`）。
+    /// </summary>
+    /// <param name="ThisPtr">ITfCompositionSink 的介面指標。</param>
+    /// <param name="EditCookie">應用給的寫入 cookie。</param>
+    /// <param name="Composition">被結束的組字。</param>
+    /// <returns>一律 S_OK。</returns>
+    /// <remarks>
+    /// Weasel 的註釋寫得很白：組字字串為空時，連「正常結束」也會走進來，所以不能假設這是異常。
+    /// 這裡只做「放掉手上的組字」，不主動再叫 `EndComposition`——那個呼叫很可能就是觸發通知的人，
+    /// 重入只會在別人的會話裏再排一次會話。日誌留一行，之後才看得出是「我們結束的」還是「應用結束的」。
+    /// </remarks>
+    private static int OnCompositionTerminatedCore(IntPtr ThisPtr, uint EditCookie, IntPtr Composition) {
+        try {
+            var State = GetState(ThisPtr);
+            if (State is null) {
+                return SOk;
+            }
+            var Owned = Interlocked.Exchange(ref State.Composition, IntPtr.Zero);
+            if (Owned != IntPtr.Zero) {
+                Marshal.Release(Owned);
+            }
+            LogWarn("OnCompositionTerminated ec=0x" + EditCookie.ToString("X")
+                + " comp=" + Composition.ToString("X")
+                + " 我們持有的那份=" + (Owned != IntPtr.Zero ? "已釋放" : "早就沒了"));
+            return SOk;
+        }
+        catch (Exception Exception) {
+            LogError("OnCompositionTerminated EX " + Exception);
+            return SOk;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1147,6 +1675,7 @@ internal static unsafe partial class NativeTsf {
             CollectTargets(FactoryVtbl, 5, Targets);
             CollectTargets(EditSessionVtbl, 4, Targets);
             CollectTargets(CaretSessionVtbl, 4, Targets);
+            CollectTargets(CompositionSinkVtbl, 4, Targets);
             foreach (var Target in Targets) {
                 var Page = (IntPtr)(Target.ToInt64() & ~0xFFFL);
                 var Info = new[] { new CfgCallTargetInfo { Offset = (IntPtr)(Target.ToInt64() - Page.ToInt64()), Flags = (IntPtr)1 } };
@@ -1169,6 +1698,12 @@ internal static unsafe partial class NativeTsf {
             var Info = (IntPtr*)ExceptionInfo;
             var Record = (IntPtr*)Info[0];
             var Code = (uint)Record[0].ToInt64();
+            // C++（0xE06D7363）與 .NET（0xE0434352）的例外在 Chromium 裏是常態：
+            // 每一個 throw 都會走到這裏，而我們在這裏寫檔。只記真正的 SEH 錯誤，
+            // 免得在別人的例外派發路徑上做幾十次檔案 IO，還把日誌灌滿。
+            if (Code == 0xE06D7363 || Code == 0xE0434352) {
+                return 0;
+            }
             var Address = Record[2];
             var ParamCount = (uint)(Record[3].ToInt64() & 0xFFFFFFFF);
             var Info0 = Record[4];
@@ -1191,6 +1726,12 @@ internal static unsafe partial class NativeTsf {
 
     [UnmanagedCallersOnly]
     private static int DoCaretSessionEntry(IntPtr ThisPtr, uint EditCookie) => DoCaretSessionCore(ThisPtr, EditCookie);
+
+    [UnmanagedCallersOnly]
+    private static int CompositionSinkQueryEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) => CompositionSinkQueryCore(ThisPtr, Riid, Ppv);
+
+    [UnmanagedCallersOnly]
+    private static int OnCompositionTerminatedEntry(IntPtr ThisPtr, uint EditCookie, IntPtr Composition) => OnCompositionTerminatedCore(ThisPtr, EditCookie, Composition);
 
     [UnmanagedCallersOnly]
     private static int QueryInterfaceEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) { Log("QI-entry this=" + ThisPtr.ToString("X")); return QueryCore(ThisPtr, Riid, Ppv); }

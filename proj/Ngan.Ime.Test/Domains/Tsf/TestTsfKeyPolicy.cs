@@ -17,7 +17,7 @@ public class TestTsfKeyPolicy : Tester{
 	掛上本測試類的全部用例。
 	""")]
 	public override void Init(){
-		this.AddTestCase(nameof(Modifier_Should_NeverBeEaten), Modifier_Should_NeverBeEaten!);
+		this.AddTestCase(nameof(Modifier_Should_FollowEngine), Modifier_Should_FollowEngine!);
 		this.AddTestCase(nameof(Up_Should_MirrorDownEaten), Up_Should_MirrorDownEaten!);
 		this.AddTestCase(nameof(Up_Should_Pass_WhenDownPassed), Up_Should_Pass_WhenDownPassed!);
 		this.AddTestCase(nameof(Repeated_TestDown_Should_ReuseAnswer), Repeated_TestDown_Should_ReuseAnswer!);
@@ -27,12 +27,12 @@ public class TestTsfKeyPolicy : Tester{
 	}
 
 	[Doc("""
-	修飾鍵與 CapsLock 一律放行：即使引擎說它處理了，也不可以吃掉。
+	修飾鍵照樣送引擎，吃不吃由引擎回答；殼端不再另立「修飾鍵一律放行」的規則。
 
-	理由：輸入法吃掉 Shift／Ctrl／Alt 會讓應用與改鍵工具看到的修飾鍵狀態與系統不一致，
-	AltNav 那類「Alt+K → 下」的工具就會把後續合成鍵變成 Alt+下。
+	理由：Weasel 就是所有鍵都送引擎（`WeaselTSF/KeyEventSink.cpp:11`），
+	引擎對 Alt 等修飾鍵也有發言權。先前殼端自己決定放行，等於讓引擎永遠看不到它們。
 	""")]
-	public async Task<nil> Modifier_Should_NeverBeEaten(obj? O){
+	public async Task<nil> Modifier_Should_FollowEngine(obj? O){
 		var T = Assert.IsTrue;
 		var Policy = new TsfKeyPolicy();
 		foreach(var Vk in new[]{
@@ -40,9 +40,9 @@ public class TestTsfKeyPolicy : Tester{
 			TsfKeyPolicy.VkCapital, TsfKeyPolicy.VkLWin, TsfKeyPolicy.VkRWin,
 			TsfKeyPolicy.VkLShift, TsfKeyPolicy.VkRMenu,
 		}){
-			T(TsfKeyPolicy.IsPassThrough(Vk), $"vk=0x{Vk:X} 應被視為放行鍵");
-			T(!Policy.DecideEat(Vk, IsUp: false, EngineEaten: true), $"vk=0x{Vk:X} 按下不該被吃掉");
-			T(!Policy.DecideEat(Vk, IsUp: true, EngineEaten: true), $"vk=0x{Vk:X} 擡起不該被吃掉");
+			T(TsfKeyPolicy.IsModifier(Vk), $"vk=0x{Vk:X} 應被視為修飾鍵");
+			T(Policy.DecideEat(Vk, IsUp: false, EngineEaten: true), $"vk=0x{Vk:X} 引擎說吃就要吃");
+			T(!Policy.DecideEat(Vk, IsUp: false, EngineEaten: false), $"vk=0x{Vk:X} 引擎說不吃就不吃");
 		}
 		return NIL;
 	}

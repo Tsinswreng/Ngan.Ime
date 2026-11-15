@@ -13,6 +13,7 @@
 #     .\install.ps1 -WhatIf             只印出將要做的事
 #     .\install.ps1 -ShareUserData      不複製 Rime 用戶資料，直接與來源共用（預設各自一份）
 #     .\install.ps1 -IgnoreUserList     不把新 profile 加進目前使用者的輸入法清單
+#     .\install.ps1 -ReportHolders      額外列出仍載入舊版本的行程（較慢，預設不做）
 #
 # 注意：提權之後仍然是同一個使用者帳號，故 HKCU 就是使用者自己的那份設定；
 # 「加進輸入法清單」這件事在提權的這一步做是正確的（先前把它留給使用者手動做，
@@ -21,7 +22,8 @@
 param(
     [switch]$WhatIf,
     [switch]$ShareUserData,
-    [switch]$IgnoreUserList
+    [switch]$IgnoreUserList,
+    [switch]$ReportHolders
 )
 
 $ErrorActionPreference = 'Stop'
@@ -181,22 +183,24 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Se
 Start-ScheduledTask -TaskName $TaskName
 Say "排程工作 $TaskName 已建立並啟動。"
 
-# ---- 8. 告訴使用者哪些程式還在用舊版本 ----
-# 這一段不是錯誤，是「TSF 外殼是行程載入的 DLL」這件事的直接後果：
-# 跑着的行程不放手，Windows 不允許換掉映像，所以舊版只能等那些行程重開。
-$NganRoot = Join-Path $env:LOCALAPPDATA 'NganIme'
-$OldDirs = Get-ChildItem -Path $NganRoot -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like 'v*' -and $_.FullName -ne $InstallRoot }
-$OldWithHolders = @()
-foreach ($Old in $OldDirs) {
-    $Holders = Find-Holders $Old.FullName
-    if ($Holders.Count -gt 0) {
-        $OldWithHolders += $Old.FullName
-        Write-Host ''
-        Write-Host ("舊版本仍在使用中：" + $Old.FullName) -ForegroundColor Yellow
-        $Holders | ForEach-Object { Write-Host ("  {0,-6} {1}" -f $_.Id, $_.Name) }
-        Write-Host '  上面這些行程已經載入了舊版外殼，重開它們才會換到這一版；'
-        Write-Host '  不重開也能正常打字——那個行程會繼續用舊版與舊版自己的服務端。'
+# ---- 8. （可選）列出仍在載入舊版本的行程 ----
+# 預設不做。理由有兩個：
+#   一是每次安裝都是一個獨立輸入法，舊版自己一套外殼與服務端，不重開也能正常打字，
+#       這段訊息等於叫使用者忽略它；
+#   二是它要對每個舊版本目錄列舉所有行程的所有模組，實測一次約 7 秒
+#       （416 個行程、14327 個模組），四個舊版本就是半分鐘。
+# 真的要看再加 -ReportHolders。
+if ($ReportHolders) {
+    $NganRoot = Join-Path $env:LOCALAPPDATA 'NganIme'
+    $OldDirs = Get-ChildItem -Path $NganRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'v*' -and $_.FullName -ne $InstallRoot }
+    foreach ($Old in $OldDirs) {
+        $Holders = Find-Holders $Old.FullName
+        if ($Holders.Count -gt 0) {
+            Write-Host ''
+            Write-Host ("舊版本仍在使用中：" + $Old.FullName) -ForegroundColor Yellow
+            $Holders | ForEach-Object { Write-Host ("  {0,-6} {1}" -f $_.Id, $_.Name) }
+        }
     }
 }
 

@@ -14,8 +14,10 @@ using Tsinswreng.CsCore;
 
 *三條不變式*：
 
-+ 修飾鍵（Shift／Ctrl／Alt／Win／CapsLock）一律放行。輸入法吃掉修飾鍵沒有任何好處，
-	卻會讓應用與改鍵工具（AltNav、AutoHotkey）看到的修飾鍵狀態與系統不一致。
++ 所有認得的鍵都送引擎，吃不吃由引擎的回答決定，修飾鍵沒有例外。
+	這是 Weasel 的規則（`WeaselTSF/KeyEventSink.cpp:11`：只要 `ConvertKeyEvent` 認得就送，
+	`*pfEaten` 直接用引擎的回答；`KeyEvent.cpp:22` 還把 Alt 的狀態放進修飾鍵位）。
+	先前殼端自己加了「修飾鍵一律放行」，結果 Alt 永遠到不了引擎。
 + 同一顆鍵的「擡起」最多只能吃到與「按下」相同的程度。按下放行而擡起被吃掉，
 	應用就會永遠以為那顆鍵還按着——「Alt+K 變成 Alt+下」這一類症狀就是這樣來的。
 + 每個事件只決策一次。TSF 對同一顆鍵可能連送多次 `OnTestKeyDown`（Word 2010 x64），
@@ -98,11 +100,16 @@ public sealed class TsfKeyPolicy{
 	bool HasTestUp;
 
 	[Doc($$"""
-	這顆鍵是不是「一律放行」的鍵（修飾鍵與 CapsLock）。
+	這顆鍵是不是修飾鍵（Shift／Ctrl／Alt／Win／CapsLock）。
 	#Prm[{{nameof(Vk)}}][虛擬鍵碼。]
-	#Rtn[true 表示殼端不該問引擎、也不該吃掉它。]
+	#Rtn[true 表示是修飾鍵。]
 	""")]
-	public static bool IsPassThrough(i32 Vk){
+	/// <remarks>
+	/// *這條規則只用來分類，不再用來放行*。先前殼端拿它當「一律不吃、也不問引擎」的依據，
+	/// 結果引擎永遠收不到 Alt 等修飾鍵，與 Weasel 的行為不同（Weasel 所有鍵都送引擎，
+	/// 吃不吃由引擎回答）。現在修飾鍵照樣送引擎，本方法只供其他判斷參考。
+	/// </remarks>
+	public static bool IsModifier(i32 Vk){
 		return Vk == VkShift || Vk == VkCtrl || Vk == VkMenu || Vk == VkCapital
 			|| Vk == VkLWin || Vk == VkRWin
 			|| (Vk >= VkLShift && Vk <= VkRMenu);
@@ -114,7 +121,6 @@ public sealed class TsfKeyPolicy{
 	*按下*：照引擎的回答，並記住結論（給擡起沿用）。
 	*擡起*：引擎說吃、而且按下時也被吃，才吃。按下被放行時擡起一定放行，
 	否則應用的修飾鍵狀態會卡住。
-	*修飾鍵*：一律放行，且不記錄（它們不參與成對規則）。
 
 	#Prm[{{nameof(Vk)}}][虛擬鍵碼。]
 	#Prm[{{nameof(IsUp)}}][true 表示擡起。]
@@ -122,10 +128,6 @@ public sealed class TsfKeyPolicy{
 	#Rtn[殼端實際要回報給 TSF 的 `IsEaten`。]
 	""")]
 	public bool DecideEat(i32 Vk, bool IsUp, bool EngineEaten){
-		if(IsPassThrough(Vk)){
-			Forget(Vk);
-			return false;
-		}
 		if(!IsUp){
 			Remember(Vk, EngineEaten);
 			return EngineEaten;

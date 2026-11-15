@@ -2,21 +2,21 @@ namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.IO;
-using System.Text;
 
 /// <summary>
 /// 外殼（行程內 DLL）的診斷日誌。
 /// </summary>
 /// <remarks>
 /// *分級*：Error／Warn 永遠寫檔——外殼跑在別人的行程裏，出事時沒有人會替它留證據，
-/// 若連錯誤都要靠環境變數才記，等於把問題變成黑盒。Trace（逐鍵、QI、AddRef 之類）
-/// 才由 `NGAN_TSF_LOG=1` 開啟，避免每顆鍵都做檔案 IO 拖慢桌面。
+/// 若連錯誤都要靠環境變數才記，等於把問題變成黑盒。Trace（QI、AddRef 之類）才由
+/// `NGAN_TSF_LOG=1` 開啟，避免每一顆鍵都做多餘的檔案 IO。
 ///
 /// *為何不用 AppLog*：本 DLL 不帶 CLR 與日誌庫，AOT 下也不能反射載入；
 /// 檔案是唯一能留下的證據，故自己寫一個最小實現，用法刻意與 AppLog 對齊（LogError／LogWarn）。
 ///
-/// *輪替*：單檔 1MB，另外保留三份舊檔（`.1`～`.3`）；外殼可能長時間掛在 explorer 裏，
-/// 不輪替會無限長大。檔案在 `%LOCALAPPDATA%\NganImeTsf\tsf-shell.log`，與服務端日誌分開。
+/// *輪替與原子性*：單檔 1MB，另外保留三份舊檔（`.1`～`.3`）。實際寫入走
+/// <see cref="AppendLineAtomic"/>：一行一個跨行程互斥，避免同一台機器上多支版本、
+/// 多個行程同時寫時互相蓋掉。每行帶 `[模組標籤]`，才看得出是哪一版的外殼寫的。
 ///
 /// *為何要防重入*：日誌會被向量化例外處理器呼叫，而寫檔本身又可能失敗或再觸發例外。
 /// 沒有防重入就會無限遞迴，最後以堆疊溢位收場——在 explorer 裏面。
@@ -40,18 +40,36 @@ internal static unsafe partial class NativeTsf {
 	/// <summary>現行日誌檔。</summary>
 	private static readonly string LogPath = Path.Combine(LogDir, "tsf-shell.log");
 
-	/// <summary>寫入互斥；UI 執行緒與 TSF 回調都可能寫。</summary>
-	private static readonly object LogGate = new();
+	/// <summary>
+	/// 本模組的短標籤（安裝目錄名，例如 `v20261115-225136`）。
+	/// </summary>
+	/// <remarks>
+	/// 版本化安裝讓同一行程裏可以同時有多支外殼，日誌卻共用一個檔。
+	/// 每行帶標籤之後，「這一行是哪一版做的」不必再從模組清單反推。
+	/// </remarks>
+	private static string SelfTag = "?";
 
 	/// <summary>本執行緒是否正在寫入；同一個執行緒重入就直接放棄（見類註釋）。</summary>
 	[ThreadStatic]
 	private static bool InWrite;
 
-	/// <summary>常駐 writer；null 表示尚未開啟或剛關閉等待輪替。</summary>
-	private static StreamWriter? LogWriter;
-
-	/// <summary>目前檔案已寫入的位元組數，用來判斷何時輪替。</summary>
-	private static long LogBytes;
+	/// <summary>算出本模組的短標籤；取安裝目錄名，取不到就用 `?`。</summary>
+	/// <returns>模組標籤。</returns>
+	private static string ComputeSelfTag() {
+		try {
+			var Dir = Path.GetDirectoryName(GetOwnModulePath());
+			if (!string.IsNullOrEmpty(Dir)) {
+				var Name = Path.GetFileName(Dir);
+				if (!string.IsNullOrEmpty(Name)) {
+					return Name;
+				}
+			}
+		}
+		catch {
+			// 標籤只是為了讀日誌，失敗不影響任何行為。
+		}
+		return "?";
+	}
 
 	/// <summary>逐鍵、狀態變化之類的細節；預設不寫。</summary>
 	private static void Log(string Message) {
@@ -72,6 +90,8 @@ internal static unsafe partial class NativeTsf {
 	}
 
 	/// <summary>寫一行；任何失敗都吞掉，日誌不能影響輸入。</summary>
+	/// <param name="Level">等級代號（T／W／E）。</param>
+	/// <param name="Message">訊息本體。</param>
 	private static void Write(string Level, string Message) {
 		// 重入保護要在 try 之前：finally 裏的 InWrite=false 只配對一次。
 		if (InWrite) {
@@ -79,67 +99,18 @@ internal static unsafe partial class NativeTsf {
 		}
 		InWrite = true;
 		try {
-			lock (LogGate) {
-				EnsureWriter();
-				var Line = DateTime.Now.ToString("HH:mm:ss.fff")
-					+ " [" + Environment.ProcessId + "][" + Level + "] "
-					+ Message;
-				LogWriter!.WriteLine(Line);
-				// 粗估位元組數即可；中文字會被低估，不影響輪替的正確性。
-				LogBytes += Line.Length + Environment.NewLine.Length;
-			}
+			var Line = DateTime.Now.ToString("HH:mm:ss.fff")
+				+ " [" + Environment.ProcessId + "]"
+				+ "[" + Level + "]"
+				+ "[" + SelfTag + "] "
+				+ Message;
+			AppendLineAtomic(LogPath, Line, MaxLogBytes, KeepLogFiles);
 		}
 		catch {
 			// 日誌失敗不該影響輸入。
 		}
 		finally {
 			InWrite = false;
-		}
-	}
-
-	/// <summary>取得可寫的 writer；必要時開檔或先輪替。</summary>
-	private static void EnsureWriter() {
-		if (LogWriter is not null && LogBytes < MaxLogBytes) {
-			return;
-		}
-		if (LogWriter is not null) {
-			LogWriter.Dispose();
-			LogWriter = null;
-			Rotate();
-		}
-		Directory.CreateDirectory(LogDir);
-		var Stream = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-		LogWriter = new StreamWriter(Stream, new UTF8Encoding(false)) { AutoFlush = true };
-		LogBytes = Stream.Length;
-	}
-
-	/// <summary>
-	/// 把現行檔改名成 `.1`，其餘往後推，最後只保留 <see cref="KeepLogFiles"/> 份舊檔。
-	/// </summary>
-	/// <remarks>
-	/// 迴圈從「最舊的那一份」開始搬：先把 `.3` 刪掉、`.2`→`.3`、`.1`→`.2`、現行檔→`.1`。
-	/// 先前寫成從 `.1` 往前搬，結果每輪都多長一份（現行檔 + `.1`～`.4`），
-	/// 與註釋說的「保留三份」對不上。
-	/// </remarks>
-	private static void Rotate() {
-		try {
-			var Oldest = LogPath + "." + KeepLogFiles;
-			if (File.Exists(Oldest)) {
-				File.Delete(Oldest);
-			}
-			for (var Index = KeepLogFiles - 1; Index >= 1; Index--) {
-				var From = LogPath + "." + Index;
-				if (!File.Exists(From)) {
-					continue;
-				}
-				File.Move(From, LogPath + "." + (Index + 1));
-			}
-			if (File.Exists(LogPath)) {
-				File.Move(LogPath, LogPath + ".1");
-			}
-		}
-		catch {
-			// 輪替失敗就繼續寫同一個檔，總比沒有日誌好。
 		}
 	}
 }

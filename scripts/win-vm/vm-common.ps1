@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     VMware guest 操作的小包裝，省去每次手打一長串 vmrun 參數。
 .DESCRIPTION

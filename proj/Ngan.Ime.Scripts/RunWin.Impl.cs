@@ -5,38 +5,28 @@ namespace Ngan.Ime.Scripts;
 
 /// RunWin 的流程實現。
 internal static partial class RunWin{
+
 	/// Windows 服務端專案相對於倉庫根的路徑。
 	const str CsprojRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Windows/Ngan.Ime.Windows.csproj";
-
-	/// 服務端專案目錄相對於倉庫根的路徑（配置檔就在這裡）。
-	const str ProjectDirRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Windows";
-
-	/// 要跟隨執行檔一起放到輸出目錄的配置檔。
-	/// 服務端的儲存區根目錄＝可執行檔所在目錄，故配置必須複製到 `bin/.../win-x86/`。
-	static readonly str[] CfgFileNames = ["Ngan.Ime.Ro.jsonc", "Ngan.Ime.Rw.jsonc"];
 
 	/// 目標運行時識別碼；與本機 rime.dll 的字寬一致。
 	const str Rid = "win-x86";
 
+	/// 先建置再啟動；配置檔由 csproj 的 Content 項複製到輸出目錄。
+	/// <remarks>
+	/// *為何不再自己複製配置*：`Ngan.Ime.Windows.csproj` 已把 `ExternalRsrc.Private/**`
+	/// 標成 `CopyToOutputDirectory=PreserveNewest`，`dotnet build`／`dotnet run`／`dotnet publish`
+	/// 三條路都會帶上。先前這裡另寫一份複製邏輯，與 `PubWinX86` 的那份重複，
+	/// 而且「先建置還是先複製」只能從呼叫序讀出來。
+	///
+	/// *為何先 build 再 `run --no-build`*：`dotnet run` 會自己建置；分開做是為了讓
+	/// 「建置失敗」與「程式啟動後崩潰」在輸出上分得開，排查時不必猜是哪一段。
+	/// </remarks>
 	internal static async partial Task Main(ISCtx Ctx, CT Ct){
-		var ProjectDir = Ctx.RootDir/ProjectDirRelPath;
-		var OutDir = ProjectDir/"bin/Debug"/Ctx.Tfm/Rid;
+		// step 1: 建置（含把私有配置複製到輸出目錄）。
+		await Exe("dotnet", ["build", Ctx.RootDir/CsprojRelPath, "-r", Rid], Ct);
 
-		// step 1: 輸出目錄可能還沒建過（第一次跑或清過 bin），先確保它存在。
-		Directory.CreateDirectory(OutDir);
-
-		// step 2: 複製配置檔。覆蓋是刻意的：開發時改了專案目錄裡的配置，下一次啟動就該生效。
-		foreach(var FileName in CfgFileNames){
-			var Src = ProjectDir/FileName;
-			if(!File.Exists(Src)){
-				// 缺檔不致命的，但必須出聲；否則服務端會安靜地用鍵上默認值啟動。
-				Console.Error.WriteLine($"[RunWin] 缺少配置檔，跳過複製：{Src}");
-				continue;
-			}
-			File.Copy(Src, OutDir/FileName, overwrite: true);
-		}
-
-		// step 3: 啟動服務端。輸出一律轉送終端，故 GUI 崩在啟動期時看得到原因。
-		await Exe("dotnet", ["run", "--project", Ctx.RootDir/CsprojRelPath, "-r", Rid], Ct);
+		// step 2: 啟動服務端。輸出一律轉送終端，故 GUI 崩在啟動期時看得到原因。
+		await Exe("dotnet", ["run", "--no-build", "--project", Ctx.RootDir/CsprojRelPath, "-r", Rid], Ct);
 	}
 }

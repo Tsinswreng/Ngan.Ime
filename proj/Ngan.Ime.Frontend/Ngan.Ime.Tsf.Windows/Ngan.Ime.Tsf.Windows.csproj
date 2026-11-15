@@ -13,13 +13,18 @@
 
 	<ItemGroup>
 		<!-- 本專案是「不含 CLR 的原生 COM 組件」：手寫 vtable、只依賴系統 DLL 與 UCRT。
-		     proj/Directory.Build.props 會給每個專案掛上本地基礎庫與 DI 套件，這裡全部移除，
-		     讓產物保持最小、也避免第三方庫被意外連結進 explorer 的行程。 -->
+		     proj/Directory.Build.props 會給每個專案掛上本地基礎庫與 DI 套件；這裡把
+		     ProjectReference **與 PackageReference** 一起移除，讓產物保持最小，
+		     也避免第三方庫被意外連結進 explorer 的行程。
+		     （只移除 ProjectReference 是不夠的：PackageReference 仍會 restore 與連結。） -->
 		<ProjectReference Remove="@(ProjectReference)" />
+		<PackageReference Remove="@(PackageReference)" />
 		<!-- 同理移除前端共用的 GlobalUsing：它導入 Ngan.Ime.Infra.*，而本專案不引用 Core。 -->
 		<Compile Remove="$(MSBuildThisFileDirectory)../../_shared/GlobalUsing.cs" />
-		<!-- 管道協議契約：與服務端、測試共用同一份型別與解析器（只依賴 BCL，不引入 CLR 庫）。 -->
+		<!-- 管道協議契約與按鍵決策：與服務端、測試共用同一份型別與解析器
+		     （兩者都只依賴 BCL，故外殼不需要任何托管庫）。 -->
 		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfIpc.cs" />
+		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfKeyPolicy.cs" />
 	</ItemGroup>
 
 </Project>

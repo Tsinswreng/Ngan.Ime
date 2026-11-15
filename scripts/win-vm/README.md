@@ -57,13 +57,43 @@ dotnet run --project proj/Ngan.Ime.Scripts -- PubWinX86
 - `Ngan.Ime.Tsf.Registration.exe` 與其框架依賴（約 20 個托管 dll）：x64，框架依賴
 - `install.ps1`／`install-user.cmd`／`uninstall.ps1`／`StartServer.vbs`／`README.txt`
 
-安裝流程：管理員跑 `install.ps1 -RimeDll <rime.dll>`，再以本人身分跑 `install-user.cmd`，
-登出再登入。安裝腳本會建立登入自啟的排程工作 `NganIme-Server`，並把 Rime 用戶資料
-複製到 `%LOCALAPPDATA%\NganIme\rime-user`，避免與小狼毫共用。
+安裝流程：管理員跑 `install.ps1`（每次裝到 `%LOCALAPPDATA%\NganIme\v<時間戳>`）。
+**每次安裝都是一個獨立輸入法**：腳本生成屬於這一版的 CLSID 與輸入法 profile
+（寫進該目錄的 `identity.txt`），建立屬於這一版的排程工作 `NganIme-Server-v<版本>`，
+並把新 profile 加進目前使用者的輸入法清單（提權仍是同一帳號，HKCU 就是使用者自己的那份）。
+Rime 用戶資料預設也複製一份到該版本目錄（`-ShareUserData` 可改回共用），
+因為兩個 Rime 引擎共用同一份 user data 會撞 deployment 的檔案鎖。
+
+外殼與服務端各自從自己的目錄算出管道名（`TsfIpc.PipeNameFor`），所以兩個版本的服務端
+不會在同一條管道上搶請求。舊版本原封不動留著，可以各自運作、各自卸載。
 
 - `-Out <目錄>`：改輸出位置。
+- `-Snap`：輸出到 `artifacts/publish/win-<時間戳>/` 並更新 `current.txt`。
+  輸出目錄是使用中的安裝目錄時，清空舊目錄會被載入中的外殼 DLL 擋住；時間戳目錄從根上避開。
 - `-KeepSymbols`：保留 `.pdb`。
 - `-DryRun`：只印步驟。
+
+發布時會驗證產物：外殼必須是 x64 且不含 CLR header（NativeAOT 原生映像），
+服務端必須是 x86、同樣不含 CLR header，註冊工具必須是 x64 托管組件。
+攤平時同名檔案只在內容（SHA-256）完全相同時才留一份。
+
+舊版本目錄若已沒人用（不在註冊表、沒被載入、沒有排程工作），用 `CleanWin` 清：
+
+```powershell
+dotnet run --project proj/Ngan.Ime.Scripts -- CleanWin -DryRun
+dotnet run --project proj/Ngan.Ime.Scripts -- CleanWin
+```
+
+只裝不卸，每個版本都會留在輸入法清單與排程工作裏（這正是「每次安裝都是獨立輸入法」的代價）。
+要一次清掉「除了最新版以外的全部舊版」（反註冊＋移除排程工作＋刪目錄，需管理員）：
+
+```powershell
+dotnet run --project proj/Ngan.Ime.Scripts -- CleanWin -UninstallOld -DryRun
+dotnet run --project proj/Ngan.Ime.Scripts -- CleanWin -UninstallOld
+```
+
+注意：安裝完之後**不必登出**——但要在 Win+Space 裏選新版的 profile，
+否則 Windows 仍停在舊的那一個；已開着的程式要重開才會換外殼。
 
 腳本檔的編碼有講究：`.ps1` 要 UTF-8 BOM（PowerShell 5.1 對無 BOM 的 UTF-8 用 ANSI 解），
 `.cmd` 用 GBK（主控台碼頁），`.vbs` 用 UTF-16 BOM（WSH 支援 Unicode）。

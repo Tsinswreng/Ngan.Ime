@@ -51,6 +51,7 @@ public class NganImeTester : Tester{
 		this.AddTester<TestVolcengineProtocolCodec>();
 		this.AddTester<TestImeUiState>();
 		this.AddTester<TestTsfIpc>();
+		this.AddTester<TestTsfKeyPolicy>();
 		this.AddTester<TestVmCandidatePopup>();
 	}
 }

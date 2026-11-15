@@ -2,6 +2,7 @@ namespace Ngan.Ime.Windows.Tsf;
 
 using System.Collections.Generic;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Avalonia;
@@ -17,6 +18,15 @@ TSF 管道服務端：按鍵經具名管道送進來，交給引擎處理，再�
 
 *協議*：見 `TsfIpc`（`proj/_shared/TsfIpc.cs`），兩端共用同一份型別與解析器。
 本檔只負責「傳輸」與「把協議物件翻成引擎呼叫」，不自己拼字串。
+
+*管道名按安裝目錄算*：每次安裝都是一個獨立輸入法，各自有服務端；
+共用一條固定名稱的管道會讓兩個版本的服務端同時監聽同一條名稱，
+客戶端連到哪一個由系統決定。名稱由 `TsfIpc.PipeNameFor` 依本 exe 所在目錄算出，
+外殼從自己的目錄算出同一個名稱。
+
+*已知的職責重疊*：本類同時做監聽、連線生命週期、協議解析、引擎串行化與浮窗顯示。
+拆分方案（`TsfPipeListener`／`TsfRequestHandler`／`TsfReplyMapper`）已記在 2026-11-15 的審查報告，
+本輪先把「監聽迴圈不可無聲死亡」與「位置未知」兩件事修掉，拆分留給下一輪。
 
 *一次按鍵的處理*：解析請求 → 依 @虛擬鍵碼 還原按鍵 → 依方向建事件 → 交給引擎 →
 把引擎狀態與上屏文字打包成回應。引擎只有一個會話，多條連線以信號量串行化。
@@ -53,6 +63,12 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("串行化引擎存取：多個應用各自持有一條連線，但引擎只有一個會話。")]
 	readonly SemaphoreSlim EngineLock = new(1, 1);
 
+	[Doc("本安裝專屬的管道名稱：由服務端 exe 所在目錄算出，與同層的外殼算出同一個名稱。")]
+	static str PipeName => field ??= TsfIpc.PipeNameFor(AppContext.BaseDirectory);
+
+	[Doc("診斷模式：環境變數 NGAN_TSF_TIMING=1 時，逐鍵記錄耗時與座標（平時不記，避免日誌爆量）。")]
+	static readonly bool TimingEnabled = System.Environment.GetEnvironmentVariable("NGAN_TSF_TIMING") == "1";
+
 	[Doc("監聽迴圈的取消源；Start 時建立、Stop 時取消。")]
 	CancellationTokenSource? LoopCts;
 
@@ -84,13 +100,20 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			// 這裡若與首次按鍵的按需初始化並行，就會初始化同一個引擎兩次；
 			// 輕則會話沒有方案（按鍵全部不處理），重則原生層存取違規直接崩掉。
 			_ = Task.Run(async () => {
-				await EngineLock.WaitAsync(Ct);
+				var Locked = false;
 				try{
+					await EngineLock.WaitAsync(Ct);
+					Locked = true;
 					await Input.ConnectAsy(Ct);
+				}catch(OperationCanceledException){
+					// Stop 之後才拿到取消：正常結束，不是錯誤。
 				}catch(Exception Ex){
 					AppLog.Error(Ex, "[TsfPipe] 連接引擎失敗，將在首次按鍵時重試");
 				}finally{
-					EngineLock.Release();
+					// 只有真的拿到鎖才釋放，否則會在 Stop 之後多減一次。
+					if(Locked){
+						EngineLock.Release();
+					}
 				}
 			}, Ct);
 		}
@@ -115,14 +138,17 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		while(!Ct.IsCancellationRequested){
 			// 每輪新建一個實例：NamedPipeServerStream 斷線後不可重用。
 			// 所有權交給 ServeAsy：它結束時才釋放，不能在本輪結束時就 dispose。
-			var Server = new NamedPipeServerStream(
-				TsfIpc.PipeName
-				,PipeDirection.InOut
-				,MaxConnections
-				,PipeTransmissionMode.Byte
-				,PipeOptions.Asynchronous
-			);
+			// 建立實例本身也可能失敗（實例數用滿、被政策擋住）。必須放在 try 裏：
+			// 先前它在 try 外面，一拋就讓整個監聽迴圈（fire-and-forget 的工作）無聲結束，
+			// 行程還活着、介面還在，但輸入法永久沒反應。
 			try{
+				var Server = new NamedPipeServerStream(
+					PipeName
+					,PipeDirection.InOut
+					,MaxConnections
+					,PipeTransmissionMode.Byte
+					,PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly
+				);
 				await Server.WaitForConnectionAsync(Ct);
 				_ = Task.Run(() => ServeAsy(Server, Ct), Ct);
 			}catch(OperationCanceledException){
@@ -138,6 +164,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	async Task ServeAsy(NamedPipeServerStream Server, CT Ct){
 		await using(Server){
 			try{
+				AppLog.Trace($"[TsfPipe] 連線來源 pid={ReadClientProcessId(Server)}");
 				using var Reader = new StreamReader(Server, Encoding.UTF8, leaveOpen: true);
 				using var Writer = new StreamWriter(Server, new UTF8Encoding(false), leaveOpen: true){ AutoFlush = true };
 				// 一條連線可送多個請求：外殼連一次、之後每顆鍵復用。
@@ -149,7 +176,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 					string Reply;
 					await EngineLock.WaitAsync(Ct);
 					try{
-						Reply = await HandleAsync(Line);
+						Reply = await HandleAsync(Line, Ct);
 					}finally{
 						EngineLock.Release();
 					}
@@ -166,12 +193,24 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		}
 	}
 
+	[Doc("讀出這條連線的對端行程 id；取不到時回 0（只在日誌裏用）。")]
+	static uint ReadClientProcessId(NamedPipeServerStream Server){
+		try{
+			return GetNamedPipeClientProcessId(Server.SafePipeHandle.DangerousGetHandle(), out var Pid) ? Pid : 0;
+		}catch{
+			return 0;
+		}
+	}
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ProcessId);
+
 	[Doc($$"""
 	處理一條請求並組出回應；畸形輸入回「未吃掉」加錯誤碼，不拋。
 	#Prm[{{nameof(Line)}}][請求行；格式見 {{nameof(TsfIpc)}}。]
 	#Rtn[回應行。]
 	""")]
-	async Task<str> HandleAsync(str Line){
+	async Task<str> HandleAsync(str Line, CT Ct){
 		if(Line.Length > TsfIpc.MaxLineLength){
 			return TsfReply.Fail(ETsfErr.LineTooLong).Format();
 		}
@@ -186,7 +225,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			Popup.Hide();
 			return TsfReply.Empty().Format();
 		}
-		return await HandleKeyAsync(Req);
+		return await HandleKeyAsync(Req, Ct);
 	}
 
 	[Doc($$"""
@@ -194,16 +233,17 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	#Prm[{{nameof(Req)}}][按鍵請求。]
 	#Rtn[回應行。]
 	""")]
-	async Task<str> HandleKeyAsync(TsfKeyRequest Req){
+	async Task<str> HandleKeyAsync(TsfKeyRequest Req, CT Ct){
 		var Key = Resolve(Req.VirtualKey);
 		if(Key is null){
 			// 認不出來的鍵不算錯誤：回「沒吃掉」，由系統交給前景應用。
 			// 此時不動候選窗，否則按一下未登記的鍵就會把組字中的候選閃掉。
 			return TsfReply.Fail(ETsfErr.UnknownKey).Format();
 		}
+		var Watch = TimingEnabled ? System.Diagnostics.Stopwatch.StartNew() : null;
 		IRespOnKeyEvent Resp;
 		try{
-			Resp = await Input.Input([MkEvent(Key, Req)], CT.None);
+			Resp = await Input.Input([MkEvent(Key, Req)], Ct);
 		}catch(Exception Ex){
 			AppLog.Error(Ex, "[TsfPipe] 送鍵失敗");
 			return TsfReply.Fail(ETsfErr.EngineFailed).Format();
@@ -212,6 +252,11 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。
 		if(!Req.IsUp){
 			ShowPopup(Reply, Req);
+		}
+		if(Watch is not null){
+			Watch.Stop();
+			// 診斷用：外殼每顆鍵都會到這裡；看得到耗時與座標，才分得清「卡在服務端」還是「卡在外殼」。
+			AppLog.Info($"[Key] vk={Req.VirtualKey} up={(Req.IsUp ? 1 : 0)} mods={Req.Mods} x={Req.X} y={Req.Y} eaten={(Reply.Eaten ? 1 : 0)} ms={Watch.Elapsed.TotalMilliseconds:F2}");
 		}
 		return Reply.Format();
 	}
@@ -273,7 +318,10 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			HighlightedIndex = Reply.Highlight,
 			Data = [.. Reply.Candidates.ConvertAll(One => (ICandidate)new Candidate{ Text = One.Text, Comment = One.Comment })],
 		};
-		Popup.Show(Reply.Preedit, Page, new PixelPoint(Req.X, Req.Y));
+		// (0,0) 是協議定義的「拿不到插入點」，不是螢幕左上角。傳 null 讓浮窗保持原位，
+		// 否則量測一失敗，候選窗就會被搬到螢幕角落並一直留在那裏。
+		PixelPoint? Anchor = (Req.X == 0 && Req.Y == 0) ? null : new PixelPoint(Req.X, Req.Y);
+		Popup.Show(Reply.Preedit, Page, Anchor);
 	}
 
 	[Doc("把虛擬鍵碼還原成鍵；未登記的鍵回 null（回報「沒吃掉」）。")]

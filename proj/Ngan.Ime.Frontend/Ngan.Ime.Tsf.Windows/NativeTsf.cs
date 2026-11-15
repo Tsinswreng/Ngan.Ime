@@ -2,23 +2,45 @@ namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.Pipes;
 using System.Runtime.InteropServices;
-using System.Text;
+using System.Runtime.InteropServices.Marshalling;
 using System.Threading;
 using Ngan.Ime.Tsf.Ipc;
 
 /// <summary>
 /// NativeAOT 版的 TSF 薄外殼。整個 DLL 不帶 CLR，只做三件事：
 /// 1. 提供 DllGetClassObject 與 IClassFactory，讓 Windows 建立文字服務；
-/// 2. 實作 ITfTextInputProcessor 與 ITfKeyEventSink 的 vtable（手寫，不用內建 COM）；
+/// 2. 實作 ITfTextInputProcessor 與 ITfKeyEventSink 的 vtable（手寫；不以 `[ComImport]` 走內建 COM）；
 /// 3. 把 preedit 透過既有命名管道丟給 Avalonia 候選窗，文件內容留到後續階段。
 /// </summary>
+/// <remarks>
+/// 對外呼叫的介面分兩類，別搞混：
+/// + *已被呼叫端*（實作 ITfTextInputProcessor、ITfKeyEventSink、ITfEditSession、IClassFactory）：
+///   仍舊手寫 vtable，表格見下。
+/// + *呼叫端*（ITfContext、ITfContextView、ITfRange、ITfKeystrokeMgr）：
+///   ITfContextView 已改用生成式宣告（見 `ITfContextViewGen.cs`），其餘仍舊手寫。
+///   遷移中的狀態，兩者在同一個檔案裏並存是刻意的，不是漏改。
+///
+/// vtable 對照表（依 mingw 的 `msctf.h` 逐一核對，2026-11-15）：
+/// + `ITfContext`：3 RequestEditSession、4 InWriteSession、5 GetSelection、
+///   6 SetSelection、7 GetStart、8 GetEnd、9 GetActiveView、10 EnumViews、11 GetStatus。
+///   少算 6 的 SetSelection 一格，GetActiveView 就會指到 GetEnd——2026-11-15 的 notepad 崩潰就是這樣。
+/// + `ITfContextView`：3 GetRangeFromPoint、4 GetTextExt、5 GetScreenExt、6 GetWnd。
+/// + `ITfRange`：3 GetText、4 SetText、…、15 Collapse。
+/// + `ITfEditSession`：3 DoEditSession。
+/// + `ITfKeystrokeMgr`：3 AdviseKeyEventSink、4 UnadviseKeyEventSink。
+/// + `ITfTextInputProcessor`：3 Activate、4 Deactivate。
+/// + `ITfKeyEventSink`：3 OnSetFocus、4 OnTestKeyDown、5 OnTestKeyUp、6 OnKeyDown、
+///   7 OnKeyUp、8 OnPreservedKey。
+///
+/// *目前沒有組字範圍（composition）*：本殼只做「送鍵 → 取回上屏文字 → SetText」。
+/// 先前有一組 SetCompositionText／EndCompositionCore 的殘留代碼，但沒有任何 StartComposition
+/// 的呼叫點，等於死代碼；已於 2026-11-15 的審查中移除，免得下一個人以為 inline preedit 只差一步。
+/// 真要支援 inline preedit（或讓 Chromium 的 GetTextExt 可靠），必須照 Weasel 的做法
+/// 建一個真正的組字範圍並塞零寬空格（WeaselTSF/Composition.cpp:45-56，issue #883），
+/// 那是獨立一輪的工作，見本檔 RequestCaretMeasure 的註釋。
+/// </remarks>
 internal static unsafe partial class NativeTsf {
-    /// <summary>本 POC 的文字服務 CLSID，必須與註冊工具寫入的 InprocServer32 對應。</summary>
-    internal static readonly Guid Clsid = new("9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31");
-
     /// <summary>標準 COM 介面識別碼。</summary>
     private static readonly Guid IidIUnknown = new("00000000-0000-0000-C000-000000000046");
     /// <summary>IClassFactory。</summary>
@@ -30,13 +52,11 @@ internal static unsafe partial class NativeTsf {
     /// <summary>ITfKeystrokeMgr。</summary>
     private static readonly Guid IidKeystrokeMgr = new("AA80E7F0-2021-11D2-93E0-0060B067B86E");
     private static readonly Guid IidEditSession = new("AA80E803-2021-11D2-93E0-0060B067B86E");
-    private static readonly Guid IidCompositionSink = new("A781718C-579A-4B15-A280-32B8577ACC5E");
 
     private const int SOk = 0;
     private const int SFalse = 1;
     private const int ENoInterface = unchecked((int)0x80004002);
     private const int EFail = unchecked((int)0x80004005);
-    private const int EClassNotAvailable = unchecked((int)0x80040111);
     private const int EInvalidArg = unchecked((int)0x80070057);
     private const int ENoAggregation = unchecked((int)0x80040110);
 
@@ -44,31 +64,33 @@ internal static unsafe partial class NativeTsf {
     private const uint TfEsSync = 0x1;
     private const uint TfEsRead = 0x2;
     private const uint TfEsReadWrite = 0x6;
+    /// <summary>非同步、不急：TSF 會排進佇列，量插入點用這一個。</summary>
+    private const uint TfEsAsyncDontCare = 0x8;
     private const uint TfAnchorEnd = 1;
 
+    /// <summary>螢幕矩形；手寫 vtable 與生成式宣告共用這一個結構。</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect {
+    internal struct NativeRect {
         public int Left;
         public int Top;
         public int Right;
         public int Bottom;
     }
 
+    /// <summary>選取範圍；手寫 vtable 與生成式宣告共用。</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct TfSelection {
+    internal struct TfSelection {
         public IntPtr Range;
         public uint ActiveEnd;
         public int Interim;
     }
 
-    /// <summary>日誌寫入的互斥；多個應用行程各一份，行程內只有 UI 執行緒會寫。</summary>
-    private static readonly object LogGate = new();
-
     private static readonly IntPtr* TipVtbl;
     private static readonly IntPtr* SinkVtbl;
     private static readonly IntPtr* FactoryVtbl;
     private static readonly IntPtr* EditSessionVtbl;
-    private static readonly IntPtr* CompSinkVtbl;
+    /// <summary>量插入點專用的 ITfEditSession vtable（與上屏用的那一個完全分開）。</summary>
+    private static readonly IntPtr* CaretSessionVtbl;
 
     private static readonly object FactoryGate = new();
     private static IntPtr FactoryView;
@@ -106,11 +128,13 @@ internal static unsafe partial class NativeTsf {
         EditSessionVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&ReleaseEntry;
         EditSessionVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, uint, int>)&DoEditSessionEntry;
 
-        CompSinkVtbl = (IntPtr*)NativeMemory.Alloc(4, (nuint)sizeof(IntPtr));
-        CompSinkVtbl[0] = (IntPtr)(delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)&CompSinkQueryEntry;
-        CompSinkVtbl[1] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&AddRefEntry;
-        CompSinkVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&ReleaseEntry;
-        CompSinkVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, uint, IntPtr, int>)&OnCompositionTerminatedEntry;
+        // 量插入點用另一個 edit session 物件：兩個請求若共用同一個 view 與同一個
+        // 「待辦操作」欄位，先到的 callback 會吃掉後到的操作（上屏憑空消失）。
+        CaretSessionVtbl = (IntPtr*)NativeMemory.Alloc(4, (nuint)sizeof(IntPtr));
+        CaretSessionVtbl[0] = (IntPtr)(delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)&CaretSessionQueryEntry;
+        CaretSessionVtbl[1] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&AddRefEntry;
+        CaretSessionVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&ReleaseEntry;
+        CaretSessionVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, uint, int>)&DoCaretSessionEntry;
 
         RegisterCfgTargets();
         AddVectoredExceptionHandler(1, (IntPtr)(delegate* unmanaged<IntPtr, int>)&VectoredExceptionHandler);
@@ -133,20 +157,16 @@ internal static unsafe partial class NativeTsf {
         public uint ClientId;
         /// <summary>ITfKeystrokeMgr 的原始指標，Deactivate 時釋放。</summary>
         public IntPtr KeystrokeMgr;
-        /// <summary>目前未上屏的 preedit 文字。</summary>
-        public readonly StringBuilder Preedit = new();
         /// <summary>ITfEditSession 的介面指標（自己實作，交給 ITfContext::RequestEditSession）。</summary>
         public IntPtr EditSessionView;
         /// <summary>ITfEditSession 的 GCHandle。</summary>
         public IntPtr EditSessionHandle;
-        /// <summary>ITfCompositionSink 的介面指標。</summary>
-        public IntPtr CompSinkView;
-        /// <summary>ITfCompositionSink 的 GCHandle。</summary>
-        public IntPtr CompSinkHandle;
+        /// <summary>量插入點專用的 ITfEditSession 介面指標；與上屏用的那一個分開。</summary>
+        public IntPtr CaretSessionView;
+        /// <summary>量插入點專用 edit session 的 GCHandle。</summary>
+        public IntPtr CaretSessionHandle;
         /// <summary>目前按鍵所屬的 ITfContext（只在 edit session 內有效）。</summary>
         public IntPtr Context;
-        /// <summary>目前的 TSF composition；0 表示尚未建立。</summary>
-        public IntPtr Composition;
         /// <summary>待執行的編輯操作：0 無、2 上屏。</summary>
         public uint PendingOperation;
         /// <summary>待上屏的文字（由宿主回傳的 commit 合併）。</summary>
@@ -155,19 +175,29 @@ internal static unsafe partial class NativeTsf {
         public TsfReply? ReplyDown;
         /// <summary>擡起鍵的查詢結果；等 OnKeyUp 領取。</summary>
         public TsfReply? ReplyUp;
-        /// <summary>是否已對這次按下回報「吃掉」而還沒等到 OnKeyDown。</summary>
+        /// <summary>
+        /// 按鍵決策：吃不吃、徵詢與執行怎麼配對、上下成對的保證。
+        /// </summary>
         /// <remarks>
-        /// 有些應用會對同一顆鍵送多次 OnTestKeyDown（Word 2010 x64 實測），
-        /// 若每次都真的問引擎，等於同一顆鍵被處理兩次、打出兩個字。
-        /// 這裡記住「已問過且已吃掉」，重複的徵詢直接回吃掉，不再送管道。
+        /// 這一項取代了原本的 DownPending／UpPending 兩個布林旗標。
+        /// 那兩個旗標沒有定義「合法組合」，應用不照協議送事件時就會留下殘留狀態，
+        /// 之後每一顆鍵都被誤判成「已問過且已吃掉」。
         /// </remarks>
-        public bool DownPending;
-        /// <summary>是否已對這次擡起回報「吃掉」而還沒等到 OnKeyUp。</summary>
-        public bool UpPending;
-        /// <summary>游標在螢幕上的左邊界（像素）。</summary>
-        public int CaretX;
-        /// <summary>游標在螢幕上的下邊界（像素）。</summary>
-        public int CaretY;
+        public readonly Ngan.Ime.Tsf.Ipc.TsfKeyPolicy Policy = new();
+        /// <summary>插入點在螢幕上的左邊界（像素）；僅在 CaretValid 為 true 時有意義。</summary>
+        public int CaretPointX;
+        /// <summary>插入點在螢幕上的下邊界（像素）；僅在 CaretValid 為 true 時有意義。</summary>
+        public int CaretPointY;
+        /// <summary>是否量到過插入點。false 時 x/y 的 0 代表「未知」，不是螢幕左上角。</summary>
+        public bool CaretValid;
+        /// <summary>量測用的檢視（托管參考，自帶一份 COM 參考）；null 表示沒有進行中的量測。</summary>
+        public ITfContextViewGen? CaretViewGen;
+        /// <summary>量測用的 context（托管參考）；null 表示沒有進行中的量測。</summary>
+        public ITfContextGen? CaretContextGen;
+        /// <summary>是否已排入一次插入點量測（1 表示進行中）；用 int 以便 Interlocked。</summary>
+        public int CaretPending;
+        /// <summary>上一次排入量測的時間（TickCount64），用來節流：一顆鍵不必量四次。</summary>
+        public long CaretMeasureTick;
     }
 
     [UnmanagedCallersOnly(EntryPoint = "DllGetClassObject")]
@@ -177,9 +207,8 @@ internal static unsafe partial class NativeTsf {
             if (Rclsid is null || Riid is null || Ppv is null) {
                 return EInvalidArg;
             }
-            if (*Rclsid != Clsid) {
-                return EClassNotAvailable;
-            }
+            // 不再比對 CLSID：每次安裝用屬於自己的 CLSID 註冊（版本化安裝＝一個獨立輸入法），
+            // 只要系統按註冊表找上這個 DLL，就回同一個 class factory。
             EnsureFactory();
             return FactoryQueryCore(FactoryView, Riid, Ppv);
         }
@@ -248,11 +277,6 @@ internal static unsafe partial class NativeTsf {
             Interlocked.Increment(ref State.RefCount);
             return SOk;
         }
-        if (*Riid == IidCompositionSink) {
-            *Ppv = State.CompSinkView;
-            Interlocked.Increment(ref State.RefCount);
-            return SOk;
-        }
         *Ppv = IntPtr.Zero;
         return ENoInterface;
     }
@@ -299,8 +323,8 @@ internal static unsafe partial class NativeTsf {
             State.SinkHandle = SinkHandle;
             State.EditSessionView = MakeView(EditSessionVtbl, State, out var EditSessionHandle);
             State.EditSessionHandle = EditSessionHandle;
-            State.CompSinkView = MakeView(CompSinkVtbl, State, out var CompSinkHandle);
-            State.CompSinkHandle = CompSinkHandle;
+            State.CaretSessionView = MakeView(CaretSessionVtbl, State, out var CaretSessionHandle);
+            State.CaretSessionHandle = CaretSessionHandle;
 
             if (*Riid == IidIUnknown || *Riid == IidTextInputProcessor) {
                 *Ppv = State.TipView;
@@ -319,6 +343,17 @@ internal static unsafe partial class NativeTsf {
         }
     }
 
+    /// <summary>
+    /// 啟動文字服務：取得 ITfKeystrokeMgr 並把本物件的 key event sink 掛上去。
+    /// </summary>
+    /// <remarks>
+    /// *為何要 AdviseKeyEventSink 的第三個參數為 1*：`fForeground` 表示「即使輸入焦點不在本服務
+    /// 也要收到按鍵」。少了它，密碼框這類停用輸入法的控件會讓所有按鍵都到不了引擎。
+    ///
+    /// *已移除的探針*：先前這裏有 `NGAN_TSF_MODE=none/unadvise/nullsink` 三個分支與一段
+    /// 「self-test sink QI」，那是 POC 期在查 CFG 與 advise 是否生效用的。
+    /// 正式路徑只留一條，探針的代價是 60 行樣板把真正的邏輯埋掉。
+    /// </remarks>
     private static int ActivateCore(IntPtr ThisPtr, IntPtr ThreadManager, uint ClientId) {
         try {
             var State = GetState(ThisPtr);
@@ -327,67 +362,30 @@ internal static unsafe partial class NativeTsf {
             }
             State.ClientId = ClientId;
             var iid = IidKeystrokeMgr;
-            var ThreadVtbl = *(IntPtr***)ThreadManager;
-            var QueryInterface = (delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)ThreadVtbl[0];
             IntPtr KeystrokeMgr = IntPtr.Zero;
-            var Hr = QueryInterface(ThreadManager, &iid, &KeystrokeMgr);
-            Log("Activate QI keystrokeMgr hr=0x" + Hr.ToString("X8"));
+            var Hr = Marshal.QueryInterface(ThreadManager, in iid, out KeystrokeMgr);
             if (Hr < 0) {
+                LogError("Activate QI(ITfKeystrokeMgr) hr=0x" + Hr.ToString("X8"));
                 return Hr;
             }
-            var KsVtbl = *(IntPtr***)KeystrokeMgr;
-            Log("Activate ksm=" + KeystrokeMgr.ToString("X") + " vtbl=" + ((IntPtr)KsVtbl).ToString("X") + " slot0=" + ((IntPtr)KsVtbl[0]).ToString("X") + " slot1=" + ((IntPtr)KsVtbl[1]).ToString("X"));
-            var Mode = Environment.GetEnvironmentVariable("NGAN_TSF_MODE") ?? "advise";
-            Log("Activate mode=" + Mode);
-            if (Mode == "none") {
-                State.KeystrokeMgr = KeystrokeMgr;
-                return SOk;
+            var KsGen = ComInterfaceMarshaller<ITfKeystrokeMgrGen>.ConvertToManaged((void*)KeystrokeMgr);
+            if (KsGen is null) {
+                LogError("Activate ConvertToManaged(ITfKeystrokeMgr) 回空");
+                ReleaseCom(KeystrokeMgr);
+                return EFail;
             }
-            if (Mode == "unadvise") {
-                var UnadviseProbe = (delegate* unmanaged<IntPtr, uint, int>)KsVtbl[4];
-                Hr = UnadviseProbe(KeystrokeMgr, ClientId);
-                Log("Activate Unadvise(probe) hr=0x" + Hr.ToString("X8"));
-                State.KeystrokeMgr = KeystrokeMgr;
-                return SOk;
-            }
-            // 自測：用間接呼叫驗證 sink 的 vtable 真的可被呼叫。
-            try {
-                var SelfVtbl = *(IntPtr**)State.SinkView;
-                var SelfQuery = (delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)SelfVtbl[0];
-                var SelfIid = IidKeyEventSink;
-                IntPtr SelfOut = IntPtr.Zero;
-                var SelfHr = SelfQuery(State.SinkView, &SelfIid, &SelfOut);
-                Log("self-test sink QI hr=0x" + SelfHr.ToString("X8") + " out=" + SelfOut.ToString("X"));
-            }
-            catch (Exception Exception) {
-                Log("self-test EX " + Exception);
-            }
-            if (Mode == "nullsink") {
-                var NullAdvise = (delegate* unmanaged<IntPtr, uint, IntPtr, int, int>)KsVtbl[3];
-                Hr = NullAdvise(KeystrokeMgr, ClientId, IntPtr.Zero, 0);
-                Log("Activate null-sink Advise hr=0x" + Hr.ToString("X8"));
-                State.KeystrokeMgr = KeystrokeMgr;
-                return SOk;
-            }
-            {
-                var Vt = *(IntPtr**)State.SinkView;
-                var Slots = new StringBuilder();
-                for (var I = 0; I < 9; I++) { Slots.Append(Vt[I].ToString("X")).Append(' '); }
-                Log("sink vtbl=" + ((IntPtr)Vt).ToString("X") + " slots=" + Slots);
-            }
-            var Advise = (delegate* unmanaged<IntPtr, uint, IntPtr, int, int>)KsVtbl[3];
-            Log("Activate advising clientId=" + ClientId + " sink=" + State.SinkView.ToString("X"));
-            Hr = Advise(KeystrokeMgr, ClientId, State.SinkView, 1);
-            Log("Activate AdviseKeyEventSink hr=0x" + Hr.ToString("X8"));
+            Hr = KsGen.AdviseKeyEventSink(ClientId, State.SinkView, 1);
             if (Hr < 0) {
+                LogError("Activate AdviseKeyEventSink hr=0x" + Hr.ToString("X8"));
                 ReleaseCom(KeystrokeMgr);
                 return Hr;
             }
             State.KeystrokeMgr = KeystrokeMgr;
+            Log("Activate ok clientId=" + ClientId);
             return SOk;
         }
         catch (Exception Exception) {
-            Log("Activate EX " + Exception);
+            LogError("Activate EX " + Exception);
             return EFail;
         }
     }
@@ -399,22 +397,21 @@ internal static unsafe partial class NativeTsf {
                 return EFail;
             }
             if (State.KeystrokeMgr != IntPtr.Zero) {
-                var KsVtbl = *(IntPtr***)State.KeystrokeMgr;
-                var Unadvise = (delegate* unmanaged<IntPtr, uint, int>)KsVtbl[4];
-                Unadvise(State.KeystrokeMgr, State.ClientId);
+                var KsGen = ComInterfaceMarshaller<ITfKeystrokeMgrGen>.ConvertToManaged((void*)State.KeystrokeMgr);
+                if (KsGen is not null) {
+                    KsGen.UnadviseKeyEventSink(State.ClientId);
+                }
                 ReleaseCom(State.KeystrokeMgr);
                 State.KeystrokeMgr = IntPtr.Zero;
             }
-            ReleaseComposition(State);
-            lock (State) {
-                State.Preedit.Clear();
-            }
+            State.Policy.Reset();
+            CancelCaretMeasure(State);
             SendHide();
             Log("Deactivate done");
             return SOk;
         }
         catch (Exception Exception) {
-            Log("Deactivate EX " + Exception);
+            LogError("Deactivate EX " + Exception);
             return EFail;
         }
     }
@@ -423,27 +420,130 @@ internal static unsafe partial class NativeTsf {
         try {
             Log("OnSetFocus fg=" + IsForeground);
             var State = GetState(ThisPtr);
-            if (State is not null && IsForeground == 0) {
-                lock (State) {
-                    State.Preedit.Clear();
-                    ReleaseComposition(State);
-                }
+            if (State is null) {
+                return SOk;
+            }
+            if (IsForeground == 0) {
+                // 失去焦點：按鍵記錄與插入點都不再有意義，留著只會被下一個控件繼承。
+                State.Policy.Reset();
+                CancelCaretMeasure(State);
+                State.CaretValid = false;
                 SendHide();
             }
             return SOk;
         }
         catch (Exception Exception) {
-            Log("OnSetFocus EX " + Exception);
+            LogError("OnSetFocus EX " + Exception);
             return EFail;
         }
     }
 
+    /// <summary>目前按著的修飾鍵位；位元值由協議層定義，殼端不再自己寫一份數字。</summary>
     private static int GetModifiers() {
         var Mods = 0;
-        if ((GetKeyState(0x10) & 0x8000) != 0) { Mods |= 1; }
-        if ((GetKeyState(0x11) & 0x8000) != 0) { Mods |= 2; }
-        if ((GetKeyState(0x12) & 0x8000) != 0) { Mods |= 4; }
+        if ((GetKeyState(VkShift) & 0x8000) != 0) { Mods |= TsfIpc.ModShift; }
+        if ((GetKeyState(VkControl) & 0x8000) != 0) { Mods |= TsfIpc.ModCtrl; }
+        if ((GetKeyState(VkMenu) & 0x8000) != 0) { Mods |= TsfIpc.ModAlt; }
         return Mods;
+    }
+
+    /// <summary>VK_SHIFT；與 <see cref="TsfKeyPolicy.VkShift"/> 同值，這裡留常量是為了讀代碼時不必跳檔。</summary>
+    private const int VkShift = TsfKeyPolicy.VkShift;
+    /// <summary>VK_CONTROL。</summary>
+    private const int VkControl = TsfKeyPolicy.VkCtrl;
+    /// <summary>VK_MENU（Alt）。</summary>
+    private const int VkMenu = TsfKeyPolicy.VkMenu;
+
+    /// <summary>
+    /// 一顆鍵的「按下／擡起」共同流程：結算反向事件、量插入點、決定吃不吃、必要時上屏。
+    /// </summary>
+    /// <remarks>
+    /// 四個回調（TestKeyDown／TestKeyUp／KeyDown／KeyUp）只差三件事：
+    /// 方向、要不要問引擎、問完之後要不要把結果留給對向回調領。
+    /// 把流程收在一處，避免「某一條路徑忘了清旗標」這種不對稱缺陷。
+    /// </remarks>
+    /// <param name="State">文字服務狀態。</param>
+    /// <param name="Context">這次按鍵所屬的 ITfContext。</param>
+    /// <param name="VirtualKey">Win32 虛擬鍵碼。</param>
+    /// <param name="IsUp">true 表示擡起。</param>
+    /// <param name="IsTest">true 表示來自 OnTestKeyXxx（結果要留給 OnKeyXxx 領）。</param>
+    /// <param name="IsEaten">回報給 TSF 的「是否吃掉」。</param>
+    private static void HandleKeyEvent(TsfState State, IntPtr Context, int VirtualKey, bool IsUp, bool IsTest, int* IsEaten) {
+        // step 1: 結算反方向尚未領走的徵詢結論（應用可能只送其中一半的事件）。
+        State.Policy.SettleOpposite(IsUp);
+        // step 2: 排一次插入點量測（非同步；量到的位置給下一次顯示用）。
+        BeginCaretMeasure(State, Context);
+        // step 3: 修飾鍵一律放行，不問引擎、不記錄。
+        if (TsfKeyPolicy.IsPassThrough(VirtualKey)) {
+            *IsEaten = 0;
+            return;
+        }
+        var Cached = IsUp ? State.ReplyUp : State.ReplyDown;
+        if (IsTest) {
+            // 同一顆鍵的重複徵詢：沿用上一次的結論，不再送管道（否則引擎會處理兩次）。
+            if (State.Policy.TryReuseTest(IsUp, VirtualKey)) {
+                *IsEaten = 1;
+                return;
+            }
+            Cached = null;
+        }
+        else if (State.Policy.TryTakeKey(IsUp, VirtualKey, out var PendingEaten)) {
+            // 徵詢已經問過，這裡只領結果，不再問引擎。
+            *IsEaten = PendingEaten ? 1 : 0;
+            if (Cached is not null) {
+                // 有 commit 就上屏：吃不吃是「按鍵歸誰」的問題，上屏是「字有沒有進去」的問題。
+                CommitIfAny(State, Context, Cached);
+                ClearReply(State, IsUp);
+            }
+            LogKey(IsUp, IsTest, VirtualKey, *IsEaten, Cached);
+            return;
+        }
+        ResolveKeyAnchor(State, out var AnchorX, out var AnchorY);
+        var Reply = QueryKey(VirtualKey, GetModifiers(), AnchorX, AnchorY, IsUp);
+        var Eat = State.Policy.DecideEat(VirtualKey, IsUp, Reply is { Eaten: true });
+        *IsEaten = Eat ? 1 : 0;
+        if (Eat) {
+            // 只有吃掉才需要把結果留給 OnKeyXxx；沒吃掉時應用的按鍵照常走，不必再問一次。
+            SetReply(State, IsUp, Reply);
+        } else {
+            ClearReply(State, IsUp);
+        }
+        if (Reply is not null) {
+            CommitIfAny(State, Context, Reply);
+        }
+        if (IsTest && Eat) {
+            State.Policy.SetTest(IsUp, VirtualKey, true);
+        }
+        LogKey(IsUp, IsTest, VirtualKey, *IsEaten, Reply);
+    }
+
+    /// <summary>記下這一顆鍵的引擎回應，等對向回調領取。</summary>
+    private static void SetReply(TsfState State, bool IsUp, TsfReply? Reply) {
+        if (IsUp) {
+            State.ReplyUp = Reply;
+        } else {
+            State.ReplyDown = Reply;
+        }
+    }
+
+    /// <summary>丟掉上一顆鍵留下的引擎回應。</summary>
+    private static void ClearReply(TsfState State, bool IsUp) {
+        if (IsUp) {
+            State.ReplyUp = null;
+        } else {
+            State.ReplyDown = null;
+        }
+    }
+
+    /// <summary>逐鍵日誌；只在 NGAN_TSF_LOG=1 時寫（由 Log 自己判斷）。</summary>
+    private static void LogKey(bool IsUp, bool IsTest, int VirtualKey, int Eaten, TsfReply? Reply) {
+        if (!VerboseLog) {
+            return;
+        }
+        Log((IsUp ? "Up" : "Down") + (IsTest ? "(test)" : "") + " vk=" + VirtualKey
+            + " eat=" + Eaten + " cand=" + (Reply?.Candidates.Count ?? 0)
+            + " preedit=" + (Reply?.Preedit?.Length ?? 0)
+            + " err=" + (Reply?.Err.ToString() ?? "none"));
     }
 
     private static int OnTestKeyDownCore(IntPtr ThisPtr, IntPtr Context, IntPtr WParam, IntPtr LParam, int* IsEaten) {
@@ -453,24 +553,11 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            // 同一顆鍵的重複徵詢：已經問過引擎並得到「吃掉」，直接照舊回報，
-            // 不再送管道（否則同一顆鍵會被引擎處理兩次）。
-            if (State.DownPending) {
-                *IsEaten = 1;
-                return SOk;
-            }
-            var VirtualKey = (int)WParam.ToInt64();
-            State.ReplyDown = null;
-            UpdateCaretFromGui(State);
-            var Reply = QueryKey(VirtualKey, GetModifiers(), State.CaretX, State.CaretY, false);
-            State.ReplyDown = Reply;
-            State.DownPending = Reply is { Eaten: true };
-            *IsEaten = State.DownPending ? 1 : 0;
-            Log("OnTestKeyDown vk=" + VirtualKey + " eat=" + *IsEaten + " cand=" + (Reply?.Candidates.Count ?? 0) + " err=" + (Reply?.Err.ToString() ?? "none"));
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, true, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
-            Log("OnTestKeyDown EX " + Exception);
+            LogError("OnTestKeyDown EX " + Exception);
             *IsEaten = 0;
             return EFail;
         }
@@ -483,30 +570,11 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            TsfReply? Result;
-            if (State.DownPending) {
-                // 正常路徑：徵詢已經問過，這裡只領結果。
-                Result = State.ReplyDown;
-                State.ReplyDown = null;
-                State.DownPending = false;
-            }
-            else {
-                // 有些應用只送 OnKeyDown、不送 OnTestKeyDown（QQ2012 實測），
-                // 此時補問一次引擎，否則這些應用裡按鍵永遠進不了輸入法。
-                var VirtualKey = (int)WParam.ToInt64();
-                UpdateCaretFromGui(State);
-                Result = QueryKey(VirtualKey, GetModifiers(), State.CaretX, State.CaretY, false);
-            }
-            if (Result is null || !Result.Eaten) {
-                *IsEaten = 0;
-                return SOk;
-            }
-            *IsEaten = 1;
-            CommitIfAny(State, Context, Result);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, false, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
-            Log("OnKeyDown EX " + Exception);
+            LogError("OnKeyDown EX " + Exception);
             *IsEaten = 0;
             return EFail;
         }
@@ -519,22 +587,11 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            if (State.UpPending) {
-                *IsEaten = 1;
-                return SOk;
-            }
-            var VirtualKey = (int)WParam.ToInt64();
-            State.ReplyUp = null;
-            // 擡起沿用按下的插入點：位置在這顆鍵的生命週期內不會變，重取只是多一次 Win32 呼叫。
-            var Reply = QueryKey(VirtualKey, GetModifiers(), State.CaretX, State.CaretY, true);
-            State.ReplyUp = Reply;
-            State.UpPending = Reply is { Eaten: true };
-            *IsEaten = State.UpPending ? 1 : 0;
-            Log("OnTestKeyUp vk=" + VirtualKey + " eat=" + *IsEaten + " err=" + (Reply?.Err.ToString() ?? "none"));
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, true, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
-            Log("OnTestKeyUp EX " + Exception);
+            LogError("OnTestKeyUp EX " + Exception);
             *IsEaten = 0;
             return EFail;
         }
@@ -547,33 +604,24 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            TsfReply? Result;
-            if (State.UpPending) {
-                Result = State.ReplyUp;
-                State.ReplyUp = null;
-                State.UpPending = false;
-            }
-            else {
-                var VirtualKey = (int)WParam.ToInt64();
-                Result = QueryKey(VirtualKey, GetModifiers(), State.CaretX, State.CaretY, true);
-            }
-            if (Result is null || !Result.Eaten) {
-                *IsEaten = 0;
-                return SOk;
-            }
-            *IsEaten = 1;
-            // 修飾鍵鬆開時可能觸發上屏（例如 Shift 切換中英），故擡起也要看 commit。
-            CommitIfAny(State, Context, Result);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, false, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
-            Log("OnKeyUp EX " + Exception);
+            LogError("OnKeyUp EX " + Exception);
             *IsEaten = 0;
             return EFail;
         }
     }
 
-    /// <summary>回應帶了上屏文字時，開一次可寫的編輯會話把它寫進應用。</summary>
+    /// <summary>
+    /// 回應帶了上屏文字時，開一次可寫的編輯會話把它寫進應用。
+    /// </summary>
+    /// <remarks>
+    /// *為何要看 SessionResult*：`RequestEditSession` 回 `S_OK` 只代表請求排進去了，
+    /// session 真正執行的結果在 `SessionResult`。上屏失敗是使用者直接看得到的錯
+    /// （字沒進輸入框），必須升到 Error，不能只記 Trace。
+    /// </remarks>
     private static void CommitIfAny(TsfState State, IntPtr Context, TsfReply Result) {
         if (Result.Commits.Count == 0) {
             return;
@@ -581,7 +629,12 @@ internal static unsafe partial class NativeTsf {
         State.PendingCommit = string.Concat(Result.Commits);
         State.PendingOperation = 2;
         var Hr = RequestEditSession(State, Context);
-        Log("Commit len=" + State.PendingCommit.Length + " hr=0x" + Hr.ToString("X8"));
+        if (Hr < 0) {
+            LogError("Commit RequestEditSession hr=0x" + Hr.ToString("X8") + " len=" + State.PendingCommit.Length);
+        }
+        else {
+            Log("Commit len=" + State.PendingCommit.Length);
+        }
     }
 
     private static int OnPreservedKeyCore(IntPtr ThisPtr, IntPtr Context, Guid* PreservedKey, int* IsEaten) {
@@ -618,46 +671,6 @@ internal static unsafe partial class NativeTsf {
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    /// <summary>
-    /// 用 Win32 的 GUI thread info 取得插入點位置。
-    /// </summary>
-    /// <remarks>
-    /// *為何要看前景視窗的執行緒*：GUITHREADINFO 是「某個 GUI 執行緒」的狀態，
-    /// 而 TSF 的 OnTestKeyDown 不一定跑在應用建立視窗的那條執行緒上（Chromium 系就是另一條）。
-    /// 先前用 GetCurrentThreadId() 取，常常拿到空的，Caret 為 0，候選窗就永遠貼在螢幕左上角。
-    /// 改取前景視窗所屬執行緒；仍取不到時保留上一次的位置，不要退回 (0,0)。
-    /// </remarks>
-    private static void UpdateCaretFromGui(TsfState State) {
-        try {
-            var Foreground = GetForegroundWindow();
-            var ThreadId = Foreground != IntPtr.Zero
-                ? GetWindowThreadProcessId(Foreground, out _)
-                : GetCurrentThreadId();
-            var Info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
-            if (!GetGUIThreadInfo(ThreadId, ref Info)) {
-                return;
-            }
-            // 插入點矩形為空表示這個控件不回報 caret（部分自繪控件），維持原位置。
-            if (Info.CaretRect.Right == 0 && Info.CaretRect.Bottom == 0) {
-                return;
-            }
-            var Hwnd = Info.Caret != IntPtr.Zero
-                ? Info.Caret
-                : (Info.Focus != IntPtr.Zero ? Info.Focus : Foreground);
-            if (Hwnd == IntPtr.Zero) {
-                return;
-            }
-            var Point = new NativePoint { X = Info.CaretRect.Left, Y = Info.CaretRect.Bottom };
-            if (ClientToScreen(Hwnd, ref Point)) {
-                State.CaretX = Point.X;
-                State.CaretY = Point.Y;
-            }
-        }
-        catch (Exception Exception) {
-            Log("UpdateCaretFromGui EX " + Exception);
-        }
-    }
-
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
@@ -667,25 +680,325 @@ internal static unsafe partial class NativeTsf {
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int VirtualKey);
 
-    /// <summary>
-    /// 把按鍵送給 Ngan.Ime 服務端（Rime）處理，並取回是否吃掉、preedit、候選與 commit。
-    /// 服務端沒開或超時就回 null，呼叫端必須放行按鍵，避免整個系統打不了字。
-    /// </summary>
+    /// <summary>對一個 COM 介面指標呼叫 Release（vtable slot 2）。</summary>
     private static void ReleaseCom(IntPtr ComObject) {
         var Vtbl = *(IntPtr***)ComObject;
         var Release = (delegate* unmanaged<IntPtr, int>)Vtbl[2];
         Release(ComObject);
     }
 
+    /// <summary>對一個 COM 介面指標呼叫 AddRef（vtable slot 1）。</summary>
+    private static void AddRefCom(IntPtr ComObject) {
+        var Vtbl = *(IntPtr***)ComObject;
+        var AddRef = (delegate* unmanaged<IntPtr, int>)Vtbl[1];
+        AddRef(ComObject);
+    }
+
+    /// <summary>兩次插入點量測的最小間隔（毫秒）；一顆鍵會經過四個回調，沒必要量四次。</summary>
+    private const int CaretMeasureIntervalMs = 40;
+
+    /// <summary>一次量測最多允許在途多久（毫秒）；超過視為卡住，收掉重排。</summary>
+    private const int CaretStaleMs = 2000;
+
+    /// <summary>兜底位置離前景視窗左上角的位移（像素）；只是「別黏在螢幕角落」的意思。</summary>
+    private const int FallbackAnchorOffsetX = 24;
+
+    /// <summary>兜底位置離前景視窗頂端的位移（像素）；避開標題列。</summary>
+    private const int FallbackAnchorOffsetY = 96;
+
+    /// <summary>
+    /// 排一次「插入點量測」：非同步、唯讀的 edit session，量到的座標留給下一次顯示候選窗。
+    /// </summary>
+    /// <remarks>
+    /// *為何非同步*：Weasel 用的是 `TF_ES_ASYNCDONTCARE | TF_ES_READ`（WeaselTSF/Composition.cpp:211）。
+    /// 同步 session 在應用已經持有 session 時會回 `TF_E_SYNCHRONOUS`，而這段跑在應用行程的
+    /// UI 執行緒上，每顆鍵多一次同步往返，連發按鍵（AltNav 一次四到十六顆）就明顯卡。
+    /// 插入點在兩顆鍵之間幾乎不會移動，用上一次量到的值完全夠。
+    ///
+    /// *為何不用 Win32 的 caret 當主路徑*：Chromium 系（Edge、VS Code）沒有原生 caret，
+    /// `GetGUIThreadInfo` 回傳的矩形是空的。TSF 的 `ITfContextView::GetTextExt` 才拿得到，
+    /// 小狼毫也是這樣做的；Win32 那條只留作兜底。
+    ///
+    /// *為何狀態只有一個 `CaretPending` 旗標而且一定要還原*：先前版本把「已排入」與
+    /// 「待辦操作」混在同一個欄位，`RequestEditSession` 回 `S_OK` 但 session 沒跑時
+    /// 旗標永遠停在 true，之後每一顆鍵都在第一行返回，插入點永遠是 (0,0)，
+    /// 候選窗就黏在螢幕左上角。現在任何失敗路徑都會把槽位還原。
+    ///
+    /// *為何還需要一個「卡住」的看門狗*：非同步 session 由 TSF 決定何時執行，
+    /// 應用在忙、context 正在失效、或它根本不理會請求時，callback 可能永遠不來。
+    /// 超過 <see cref="CaretStaleMs"/> 就把槽位收掉重排——寧可多量一次，也不要永遠不再量。
+    /// </remarks>
+    private static void BeginCaretMeasure(TsfState State, IntPtr Context) {
+        if (Context == IntPtr.Zero) {
+            return;
+        }
+        var Now = Environment.TickCount64;
+        // 已有一次在途：正常會在幾毫秒內回來；超過門檻就是卡住了，收掉重排。
+        if (Interlocked.CompareExchange(ref State.CaretPending, 1, 0) != 0) {
+            if (Now - State.CaretMeasureTick <= CaretStaleMs) {
+                return;
+            }
+            LogWarn("Caret measure stuck for " + (Now - State.CaretMeasureTick) + "ms; resetting");
+            ReleaseCaretSlot(State);
+            if (Interlocked.CompareExchange(ref State.CaretPending, 1, 0) != 0) {
+                return;
+            }
+        }
+        if (Now - State.CaretMeasureTick < CaretMeasureIntervalMs) {
+            Interlocked.Exchange(ref State.CaretPending, 0);
+            return;
+        }
+        State.CaretMeasureTick = Now;
+        try {
+            // 生成式宣告：GetActiveView 由生成器排在 9，不會再指到 8 的 GetEnd。
+            // 2026-11-15 那次 notepad 崩潰就是手寫成 8（實際是 GetEnd）造成的。
+            var ContextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)Context);
+            if (ContextGen is null) {
+                LogWarn("Caret ConvertToManaged(context) 回空 ctx=" + Context.ToString("X"));
+                ReleaseCaretSlot(State);
+                return;
+            }
+            var ViewHr = ContextGen.GetActiveView(out var ViewGen);
+            if (ViewHr < 0 || ViewGen is null) {
+                LogWarn("Caret GetActiveView hr=0x" + ViewHr.ToString("X8"));
+                ReleaseCaretSlot(State);
+                return;
+            }
+            // 量測期間要留住這兩個物件：session 是非同步的，回到我們這裏時按鍵已經處理完了。
+            // 托管介面自帶一份 COM 參考，舊的直接丟掉即可，釋放交給回收。
+            State.CaretViewGen = ViewGen;
+            State.CaretContextGen = ContextGen;
+            var SessionResult = 0;
+            var Hr = ContextGen.RequestEditSession(State.ClientId, State.CaretSessionView, TfEsAsyncDontCare | TfEsRead, out SessionResult);
+            if (Hr < 0 || SessionResult < 0) {
+                LogWarn("Caret RequestEditSession hr=0x" + Hr.ToString("X8") + " result=0x" + SessionResult.ToString("X8"));
+                ReleaseCaretSlot(State);
+            }
+        }
+        catch (Exception Exception) {
+            LogError("BeginCaretMeasure EX " + Exception);
+            ReleaseCaretSlot(State);
+        }
+    }
+
+    /// <summary>取消／結束一次量測：放掉持有的介面並把旗標歸零。任何失敗路徑都必須走到這裏。</summary>
+    private static void CancelCaretMeasure(TsfState State) {
+        ReleaseCaretSlot(State);
+    }
+
+    /// <summary>釋放量測槽位（丟掉托管參考）並清掉 pending 旗標。</summary>
+    private static void ReleaseCaretSlot(TsfState State) {
+        State.CaretViewGen = null;
+        State.CaretContextGen = null;
+        Interlocked.Exchange(ref State.CaretPending, 0);
+    }
+
+    /// <summary>
+    /// 在 edit session 內量插入點；成敗都會把槽位還原。
+    /// </summary>
+    /// <remarks>
+    /// *為何「量不到就退回 Win32」只在從未量到過時做*：一旦有過有效座標，
+    /// 寧可沿用舊值（差一顆鍵的距離）也不要換成 Win32 的粗略值，否則浮窗會在
+    /// 「量到」與「退回」之間跳來跳去。從未量到過（例如 Chromium）時才需要兜底。
+    /// </remarks>
+    private static int DoCaretSessionCore(IntPtr ThisPtr, uint EditCookie) {
+        var State = GetState(ThisPtr);
+        if (State is null) {
+            return EFail;
+        }
+        var Context = State.CaretContextGen;
+        var View = State.CaretViewGen;
+        State.CaretContextGen = null;
+        State.CaretViewGen = null;
+        // 先歸零：session 裏任何提早返回都不會把「量測中」帶到下一個事件。
+        Interlocked.Exchange(ref State.CaretPending, 0);
+        try {
+            if (Context is null || View is null) {
+                return EFail;
+            }
+            var Adopted = MeasureCaret(State, Context, View, EditCookie, out var Rect, out var Hr, out var Clipped);
+            // 成敗都記：hr 為負是呼叫失敗，四邊全零是這個控件不回報插入點，兩者處置不同。
+            LogWarn("Caret GetTextExt hr=0x" + Hr.ToString("X8")
+                + " rect=" + Rect.Left + "," + Rect.Top + "," + Rect.Right + "," + Rect.Bottom
+                + " clipped=" + Clipped + " adopted=" + (Adopted ? 1 : 0));
+            if (!Adopted && !State.CaretValid) {
+                // 從未量到過：退回 Win32 的 caret，至少不要讓浮窗落在螢幕原點。
+                TryTakeCaretFromGui(State);
+            }
+            return SOk;
+        }
+        catch (Exception Exception) {
+            LogError("DoCaretSession EX " + Exception);
+            return EFail;
+        }
+        finally {
+            // 托管介面參考由回收處理，這裡沒有要放掉的東西。
+        }
+    }
+
+    /// <summary>
+    /// 用 `ITfContextView::GetTextExt` 量出插入點矩形，並判斷這個結果能不能用。
+    /// </summary>
+    /// <param name="Context">按鍵所屬的 context（已 AddRef）。</param>
+    /// <param name="View">該 context 的 active view（已 AddRef）。</param>
+    /// <param name="EditCookie">session 的 cookie。</param>
+    /// <param name="Rect">量到的矩形。</param>
+    /// <param name="Hr">GetTextExt 的 HRESULT。</param>
+    /// <param name="Clipped">控件是否回報「文字被裁切」。</param>
+    /// <returns>true 表示這個矩形已被採用。</returns>
+    private static bool MeasureCaret(TsfState State, ITfContextGen Context, ITfContextViewGen View, uint EditCookie, out NativeRect Rect, out int Hr, out int Clipped) {
+        Rect = default;
+        Clipped = 0;
+        var Selection = default(TfSelection);
+        Hr = Context.GetSelection(EditCookie, 0, 1, out Selection, out var Fetched);
+        if (Hr < 0 || Fetched != 1 || Selection.Range == IntPtr.Zero) {
+            // 拿不到選取範圍，後面就不可能量到座標。
+            LogWarn("Caret GetSelection hr=0x" + Hr.ToString("X8") + " fetched=" + Fetched + " range=" + Selection.Range.ToString("X"));
+            return false;
+        }
+        try {
+            // 源生成式 COM：vtable 由生成器排，這裡不再手寫槽位索引（見 ITfContextViewGen）。
+            // ConvertToManaged 會替這個介面指標建立托管包裝，包裝自帶一份參考；
+            // 這一份由 GC 在包裝不可達時釋放，我們自己那份仍照舊在 finally 裏放。
+            var ClippedFlag = 0;
+            Hr = View.GetTextExt(EditCookie, Selection.Range, out var Measured, out ClippedFlag);
+            Rect = Measured;
+            Clipped = ClippedFlag;
+            if (Hr < 0) {
+                return false;
+            }
+            return TryAdoptCaretRect(State, Measured);
+        }
+        finally {
+            ReleaseCom(Selection.Range);
+        }
+    }
+
+    /// <summary>
+    /// 判斷量到的矩形能不能當插入點用，能用就寫進狀態。
+    /// </summary>
+    /// <remarks>
+    /// 三個條件缺一不可：
+    /// + 矩形不是全零（有些控件在沒有版面時回 0,0,0,0）；
+    /// + 錨點落在前景視窗附近（有些控件回的是相對於視窗的座標，直接用會跑到螢幕外）；
+    /// + 錨點在虛擬螢幕範圍內。
+    /// 錨點取「左下角」＝插入點下方，候選窗從那裏往下排。
+    /// </remarks>
+    private static bool TryAdoptCaretRect(TsfState State, NativeRect Rect) {
+        if (Rect.Left == 0 && Rect.Top == 0 && Rect.Right == 0 && Rect.Bottom == 0) {
+            return false;
+        }
+        var X = Rect.Left;
+        var Y = Rect.Bottom;
+        if (!IsNearForegroundWindow(X, Y)) {
+            return false;
+        }
+        State.CaretPointX = X;
+        State.CaretPointY = Y;
+        State.CaretValid = true;
+        return true;
+    }
+
+    /// <summary>點是否落在前景視窗的範圍（往外放宽一點，容許插入點貼在邊界上）。</summary>
+    private static bool IsNearForegroundWindow(int X, int Y) {
+        var Hwnd = GetForegroundWindow();
+        if (Hwnd == IntPtr.Zero) {
+            return true;
+        }
+        if (!GetWindowRect(Hwnd, out var Rect)) {
+            return true;
+        }
+        const int Slack = 64;
+        return X >= Rect.Left - Slack && X <= Rect.Right + Slack
+            && Y >= Rect.Top - Slack && Y <= Rect.Bottom + Slack;
+    }
+
+    /// <summary>
+    /// 用 Win32 的 GUI thread info 取得插入點，作為 GetTextExt 量不到時的兜底。
+    /// </summary>
+    /// <remarks>
+    /// *為何要看前景視窗的執行緒*：`GUITHREADINFO` 是「某個 GUI 執行緒」的狀態，
+    /// 而 TSF 的 OnTestKeyDown 不一定跑在應用建立視窗的那條執行緒上（Chromium 系就是另一條）。
+    ///
+    /// *為何要試兩種座標解釋*：`rcCaret` 依文檔是螢幕座標，但實務上有控件回報客戶區座標。
+    /// 這裡把兩種都算出來，取「落在前景視窗內」的那一個；兩個都合理時優先螢幕座標。
+    /// 先前版本一律再呼叫一次 `ClientToScreen`，對螢幕座標的來源就會偏掉一個客戶區原點。
+    /// </remarks>
+    private static void TryTakeCaretFromGui(TsfState State) {
+        try {
+            var Foreground = GetForegroundWindow();
+            var ThreadId = Foreground != IntPtr.Zero
+                ? GetWindowThreadProcessId(Foreground, out _)
+                : GetCurrentThreadId();
+            var Info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
+            if (!GetGUIThreadInfo(ThreadId, ref Info)) {
+                return;
+            }
+            if (Info.CaretRect.Right == 0 && Info.CaretRect.Bottom == 0) {
+                // 這個控件不回報 caret（Chromium 系就是這樣），維持原狀。
+                return;
+            }
+            var Hwnd = Info.Caret != IntPtr.Zero
+                ? Info.Caret
+                : (Info.Focus != IntPtr.Zero ? Info.Focus : Foreground);
+            var AsScreen = new NativePoint { X = Info.CaretRect.Left, Y = Info.CaretRect.Bottom };
+            var AsClient = AsScreen;
+            if (Hwnd != IntPtr.Zero && ClientToScreen(Hwnd, ref AsClient)) {
+                // 兩個候選裏挑一個落在前景視窗內的。
+                var UseClient = IsNearForegroundWindow(AsClient.X, AsClient.Y)
+                    && !IsNearForegroundWindow(AsScreen.X, AsScreen.Y);
+                if (UseClient) {
+                    AsScreen = AsClient;
+                }
+            }
+            State.CaretPointX = AsScreen.X;
+            State.CaretPointY = AsScreen.Y;
+            State.CaretValid = true;
+            LogWarn("Caret GUITHREADINFO adopted x=" + State.CaretPointX + " y=" + State.CaretPointY);
+        }
+        catch (Exception Exception) {
+            LogError("TryTakeCaretFromGui EX " + Exception);
+        }
+    }
+
+    /// <summary>
+    /// 送出按鍵請求時要附的插入點座標。
+    /// </summary>
+    /// <remarks>
+    /// 座標有三級：量到的插入點 → 前景視窗左上角附近（從沒量到過時的兜底）→ (0,0)（未知）。
+    /// (0,0) 由接收端解釋成「不知道位置」，候選窗因此不會被搬到螢幕原點。
+    /// </remarks>
+    private static void ResolveKeyAnchor(TsfState State, out int X, out int Y) {
+        if (State.CaretValid) {
+            X = State.CaretPointX;
+            Y = State.CaretPointY;
+            return;
+        }
+        var Hwnd = GetForegroundWindow();
+        if (Hwnd != IntPtr.Zero && GetWindowRect(Hwnd, out var Rect)) {
+            X = Rect.Left + FallbackAnchorOffsetX;
+            Y = Rect.Top + FallbackAnchorOffsetY;
+            return;
+        }
+        X = 0;
+        Y = 0;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr Hwnd, out NativeRect Rect);
+
     private static int RequestEditSession(TsfState State, IntPtr Context) {
         State.Context = Context;
-        var Vtbl = *(IntPtr**)Context;
-        var Request = (delegate* unmanaged<IntPtr, uint, IntPtr, uint, int*, int>)Vtbl[3];
+        var ContextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)Context);
+        if (ContextGen is null) {
+            LogError("RequestEditSession: context 轉換失敗 ctx=" + Context.ToString("X"));
+            return EFail;
+        }
         var SessionResult = 0;
-        var Flags = State.PendingOperation == 2 ? (TfEsSync | TfEsReadWrite) : (TfEsSync | TfEsRead);
-        var Hr = Request(Context, State.ClientId, State.EditSessionView, Flags, &SessionResult);
+        // 上屏一定要同步讀寫：呼叫端要立刻知道字有沒有進去。
+        var Hr = ContextGen.RequestEditSession(State.ClientId, State.EditSessionView, TfEsSync | TfEsReadWrite, out SessionResult);
         if (Hr < 0) {
-            Log("RequestEditSession hr=0x" + Hr.ToString("X8"));
+            LogError("RequestEditSession hr=0x" + Hr.ToString("X8"));
             return Hr;
         }
         return SessionResult;
@@ -697,18 +1010,19 @@ internal static unsafe partial class NativeTsf {
             if (State is null) {
                 return EFail;
             }
+            uint Operation;
             lock (State) {
-                var Operation = State.PendingOperation;
+                Operation = State.PendingOperation;
                 State.PendingOperation = 0;
-                Log("DoEditSession op=" + Operation + " ec=0x" + EditCookie.ToString("X") + " text=[" + State.Preedit + "]");
-                return Operation switch {
-                    2 => InsertTextCore(State, EditCookie),
-                    _ => SOk,
-                };
             }
+            Log("DoEditSession op=" + Operation + " ec=0x" + EditCookie.ToString("X"));
+            return Operation switch {
+                2 => InsertTextCore(State, EditCookie),
+                _ => SOk,
+            };
         }
         catch (Exception Exception) {
-            Log("DoEditSession EX " + Exception);
+            LogError("DoEditSession EX " + Exception);
             return EFail;
         }
     }
@@ -718,11 +1032,13 @@ internal static unsafe partial class NativeTsf {
     /// 打字過程中完全不碰文件，只有空白鍵上屏時才呼叫 ITfRange::SetText。
     /// </summary>
     private static int InsertTextCore(TsfState State, uint EditCookie) {
-        var ContextVtbl = *(IntPtr**)State.Context;
-        var GetSelection = (delegate* unmanaged<IntPtr, uint, uint, uint, TfSelection*, uint*, int>)ContextVtbl[5];
+        var ContextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)State.Context);
+        if (ContextGen is null) {
+            LogError("InsertText: context 轉換失敗");
+            return EFail;
+        }
         var Selection = default(TfSelection);
-        uint Fetched = 0;
-        var Hr = GetSelection(State.Context, EditCookie, 0, 1, &Selection, &Fetched);
+        var Hr = ContextGen.GetSelection(EditCookie, 0, 1, out Selection, out var Fetched);
         Log("InsertText GetSelection hr=0x" + Hr.ToString("X8") + " fetched=" + Fetched);
         if (Hr < 0) {
             return Hr;
@@ -730,16 +1046,19 @@ internal static unsafe partial class NativeTsf {
         if (Fetched != 1 || Selection.Range == IntPtr.Zero) {
             return EFail;
         }
-        var RangeVtbl = *(IntPtr**)Selection.Range;
-        var SetText = (delegate* unmanaged<IntPtr, uint, uint, char*, int, int>)RangeVtbl[4];
+        var RangeGen = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)Selection.Range);
+        if (RangeGen is null) {
+            LogError("InsertText: range 轉換失敗");
+            ReleaseCom(Selection.Range);
+            return EFail;
+        }
         var Text = State.PendingCommit;
         fixed (char* TextPtr = Text) {
-            Hr = SetText(Selection.Range, EditCookie, 0, TextPtr, Text.Length);
+            Hr = RangeGen.SetText(EditCookie, 0, (IntPtr)TextPtr, Text.Length);
         }
         Log("InsertText SetText hr=0x" + Hr.ToString("X8") + " len=" + Text.Length);
         if (Hr >= 0) {
-            var Collapse = (delegate* unmanaged<IntPtr, uint, uint, int>)RangeVtbl[15];
-            var CollapseHr = Collapse(Selection.Range, EditCookie, TfAnchorEnd);
+            var CollapseHr = RangeGen.Collapse(EditCookie, TfAnchorEnd);
             Log("InsertText Collapse hr=0x" + CollapseHr.ToString("X8"));
         }
         ReleaseCom(Selection.Range);
@@ -747,109 +1066,13 @@ internal static unsafe partial class NativeTsf {
         return Hr;
     }
 
-    private static int SetCompositionText(TsfState State, uint EditCookie, string Text) {
-        if (State.Composition == IntPtr.Zero) {
-            return EFail;
-        }
-        Log("SetCompositionText comp=" + State.Composition.ToString("X"));
-        var CompositionVtbl = *(IntPtr**)State.Composition;
-        Log("SetCompositionText vtbl=" + ((IntPtr)CompositionVtbl).ToString("X"));
-        // 這裡的 slot 3 其實吃 (ITfRange**)，不吃 ec（用 dump 反組譯 textinputframework 確認過）。
-        var GetRange = (delegate* unmanaged<IntPtr, IntPtr*, int>)CompositionVtbl[3];
-        IntPtr Range = IntPtr.Zero;
-        var Hr = GetRange(State.Composition, &Range);
-        Log("GetRange hr=0x" + Hr.ToString("X8") + " range=" + Range.ToString("X"));
-        if (Hr < 0 || Range == IntPtr.Zero) {
-            Log("Composition.GetRange hr=0x" + Hr.ToString("X8"));
-            return Hr < 0 ? Hr : EFail;
-        }
-        var RangeVtbl = *(IntPtr**)Range;
-        Log("Range vtbl=" + ((IntPtr)RangeVtbl).ToString("X"));
-        var SetText = (delegate* unmanaged<IntPtr, uint, uint, char*, int, int>)RangeVtbl[4];
-        fixed (char* TextPtr = Text) {
-            Log("SetText calling len=" + Text.Length);
-            Hr = SetText(Range, EditCookie, 0, TextPtr, Text.Length);
-        }
-        Log("Range.SetText hr=0x" + Hr.ToString("X8") + " len=" + Text.Length);
-        if (Hr >= 0) {
-            var Collapse = (delegate* unmanaged<IntPtr, uint, uint, int>)RangeVtbl[15];
-            var CollapseHr = Collapse(Range, EditCookie, TfAnchorEnd);
-            Log("Range.Collapse hr=0x" + CollapseHr.ToString("X8"));
-            Hr = CollapseHr;
-        }
-        ReleaseCom(Range);
-        return Hr;
-    }
-
-    private static int EndCompositionCore(TsfState State, uint EditCookie, bool ClearText) {
-        if (State.Composition == IntPtr.Zero) {
-            State.Preedit.Clear();
-            return SOk;
-        }
-        if (ClearText) {
-            SetCompositionText(State, EditCookie, string.Empty);
-        }
-        var CompositionVtbl = *(IntPtr**)State.Composition;
-        var End = (delegate* unmanaged<IntPtr, uint, int>)CompositionVtbl[6];
-        var Hr = End(State.Composition, EditCookie);
-        Log("EndComposition hr=0x" + Hr.ToString("X8"));
-        ReleaseCom(State.Composition);
-        State.Composition = IntPtr.Zero;
-        State.Preedit.Clear();
-        return Hr;
-    }
-
-    private static void ReleaseComposition(TsfState State) {
-        if (State.Composition != IntPtr.Zero) {
-            try {
-                ReleaseCom(State.Composition);
-            }
-            catch (Exception Exception) {
-                Log("ReleaseComposition EX " + Exception);
-            }
-            State.Composition = IntPtr.Zero;
-        }
-    }
-
-    private static int OnCompositionTerminatedCore(IntPtr ThisPtr, uint EditCookie, IntPtr Composition) {
-        try {
-            var State = GetState(ThisPtr);
-            if (State is null) {
-                return EFail;
-            }
-            lock (State) {
-                Log("OnCompositionTerminated cookie=" + EditCookie);
-                State.Composition = IntPtr.Zero;
-                State.Preedit.Clear();
-            }
-            return SOk;
-        }
-        catch (Exception Exception) {
-            Log("OnCompositionTerminated EX " + Exception);
-            return EFail;
-        }
-    }
-
+    /// <summary>編輯會話所屬的物件查詢；只支援 IUnknown 與 ITfEditSession。</summary>
     private static int EditSessionQueryCore(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) {
         var State = GetState(ThisPtr);
         if (State is null) {
             return ENoInterface;
         }
         if (*Riid == IidIUnknown || *Riid == IidEditSession) {
-            *Ppv = ThisPtr;
-            Interlocked.Increment(ref State.RefCount);
-            return SOk;
-        }
-        *Ppv = IntPtr.Zero;
-        return ENoInterface;
-    }
-
-    private static int CompSinkQueryCore(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) {
-        var State = GetState(ThisPtr);
-        if (State is null) {
-            return ENoInterface;
-        }
-        if (*Riid == IidIUnknown || *Riid == IidCompositionSink) {
             *Ppv = ThisPtr;
             Interlocked.Increment(ref State.RefCount);
             return SOk;
@@ -876,7 +1099,7 @@ internal static unsafe partial class NativeTsf {
     /// 會直接 fail-fast，連我們的函式都不會進去；NativeAOT 產生的 DLL 沒有 guard CF function table，
     /// 所以必須自己註冊。
     /// </summary>
-    private static void CollectTargets(IntPtr* Table, int Count, List<IntPtr> Targets) {
+    private static void CollectTargets(IntPtr* Table, int Count, HashSet<IntPtr> Targets) {
         for (var Index = 0; Index < Count; Index++) {
             var Slot = Table[Index];
             if (Slot != IntPtr.Zero && !Targets.Contains(Slot)) {
@@ -887,12 +1110,12 @@ internal static unsafe partial class NativeTsf {
 
     private static void RegisterCfgTargets() {
         try {
-            var Targets = new List<IntPtr>();
+            var Targets = new HashSet<IntPtr>();
             CollectTargets(TipVtbl, 5, Targets);
             CollectTargets(SinkVtbl, 9, Targets);
             CollectTargets(FactoryVtbl, 5, Targets);
             CollectTargets(EditSessionVtbl, 4, Targets);
-            CollectTargets(CompSinkVtbl, 4, Targets);
+            CollectTargets(CaretSessionVtbl, 4, Targets);
             foreach (var Target in Targets) {
                 var Page = (IntPtr)(Target.ToInt64() & ~0xFFFL);
                 var Info = new[] { new CfgCallTargetInfo { Offset = (IntPtr)(Target.ToInt64() - Page.ToInt64()), Flags = (IntPtr)1 } };
@@ -933,10 +1156,10 @@ internal static unsafe partial class NativeTsf {
     private static int DoEditSessionEntry(IntPtr ThisPtr, uint EditCookie) => DoEditSessionCore(ThisPtr, EditCookie);
 
     [UnmanagedCallersOnly]
-    private static int CompSinkQueryEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) => CompSinkQueryCore(ThisPtr, Riid, Ppv);
+    private static int CaretSessionQueryEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) => EditSessionQueryCore(ThisPtr, Riid, Ppv);
 
     [UnmanagedCallersOnly]
-    private static int OnCompositionTerminatedEntry(IntPtr ThisPtr, uint EditCookie, IntPtr Composition) => OnCompositionTerminatedCore(ThisPtr, EditCookie, Composition);
+    private static int DoCaretSessionEntry(IntPtr ThisPtr, uint EditCookie) => DoCaretSessionCore(ThisPtr, EditCookie);
 
     [UnmanagedCallersOnly]
     private static int QueryInterfaceEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) { Log("QI-entry this=" + ThisPtr.ToString("X")); return QueryCore(ThisPtr, Riid, Ppv); }

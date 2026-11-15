@@ -49,15 +49,15 @@ internal interface ITfCategoryMgr {
 /// <summary>Per-user COM and TSF profile registration for the x64 proof of concept.</summary>
 internal static partial class TsfRegistration {
     /// <summary>COM class identity exported by the C# TSF assembly.</summary>
-    private static readonly Guid TextServiceClass = new("9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31");
+    private static Guid TextServiceClass = new("9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31");
     /// <summary>Stable TSF language-profile identity.</summary>
-    private static readonly Guid LanguageProfile = new("D3A1C7E2-6B4F-4E8A-9C15-7F2B8D4E6A90");
+    private static Guid LanguageProfile = new("D3A1C7E2-6B4F-4E8A-9C15-7F2B8D4E6A90");
     /// <summary>簡體中文語言識別碼；必須與目前使用者的中文輸入法清單一致。</summary>
     private const ushort LanguageId = 0x0804;
     /// <summary>第一版錯誤建立的英文 profile 語言識別碼；僅用於升級時清理遺留資料。</summary>
     private const ushort LegacyLanguageId = 0x0409;
     /// <summary>Display name presented by Windows input settings.</summary>
-    private const string ProfileName = "Ngan IME";
+    private static string ProfileName = "Ngan IME";
     /// <summary>CLSID of the Windows TSF profile-manager COM class.</summary>
     private static readonly Guid ProfileManagerClass = new("33C53A50-F456-4884-B049-85FD643ECFED");
     /// <summary>IID of the modern TSF profile registration interface.</summary>
@@ -91,7 +91,7 @@ internal static partial class TsfRegistration {
     internal static partial int Run(string[] Args);
 
     /// <summary>Registers the machine-wide COM server, keyboard categories, and Chinese TSF profile.</summary>
-    private static partial int RegisterSystem(string ComHostPath);
+    private static partial int RegisterSystem(string ComHostPath, string? DisplayName);
 
     /// <summary>Installs the already-registered profile into the invoking user's input-method list.</summary>
     private static partial int InstallUser();
@@ -128,6 +128,16 @@ internal static partial class TsfRegistration {
 
     /// <summary>Installs or removes this profile from the current user's Windows input-method list.</summary>
     private static partial void InstallTip(bool IsUninstall);
+
+    /// <summary>
+    /// 從安裝目錄的 `identity.txt` 讀取本版本的 CLSID、profile GUID 與顯示名稱。
+    /// </summary>
+    /// <remarks>
+    /// 版本化安裝＝每次安裝都是一個獨立輸入法：CLSID 與 profile 都由安裝器生成並寫在這裡，
+    /// 註冊、加入清單、卸載都讀同一份，故各版本互不相干，可單獨移除。
+    /// 檔案不存在時退回內建的那組 GUID，行為與舊版相同。
+    /// </remarks>
+    private static partial void LoadIdentity();
 
     /// <summary>Returns the exact current-user registry path owned by this POC.</summary>
     private static partial string GetComKeyPath();

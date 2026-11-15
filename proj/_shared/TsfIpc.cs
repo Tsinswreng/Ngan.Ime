@@ -34,8 +34,95 @@ public static class TsfIpc{
 	[Doc("協議版本；請求與回應都帶這一欄。")]
 	public const i32 Version = 1;
 
-	[Doc("管道名稱；外殼與服務端都取這裡的值，改名只改這一處。")]
-	public const str PipeName = "NganIme.Tsf.v1";
+	[Doc($$"""
+	管道名稱的前綴。
+
+	*為何不是整條名稱*：每次安裝都是一個獨立輸入法，各自有服務端；
+	若共用同一個管道名，兩個版本的服務端會同時在同一條管道上監聽
+	（`NamedPipeServerStream` 允許多個同名實例），客戶端連到哪一個由系統決定，
+	舊版外殼就可能吃到新版的引擎狀態。實際名稱一律由 {{nameof(PipeNameFor)}} 依安裝目錄算出。
+	""")]
+	public const str PipeNamePrefix = "NganIme.Tsf.v1";
+
+	[Doc($$"""
+	依安裝目錄算出這一版專屬的管道名稱。
+
+	*為何要按版本分*：每次安裝都是一個獨立輸入法，各自有服務端。若共用一條固定名稱的管道，
+	兩個版本的服務端會同時在同一條名稱上監聽（具名管道允許多個同名 server 實例），
+	客戶端連到哪一個由系統決定——舊版外殼就可能吃到新版的引擎狀態。
+
+	*名稱從哪來*：看目錄裏的 `identity.txt`（安裝時由 `install.ps1` 生成，內含本版的 CLSID）。
+	用 CLSID 當鍵的好處是「同一版的兩個組件即使分在不同目錄（開發時的 VM 佈局）也會算出同一個名稱」。
+
+	*沒有 identity.txt 時退回舊的固定名稱*：那是開發／手動註冊的情境（外殼與服務端分別在
+	`bin/Debug/net10.0` 與 `bin/Debug/net10.0/win-x86`，沒有共同的識別）。
+	退回固定名稱讓那種流程照舊可用；代價是同機的兩份「未安裝」建置會共用一條管道，
+	而這正是改動之前的行為，不是新的風險。
+
+	*為何要雜湊*：管道名最長 256 字元，而目錄可能很深；雜湊之後長度固定，
+	也避免把使用者目錄結構寫進一個全域可見的名稱。
+
+	#Prm[{{nameof(BaseDir)}}][外殼或服務端所在目錄；大小寫與結尾斜線不敏感。]
+	#Rtn[形如 `NganIme.Tsf.v1.1a2b3c4d` 的管道名稱。]
+	""")]
+	public static str PipeNameFor(str BaseDir){
+		return PipeNameFrom(BaseDir, ReadIdentityKey(BaseDir));
+	}
+
+	[Doc($$"""
+	由目錄與（可空的）版本識別算出管道名稱；純函數，方便測試。
+	#Prm[{{nameof(BaseDir)}}][組件所在目錄。]
+	#Prm[{{nameof(IdentityKey)}}][本版識別（通常是 `clsid:<GUID>`）；null 表示沒有 identity.txt。]
+	#Rtn[管道名稱。]
+	""")]
+	public static str PipeNameFrom(str BaseDir, str? IdentityKey){
+		var Key = IdentityKey;
+		if(string.IsNullOrEmpty(Key)){
+			// 開發／手動註冊：沒有版本識別，沿用舊的固定名稱（兩邊都走這條，故仍能連上）。
+			return PipeNamePrefix;
+		}
+		// FNV-1a 32 位元：不需要加密強度，只需要「同一鍵穩定、不同鍵幾乎不撞」。
+		// 自己寫是因為外殼不帶 CLR 以外的庫，而 System.Security.Cryptography 會拉進額外的原生依賴。
+		var Hash = 2166136261u;
+		foreach(var One in Key){
+			Hash ^= (uint)One;
+			Hash *= 16777619u;
+		}
+		return PipeNamePrefix + "." + Hash.ToString("x8");
+	}
+
+	[Doc("版本識別檔名；與 exe 同層，由安裝腳本寫入。")]
+	public const str IdentityFileName = "identity.txt";
+
+	[Doc($$"""
+	讀 `identity.txt` 的版本識別（取 `clsid=` 那一行）。
+	#Prm[{{nameof(BaseDir)}}][組件所在目錄。]
+	#Rtn[形如 `clsid:<GUID>` 的鍵；檔案不存在或格式不對時回 null。]
+	""")]
+	public static str? ReadIdentityKey(str BaseDir){
+		try{
+			var Path = System.IO.Path.Combine(BaseDir ?? "", IdentityFileName);
+			if(!System.IO.File.Exists(Path)){
+				return null;
+			}
+			foreach(var Line in System.IO.File.ReadAllLines(Path)){
+				var Index = Line.IndexOf('=');
+				if(Index <= 0){
+					continue;
+				}
+				if(!Line[..Index].Trim().Equals("clsid", StringComparison.OrdinalIgnoreCase)){
+					continue;
+				}
+				var Value = Line[(Index + 1)..].Trim();
+				if(Value.Length > 0){
+					return "clsid:" + Value.ToUpperInvariant();
+				}
+			}
+		}catch{
+			// 讀不到就退回目錄鍵：一個小檔案的 IO 失敗不該讓輸入法連不上。
+		}
+		return null;
+	}
 
 	[Doc("單行長度上限（字元）；超過即視為畸形請求，避免一條超長行吃掉記憶體。")]
 	public const i32 MaxLineLength = 4096;

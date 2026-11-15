@@ -8,8 +8,14 @@ using System.Runtime.InteropServices;
 internal static partial class TsfRegistration {
     /// <summary>Executes the explicit register or unregister command.</summary>
     internal static partial int Run(string[] Args) {
+        // 先讀本版本的識別：CLSID／profile GUID／顯示名稱都由安裝器寫在 exe 旁邊。
+        LoadIdentity();
         if (Args.Length == 2 && Args[0] == "--register") {
-            return RegisterSystem(Args[1]);
+            return RegisterSystem(Args[1], null);
+        }
+        if (Args.Length == 4 && Args[0] == "--register" && Args[2] == "--name") {
+            // 讓每個版本的顯示名稱不同：輸入法清單裏一眼看得出裝的是哪一版。
+            return RegisterSystem(Args[1], Args[3]);
         }
         if (Args.Length == 1 && Args[0] == "--install-user") {
             return InstallUser();
@@ -21,7 +27,7 @@ internal static partial class TsfRegistration {
             return UnregisterSystem();
         }
         // 用法文字要和實際命令列一致：舊名是 POC 時期的 AvlnImeDemo，早已改成 Ngan。
-        Console.Error.WriteLine("用法：Ngan.Ime.Tsf.Registration --register <Ngan.Ime.Tsf.dll>");
+        Console.Error.WriteLine("用法：Ngan.Ime.Tsf.Registration --register <Ngan.Ime.Tsf.dll> [--name <顯示名稱>]");
         Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --install-user");
         Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --uninstall-user");
         Console.Error.WriteLine("      Ngan.Ime.Tsf.Registration --unregister-system");
@@ -29,7 +35,7 @@ internal static partial class TsfRegistration {
     }
 
     /// <summary>註冊機器層的簡體中文鍵盤 TIP，不修改提權帳戶的使用者輸入法清單。</summary>
-    private static partial int RegisterSystem(string ComHostPath) {
+    private static partial int RegisterSystem(string ComHostPath, string? DisplayName) {
         var FullPath = Path.GetFullPath(ComHostPath);
         if (!File.Exists(FullPath)) {
             Console.Error.WriteLine("找不到 TSF COM host DLL：" + FullPath);
@@ -41,7 +47,7 @@ internal static partial class TsfRegistration {
             VerifyTextServiceInterface();
             RegisterCategories();
             TryRemoveLegacyProfile();
-            RegisterProfile(FullPath);
+            RegisterProfile(FullPath, DisplayName);
             Console.WriteLine("已完成 Ngan IME 的系統註冊。");
             return 0;
         }
@@ -90,10 +96,10 @@ internal static partial class TsfRegistration {
     }
 
     /// <summary>使用 Windows profile manager 註冊無 .ime 替代鍵盤的純 TSF profile。</summary>
-    private static void RegisterProfile(string ComHostPath) {
+    private static void RegisterProfile(string ComHostPath, string? DisplayName) {
         var Profiles = CreateProfiles();
         try {
-            ThrowOnFailure(Profiles.RegisterProfile(in TextServiceClass, LanguageId, in LanguageProfile, ProfileName, (uint)(ProfileName.Length * sizeof(char)), ComHostPath, (uint)(ComHostPath.Length * sizeof(char)), 0, nint.Zero, 0, true, 0), "ITfInputProcessorProfileMgr.RegisterProfile");
+            ThrowOnFailure(Profiles.RegisterProfile(in TextServiceClass, LanguageId, in LanguageProfile, (DisplayName ?? ProfileName), (uint)((DisplayName ?? ProfileName).Length * sizeof(char)), ComHostPath, (uint)(ComHostPath.Length * sizeof(char)), 0, nint.Zero, 0, true, 0), "ITfInputProcessorProfileMgr.RegisterProfile");
         }
         finally {
             Marshal.ReleaseComObject(Profiles);
@@ -209,6 +215,50 @@ internal static partial class TsfRegistration {
     private static partial void ThrowOnFailure(int HResult, string Operation) {
         if (HResult < 0) {
             throw new COMException(Operation + " 失敗，HRESULT: 0x" + HResult.ToString("X8"), HResult);
+        }
+    }
+
+    /// <summary>本版本識別檔名；與 exe 同層，安裝時由 install.ps1 寫入。</summary>
+    private const string IdentityFileName = "identity.txt";
+
+    /// <summary>
+    /// 讀取本版本的 CLSID／profile／顯示名稱。
+    /// </summary>
+    /// <remarks>
+    /// 格式是逐行 `key=value`（不引入 JSON 序列化，AOT 下最省事）：
+    /// `clsid`、`profile`、`name`。缺檔或某行壞掉就沿用內建值，
+    /// 這樣舊的註冊流程仍然可用。
+    /// </remarks>
+    private static partial void LoadIdentity() {
+        try {
+            var IdentityPath = System.IO.Path.Combine(AppContext.BaseDirectory, IdentityFileName);
+            if (!File.Exists(IdentityPath)) {
+                return;
+            }
+            foreach (var Line in File.ReadAllLines(IdentityPath)) {
+                var Index = Line.IndexOf('=');
+                if (Index <= 0) {
+                    continue;
+                }
+                var Key = Line[..Index].Trim();
+                var Value = Line[(Index + 1)..].Trim();
+                if (Value.Length == 0) {
+                    continue;
+                }
+                if (Key.Equals("clsid", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(Value, out var Clsid)) {
+                    TextServiceClass = Clsid;
+                }
+                else if (Key.Equals("profile", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(Value, out var Profile)) {
+                    LanguageProfile = Profile;
+                }
+                else if (Key.Equals("name", StringComparison.OrdinalIgnoreCase)) {
+                    ProfileName = Value;
+                }
+            }
+        }
+        catch (Exception Exception) {
+            // 讀不到就用內建值，不能讓註冊因此失敗。
+            Console.Error.WriteLine("讀取 identity.txt 失敗：" + Exception.Message);
         }
     }
 }

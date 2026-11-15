@@ -25,6 +25,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- 機器私有配置（各機的 rime.dll 路徑不同，不進版控）：與 exe 同層。
+		     服務端以「執行檔所在目錄」為儲存區根，故它必須被複製到輸出／發布目錄；
+		     放在 csproj 裏，`dotnet run`／`dotnet publish`／打包腳本三條路都會自動帶上。
+		     檔案由使用者自行準備（見 README）；沒有這個目錄時不會報錯。 -->
+		<Content Include="$(MSBuildThisFileDirectory)ExternalRsrc.Private/**"
+			CopyToOutputDirectory="PreserveNewest"
+			CopyToPublishDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Ngan.Ime.UI\Ngan.Ime.UI.csproj" />
 		<ProjectReference Include="..\..\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
 		<ProjectReference Include="..\Ngan.Ime.Backend\Ngan.Ime.Backend.csproj" />

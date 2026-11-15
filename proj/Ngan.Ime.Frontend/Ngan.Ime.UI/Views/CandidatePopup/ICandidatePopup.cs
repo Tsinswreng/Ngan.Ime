@@ -11,8 +11,14 @@ using Tsinswreng.CsCore;
 不該知道那是 Avalonia 的視窗、更不該碰 UI 執行緒。
 有了這個介面，服務端可以在沒有界面的環境裡換成空實現，測試也能塞替身。
 
-*為何座標用 {{nameof(PixelPoint)}}*：它是 Avalonia 對「螢幕物理像素座標」的表達，
-與視窗定位用的是同一個單位，中間不必再做一次換算。
+*為何座標可空*：「插入點未知」與「插入點在 (0,0)」是兩件事。協議用 (0,0) 當未知的哨兵，
+	呼叫端必須把它翻成 null，否則量測一失敗浮窗就會被搬到螢幕左上角——這正是先前的症狀。
+
+*已知限制：全機只有一個浮窗*。協定只帶按鍵與座標，沒有「哪個應用／哪個輸入上下文」的身分，
+	故兩個應用同時組字時，後到的 Show 會把前一個的浮窗搬走並覆寫內容。
+	真正的修法是在請求裏帶 client 標識（外殼的 pid 或 TSF 的 ClientId）並按它分桶；
+	那要同时改協議、外殼、服務端與浮窗，屬於另一輪。
+	在補上之前，請把本介面當成「單一前景組字」的實現，不要假設它能同時服務多個應用。
 
 #Eg[
 	```cs
@@ -26,9 +32,10 @@ public interface ICandidatePopup{
 	顯示或更新候選浮窗。
 	#Prm[{{nameof(Preedit)}}][組字串；空串表示只顯示候選。]
 	#Prm[{{nameof(Page)}}][候選頁快照。]
-	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標；浮窗貼在它左下角。]
+	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標；浮窗貼在它左下角。null 表示「不知道位置」，
+		此時浮窗保持原位，不可把它移到螢幕原點。]
 	""")]
-	public void Show(str Preedit, CandidatePage Page, PixelPoint Anchor);
+	public void Show(str Preedit, CandidatePage Page, PixelPoint? Anchor);
 
 	[Doc("收起浮窗；已收起時無副作用。")]
 	public void Hide();

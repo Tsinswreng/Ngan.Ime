@@ -19,11 +19,17 @@ using Ngan.Ime.Tsf.Ipc;
 ///
 /// *為何只回一個可空結果*：呼叫端只需要「吃掉與否、組字、候選、上屏」；
 /// 服務端不在、回應壞掉、逾時，一律回 null，由呼叫端放行按鍵。
+///
+/// *為何管道名要按安裝目錄算*：每次安裝都是一個獨立輸入法（各自的 CLSID、profile、服務端）。
+/// 若共用一條固定名稱的管道，兩個版本的服務端會同時在同一條名稱上監聽
+/// （具名管道允許多個同名 server 實例），客戶端連到哪一個由系統決定——舊版外殼就可能
+/// 吃到新版的引擎狀態。名稱由 <see cref="TsfIpc.PipeNameFor"/> 依本 DLL 所在目錄算出，
+/// 服務端從自己的目錄算出同一個名稱。
 /// </remarks>
 internal static unsafe partial class NativeTsf {
 
-	/// <summary>連線建立的逾時（毫秒）。</summary>
-	private const int ConnectTimeoutMs = 200;
+	/// <summary>連線建立的逾時（毫秒）；正常情況下服務端已在監聽，這個值只是保底。</summary>
+	private const int ConnectTimeoutMs = 150;
 
 	/// <summary>讀取回應的逾時（毫秒）；太長會讓應用明顯卡頓。</summary>
 	private const int ReadTimeoutMs = 300;
@@ -44,6 +50,15 @@ internal static unsafe partial class NativeTsf {
 
 	/// <summary>序列化存取管道；多個應用行程各有一份，行程內只有 UI 執行緒會用。</summary>
 	private static readonly object PipeLock = new();
+
+	/// <summary>
+	/// 本安裝專屬的管道名稱；第一次使用時由本 DLL 的路徑算出。
+	/// </summary>
+	/// <remarks>
+	/// 外殼與服務端永遠同層（同一次發布的產物），故兩邊各自從自己的目錄算出同一個名稱。
+	/// 延遲計算：靜態初始化時 `GetOwnModulePath` 需要 kernel32 已就緒，第一次按鍵時算最安全。
+	/// </remarks>
+	private static string? PipeNameField;
 
 	/// <summary>目前的長連線；null 表示尚未連上或剛被重設。</summary>
 	private static NamedPipeClientStream? Pipe;
@@ -67,7 +82,9 @@ internal static unsafe partial class NativeTsf {
 		}
 		ResetPipe();
 		try {
-			var Client = new NamedPipeClientStream(".", TsfIpc.PipeName, PipeDirection.InOut);
+			// CurrentUserOnly：只有同一個使用者的行程能連上。少了它，同機任何行程都能
+			// 送出「按鍵」請求，而回應裏的 commit 會被本殼寫進前景應用的文件。
+			var Client = new NamedPipeClientStream(".", GetPipeName(), PipeDirection.InOut, PipeOptions.CurrentUserOnly);
 			Client.Connect(ConnectTimeoutMs);
 			Pipe = Client;
 			PipeWriter = new StreamWriter(Client, new UTF8Encoding(false)) { AutoFlush = true };
@@ -75,7 +92,7 @@ internal static unsafe partial class NativeTsf {
 			return true;
 		}
 		catch (Exception Exception) {
-			Log("connect failed " + Exception.GetType().Name);
+			LogWarn("connect failed " + Exception.GetType().Name);
 			ResetPipe();
 			return false;
 		}
@@ -119,7 +136,7 @@ internal static unsafe partial class NativeTsf {
 					return TsfReply.Parse(Line);
 				}
 				catch (Exception Exception) {
-					Log("query attempt " + Attempt + " failed " + Exception.GetType().Name);
+					LogWarn("query attempt " + Attempt + " failed " + Exception.GetType().Name);
 					ResetPipe();
 				}
 			}
@@ -131,7 +148,7 @@ internal static unsafe partial class NativeTsf {
 	/// <summary>記下這次失敗，接下來 <see cref="FailureBackoffMs"/> 內不再嘗試連線。</summary>
 	private static void MarkFailed() {
 		RetryAfterTick = Environment.TickCount64 + FailureBackoffMs;
-		Log("server unreachable; backoff " + FailureBackoffMs + "ms");
+		LogWarn("server unreachable; backoff " + FailureBackoffMs + "ms");
 		TryStartServer();
 	}
 
@@ -149,6 +166,13 @@ internal static unsafe partial class NativeTsf {
 	/// 而且要自己去按啟動器才會好。外殼就在安裝目錄裡，服務端是它的兄弟檔案，直接開一次即可。
 	/// 失敗（檔案不在、被政策擋住）就什麼都不做，下次按鍵再說；這裡絕不拋例外，
 	/// 因為呼叫端是應用行程的 UI 執行緒。
+	///
+	/// *為何要一個具名互斥*：行程內的節流只保護自己。服務端崩掉時，幾十個各自載入本外殼的
+	/// 應用會在同一個瞬間同時嘗試拉起它——那正好是最不該發生的行為。互斥鎖跨行程，
+	/// 只有第一個搶到的行程會真的啟動，其餘直接返回。
+	///
+	/// *拉起的正確位置終究是排程工作*：這裡只是「使用者正在打字，等不及」的保底。
+	/// 服務端自己的常駐（登入自啟＋失敗重啟）由安裝腳本建立的排程工作負責。
 	/// </remarks>
 	private static void TryStartServer() {
 		var Now = Environment.TickCount64;
@@ -165,18 +189,47 @@ internal static unsafe partial class NativeTsf {
 			if (!File.Exists(Exe)) {
 				return;
 			}
-			var Info = new System.Diagnostics.ProcessStartInfo(Exe) {
-				Arguments = "--tsf",
-				WorkingDirectory = Dir,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			};
-			System.Diagnostics.Process.Start(Info);
-			Log("started server on demand");
+			// 每個安裝目錄一個互斥鎖：不同版本互不阻塞。
+			var MutexName = "Local\\NganIme.Server.Start." + TsfIpc.PipeNameFor(Dir).Replace("NganIme.Tsf.v1.", "");
+			using var StartGate = new System.Threading.Mutex(false, MutexName);
+			if (!StartGate.WaitOne(0)) {
+				Log("another process is already starting the server");
+				return;
+			}
+			try {
+				var Info = new System.Diagnostics.ProcessStartInfo(Exe) {
+					Arguments = "--tsf",
+					WorkingDirectory = Dir,
+					UseShellExecute = false,
+					CreateNoWindow = true,
+				};
+				System.Diagnostics.Process.Start(Info);
+				LogWarn("server was not running; started it from " + Dir);
+			}
+			finally {
+				StartGate.ReleaseMutex();
+			}
 		}
 		catch (Exception Exception) {
-			Log("start server failed " + Exception.GetType().Name);
+			LogWarn("start server failed " + Exception.GetType().Name);
 		}
+	}
+
+	/// <summary>本安裝專屬的管道名稱；第一次使用時算出並記住。</summary>
+	private static string GetPipeName() {
+		var Cached = PipeNameField;
+		if (Cached is not null) {
+			return Cached;
+		}
+		var Dir = Path.GetDirectoryName(GetOwnModulePath());
+		if (string.IsNullOrEmpty(Dir)) {
+			// 取不到自己的路徑：退回前綴。此時只可能連到「同一個前綴」的服務端，
+			// 不至於完全不能用，也不會誤連到另一個版本（那個版本的名稱帶雜湊）。
+			Dir = "";
+		}
+		Cached = TsfIpc.PipeNameFor(Dir);
+		PipeNameField = Cached;
+		return Cached;
 	}
 
 	/// <summary>取得本外殼 DLL 的完整路徑；NativeAOT 下不能用組件位置。</summary>
@@ -215,14 +268,38 @@ internal static unsafe partial class NativeTsf {
 	/// </summary>
 	/// <remarks>
 	/// StreamReader 沒有可用的讀取逾時（NamedPipeClientStream 的 ReadTimeout 不支援），
-	/// 故以「非同步讀 ＋ 有界等待」實現。逾時後必須丟掉連線，否則下一次讀會接著等同一條死連線。
+	/// 故以「非同步讀 ＋ 有界等待」實現。逾時後必須做兩件事：
+	/// ①取消底層讀取，否則那個工作會留在背景，等我們把連線 Dispose 之後才在別人的行程裏拋例外；
+	/// ②丟掉連線，否則下一次讀會接著等同一條死連線。
 	/// </remarks>
 	private static string? ReadLineWithTimeout() {
-		var ReadTask = PipeReader!.ReadLineAsync();
-		if (!ReadTask.Wait(ReadTimeoutMs)) {
+		using var Cts = new System.Threading.CancellationTokenSource(ReadTimeoutMs);
+		try {
+			var ReadTask = PipeReader!.ReadLineAsync(Cts.Token).AsTask();
+			if (!ReadTask.Wait(ReadTimeoutMs)) {
+				Cts.Cancel();
+				ObserveQuietly(ReadTask);
+				return null;
+			}
+			return ReadTask.GetAwaiter().GetResult();
+		}
+		catch (OperationCanceledException) {
+			// 逾時：交給呼叫端重連。
 			return null;
 		}
-		return ReadTask.Result;
+		catch (AggregateException Exception) when (Exception.InnerException is OperationCanceledException) {
+			return null;
+		}
+	}
+
+	/// <summary>等一個已放棄的工作結束並吃掉它的例外，避免留下未被觀察的例外。</summary>
+	private static void ObserveQuietly(System.Threading.Tasks.Task Task) {
+		try {
+			Task.Wait(200);
+		}
+		catch {
+			// 目的就是把它收乾淨，不再往上拋。
+		}
 	}
 
 	/// <summary>

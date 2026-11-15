@@ -136,7 +136,8 @@ public partial class ViewCandidatePopup{
 	public partial void MoveTo(PixelPoint Anchor){
 		var X = Anchor.X;
 		var Y = Anchor.Y;
-		var Screen = Screens.Primary;
+		// 依插入點所在的螢幕收邊界：多螢幕時用 Primary 會把副螢幕上的浮窗拉回主螢幕。
+		var Screen = Screens.ScreenFromPoint(Anchor) ?? Screens.Primary;
 		if(Screen is not null){
 			var Area = Screen.WorkingArea;
 			// 先量一次自身尺寸，才知道收進來多少；未顯示時 Bounds 可能為 0，故有下限保護。

@@ -5,6 +5,7 @@ using Ngan.Ime.Infra;
 using Ngan.Ime.Infra.Log;
 using Ngan.Ime.Rime;
 using Ngan.Ime.UI;
+using Ngan.Ime.Windows.Infra;
 using Ngan.Ime.Windows.Voice;
 using Avalonia;
 using Tsinswreng.CsCore;
@@ -45,7 +46,14 @@ sealed class Program{
 	[STAThread]
 	public static void Main(str[] Args){
 		// 常駐模式由選項物件表達，不再用全域可變旗標；同一個實例既進容器、也給裝配用。
+		// 先裝崩潰轉儲：之後不管崩在哪一步，至少會留下一份 dump。
+		CrashDump.Install();
 		var Opt = new OptHost{ DaemonMode = Args.Contains("--tsf") };
+		if (Opt.DaemonMode) {
+			// 常駐模式不理主控台控制事件：否則關掉承載它的終端機／安裝視窗，服務端會被一起帶走，
+			// 而且死得無聲無息（沒有崩潰事件、沒有 dump，看起來就像「輸入法突然沒了」）。
+			ConsoleCtrl.IgnoreControlEvents();
+		}
 		AppComposition.MkServices(new HostBootstrap{
 			AppName = AppName,
 			BaseDir = AppDirBaseDirMgr.Inst,

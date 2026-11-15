@@ -58,6 +58,17 @@ try {
 try { Expand-Archive -Path (Join-Path $In 'reg.zip') -DestinationPath $RegDir -Force } catch { Fail ('解包註冊工具失敗：' + $_.Exception.Message) }
 try { Expand-Archive -Path (Join-Path $In 'tsf.zip') -DestinationPath $TsfDir -Force } catch { Fail ('解包 TSF 失敗：' + $_.Exception.Message) }
 
+# ---- 2.5 版本識別（管道名與註冊都靠它）----
+# 外殼與服務端各自從自己的目錄算出管道名（TsfIpc.PipeNameFor）：先看 identity.txt 的 clsid，
+# 沒有才用目錄。開發時的佈局把兩者放在不同目錄（ngan-tsf / ngan-server-x86），
+# 故必須在兩邊寫同一份 identity.txt，否則外殼永遠連不上服務端。
+# CLSID 用註冊工具的內建值，行為與先前一致（不改變已註冊的 profile）。
+$IdentityClsid = '9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31'
+foreach($D in @($ServerDir, $TsfDir)){
+    Set-Content -LiteralPath (Join-Path $D 'identity.txt') -Value ('clsid=' + $IdentityClsid) -Encoding ASCII
+}
+Log ('已寫入 identity.txt（clsid=' + $IdentityClsid + '）：ngan-tsf / ngan-server-x86')
+
 # ---- 2.5 修正服務端配置裡的本機路徑 ----
 # 部署包裡的 jsonc 是在主機上跑的配置，DllPath 之類會指向主機路徑；
 # 直接啟動會得到 DllNotFoundException 並讓服務端當場退出，故在 guest 內改寫成本機路徑。
@@ -171,6 +182,17 @@ Log ('服務端 pid=' + ($Proc | Select-Object -First 1).Id)
 # 只驗「連通」是不夠的：先前回 R|0|0||0|0（完全沒吃鍵）也會被判成 OK。
 # 現在逐條斷言：版本、是否吃掉、候選數、擡起可解析、F4 方案選單。
 if($Cfg.SkipSmoke -ne '1'){
+    # 管道名按版本算（identity.txt 的 clsid）：與 TsfIpc.PipeNameFrom 同一個演算法。
+    $PipeKey = 'clsid:' + $IdentityClsid
+    # 用 % 2^32 而不是 -band 0xFFFFFFFF：PowerShell 把 0xFFFFFFFF 當成 Int32 的 -1，
+    # 遮罩等於沒做，乘完會溢出成 Int64 而丟掉低位。
+    $PipeHash = [uint32]2166136261
+    foreach($Ch in $PipeKey.ToCharArray()){
+        $PipeHash = [uint32](([uint64]$PipeHash -bxor [uint64][int]$Ch))
+        $PipeHash = [uint32](([uint64]$PipeHash * 16777619) % 4294967296)
+    }
+    $SmokePipeName = ('NganIme.Tsf.v1.{0:x8}' -f $PipeHash)
+    Log ('管道名：' + $SmokePipeName)
     $SmokeLog = Join-Path $WorkDir 'smoke.log'
     $SmokePs1 = Join-Path $In 'do-smoke.ps1'
     @"

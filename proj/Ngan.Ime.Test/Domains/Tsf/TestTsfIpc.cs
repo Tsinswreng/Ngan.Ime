@@ -23,6 +23,7 @@ public class TestTsfIpc : Tester{
 		this.AddTestCase(nameof(Reply_Should_SurviveSeparatorsInText), Reply_Should_SurviveSeparatorsInText!);
 		this.AddTestCase(nameof(Reply_Should_RejectMalformed), Reply_Should_RejectMalformed!);
 		this.AddTestCase(nameof(KeyRequest_Should_RejectMalformed), KeyRequest_Should_RejectMalformed!);
+		this.AddTestCase(nameof(PipeName_Should_DifferPerInstallDir), PipeName_Should_DifferPerInstallDir!);
 	}
 
 	[Doc("""
@@ -130,6 +131,36 @@ public class TestTsfIpc : Tester{
 		T(TsfReply.Parse("R|1|1") is null, "欄位不足應被拒絕");
 		T(TsfReply.Parse("X|1|1|0|0||0|0|") is null, "首欄不是 R 應被拒絕");
 		T(TsfReply.Parse("R|1|1|0|0||9|") is null, "候選數與實際欄位不符應被拒絕");
+		return NIL;
+	}
+
+	[Doc("""
+	管道名要按安裝目錄區分：兩個版本同時安裝時，各自的服務端與外殼才會配對到同一條管道。
+
+	同一目錄（含大小寫與結尾斜線不同）必須得到同一個名稱，否則同一版本的外殼與服務端會互相找不到。
+	""")]
+	public async Task<nil> PipeName_Should_DifferPerInstallDir(obj? O){
+		var T = Assert.IsTrue;
+		var DirA = @"C:\Users\x\AppData\Local\NganIme\v20261115-151236";
+		var DirA2 = @"c:\users\x\appdata\local\nganime\v20261115-151236\";
+
+		// 沒有 identity.txt（開發／手動註冊）時退回舊的固定名稱：兩邊都走這條，故仍能連上。
+		var A = TsfIpc.PipeNameFrom(DirA, IdentityKey: null);
+		var A2 = TsfIpc.PipeNameFrom(DirA2, IdentityKey: null);
+		T(A == A2, $"沒有版本識別時名稱應固定：{A} vs {A2}");
+		T(A == TsfIpc.PipeNamePrefix, $"應退回固定名稱：{A}");
+
+		// 有 identity.txt 時以 CLSID 為鍵：同一版即使分在不同目錄（開發時的 VM 佈局）
+		// 也要算出同一個名稱，否則外殼與服務端永遠連不上。
+		var Sid = "clsid:9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31";
+		var FromShell = TsfIpc.PipeNameFrom(@"C:\vm\apps\ngan-tsf", Sid);
+		var FromServer = TsfIpc.PipeNameFrom(@"C:\vm\apps\ngan-server-x86", Sid);
+		T(FromShell == FromServer, $"同一 CLSID 應得到同一名稱：{FromShell} vs {FromServer}");
+		var Other = TsfIpc.PipeNameFrom(@"C:\vm\apps\ngan-tsf", "clsid:D3A1C7E2-6B4F-4E8A-9C15-7F2B8D4E6A90");
+		T(FromShell != Other, "不同 CLSID 必須得到不同名稱");
+
+		T(A.StartsWith(TsfIpc.PipeNamePrefix, StringComparison.Ordinal), $"名稱應帶前綴：{A}");
+		T(A.Length <= 256, "管道名不可超過 Windows 的上限");
 		return NIL;
 	}
 

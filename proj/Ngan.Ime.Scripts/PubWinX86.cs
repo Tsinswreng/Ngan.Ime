@@ -41,6 +41,9 @@ internal static partial class PubWinX86{
 	/// 複製安裝腳本與說明。
 	private static partial Task<nil> CopyPack(ISCtx Ctx, PubOpts Opts);
 
+	/// 把機器私有的配置放進包裡（與執行檔同層）。
+	private static partial Task<nil> CopyPrivateRes(ISCtx Ctx, PubOpts Opts);
+
 	/// 剝離 .pdb；發布目錄是給人拷走的，偵錯符號對使用者沒有用。
 	private static partial Task<nil> StripSymbols(PubOpts Opts);
 

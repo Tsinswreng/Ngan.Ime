@@ -37,15 +37,18 @@ public sealed class CandidatePopup : ICandidatePopup{
 	顯示或更新浮窗。
 	#Prm[{{nameof(Preedit)}}][組字串。]
 	#Prm[{{nameof(Page)}}][候選頁快照。]
-	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標。]
+	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標；null 表示未知，浮窗保持原位。]
 	""")]
-	public void Show(str Preedit, CandidatePage Page, PixelPoint Anchor){
+	public void Show(str Preedit, CandidatePage Page, PixelPoint? Anchor){
 		Dispatcher.UIThread.Post(() => {
 			try{
 				EnsureWindow();
 				Vm!.Apply(Preedit, Page);
 				Window!.Refresh();
-				Window.MoveTo(Anchor);
+				// 位置未知時不動視窗：寧可留在上一次的位置，也不要把浮窗搬到螢幕原點。
+				if(Anchor is {} Point){
+					Window.MoveTo(Point);
+				}
 			}catch(Exception Ex){
 				// 浮窗壞掉不該拖垮輸入：記日誌、收起，下次按鍵再試。
 				AppLog.Error(Ex, "[CandidatePopup] 顯示失敗");

@@ -462,3 +462,7 @@ TestAvln12
 
 # DeployWinVm 的 staging 產物與抓回的日誌（可重建）
 scripts/win-vm/out/
+
+# 機器私有配置（各機的路徑不同，不進版控）。
+# 建置與發布時由 Ngan.Ime.Windows.csproj 的 Content 項自動複製到輸出目錄（服務端以 exe 目錄為根）。
+proj/Ngan.Ime.Frontend/Ngan.Ime.Windows/ExternalRsrc.Private/

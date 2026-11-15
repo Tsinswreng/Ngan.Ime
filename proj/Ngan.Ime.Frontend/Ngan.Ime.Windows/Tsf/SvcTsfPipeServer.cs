@@ -234,7 +234,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	#Rtn[回應行。]
 	""")]
 	async Task<str> HandleKeyAsync(TsfKeyRequest Req, CT Ct){
-		var Key = Resolve(Req.VirtualKey);
+		var Key = Resolve(Req.VirtualKey, Req.Scan, Req.Ext);
 		if(Key is null){
 			// 認不出來的鍵不算錯誤：回「沒吃掉」，由系統交給前景應用。
 			// 此時不動候選窗，否則按一下未登記的鍵就會把組字中的候選閃掉。
@@ -324,8 +324,30 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		Popup.Show(Reply.Preedit, Page, Anchor);
 	}
 
-	[Doc("把虛擬鍵碼還原成鍵；未登記的鍵回 null（回報「沒吃掉」）。")]
-	static IKeyChar? Resolve(i32 Vk){
+	[Doc($$"""
+	把請求還原成一個鍵。
+	#Prm[{{nameof(Vk)}}][Win32 虛擬鍵碼。]
+	#Prm[{{nameof(Scan)}}][掃描碼；0 表示外殼沒提供。]
+	#Prm[{{nameof(Ext)}}][擴展鍵位。]
+	#Rtn[對應的鍵；未登記的鍵回 null（回報「沒吃掉」）。]
+	""")]
+	/// <remarks>
+	/// *為何需要掃描碼*：`VK_SHIFT` 對左右 Shift 是同一個值（0x10），
+	/// 但「左 Shift 切英文、右 Shift 切中文」是很常見的配置。
+	/// 協定第 2 版起外殼會帶掃描碼與擴展鍵位，這裡據此把左右分開；
+	/// 舊版外殼沒有這兩欄（Scan 為 0），退回原本「左右不分、一律算左邊」的行為。
+	/// </remarks>
+	static IKeyChar? Resolve(i32 Vk, i32 Scan, i32 Ext){
+		if(Scan != 0){
+			switch(Scan){
+				case 0x2A: return KeyChars.Shift_L;
+				case 0x36: return KeyChars.Shift_R;
+				case 0x1D: return Ext != 0 ? KeyChars.Ctrl_R : KeyChars.Ctrl_L;
+				case 0x38: return Ext != 0 ? KeyChars.Alt_R : KeyChars.Alt_L;
+				case 0x5B: return KeyChars.Meta_L;
+				case 0x5C: return KeyChars.Meta_L;
+			}
+		}
 		return KeyEventConverter.Inst.KeyByVk.GetValueOrDefault(Vk);
 	}
 }

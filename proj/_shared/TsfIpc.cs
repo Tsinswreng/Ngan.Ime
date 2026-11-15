@@ -32,7 +32,15 @@ TSF 外殼與服務端之間的管道契約：管道名、請求與回應的型�
 public static class TsfIpc{
 
 	[Doc("協議版本；請求與回應都帶這一欄。")]
-	public const i32 Version = 1;
+	/// <summary>
+	/// 協議版本。
+	/// </summary>
+	/// <remarks>
+	/// 2：按鍵請求多了掃描碼與擴展鍵位兩個欄位。理由是同一個 `VK_SHIFT`（0x10）分不出左右，
+	/// 而左右 Shift 各自綁不同行為（例如左 Shift 切英文、右 Shift 切中文）是很常見的用法。
+	/// 舊版請求沒有這兩個欄位，解析時補 0。
+	/// </remarks>
+	public const i32 Version = 2;
 
 	[Doc($$"""
 	管道名稱的前綴。
@@ -258,15 +266,22 @@ public sealed class TsfKeyRequest{
 	[Doc("true 表示擡起，false 表示按下。")]
 	public bool IsUp{get;set;}
 
+	[Doc("掃描碼（lParam 第 16 到 23 位）。用來分辨左右 Shift／Ctrl／Alt；0 表示未知。")]
+	public i32 Scan{get;set;}
+
+	[Doc("擴展鍵位（lParam 第 24 位）。右 Ctrl／右 Alt 靠它與左邊區分。")]
+	public i32 Ext{get;set;}
+
 	[Doc($$"""
 	序列化成一行。
-	#Rtn[請求行；按鍵為 `K|<ver>|<vk>|<mods>|<x>|<y>|<0或1>`，收起為 `H|<ver>`。]
+	#Rtn[請求行；按鍵為 `K|<ver>|<vk>|<mods>|<x>|<y>|<0或1>|<scan>|<ext>`，收起為 `H|<ver>`。]
 	""")]
 	public str Format(){
 		if(Kind == ETsfReqKind.Hide){
 			return TsfIpc.HideTag + "|" + Ver;
 		}
-		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0");
+		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0")
+			+ "|" + Scan + "|" + Ext;
 	}
 
 	[Doc($$"""
@@ -308,6 +323,9 @@ public sealed class TsfKeyRequest{
 			}
 			IsUp = State == 1;
 		}
+		// 掃描碼與擴展鍵位是版本 2 才有的欄位；舊版外殼沒有它們，補 0 即可。
+		var Scan = Parts.Length > 7 ? (TsfIpc.ParseInt(Parts[7]) ?? 0) : 0;
+		var Ext = Parts.Length > 8 ? (TsfIpc.ParseInt(Parts[8]) ?? 0) : 0;
 		return new TsfKeyRequest{
 			Ver = Ver.Value,
 			Kind = ETsfReqKind.Key,
@@ -316,6 +334,8 @@ public sealed class TsfKeyRequest{
 			X = X,
 			Y = Y,
 			IsUp = IsUp,
+			Scan = Scan,
+			Ext = Ext,
 		};
 	}
 }

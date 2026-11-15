@@ -474,53 +474,78 @@ internal static unsafe partial class NativeTsf {
     /// <param name="IsUp">true 表示擡起。</param>
     /// <param name="IsTest">true 表示來自 OnTestKeyXxx（結果要留給 OnKeyXxx 領）。</param>
     /// <param name="IsEaten">回報給 TSF 的「是否吃掉」。</param>
-    private static void HandleKeyEvent(TsfState State, IntPtr Context, int VirtualKey, bool IsUp, bool IsTest, int* IsEaten) {
-        // step 1: 結算反方向尚未領走的徵詢結論（應用可能只送其中一半的事件）。
-        State.Policy.SettleOpposite(IsUp);
-        // step 2: 排一次插入點量測（非同步；量到的位置給下一次顯示用）。
-        BeginCaretMeasure(State, Context);
-        // step 3: 修飾鍵一律放行，不問引擎、不記錄。
-        if (TsfKeyPolicy.IsPassThrough(VirtualKey)) {
-            *IsEaten = 0;
-            return;
-        }
-        var Cached = IsUp ? State.ReplyUp : State.ReplyDown;
-        if (IsTest) {
-            // 同一顆鍵的重複徵詢：沿用上一次的結論，不再送管道（否則引擎會處理兩次）。
-            if (State.Policy.TryReuseTest(IsUp, VirtualKey)) {
-                *IsEaten = 1;
+    private static void HandleKeyEvent(TsfState State, IntPtr Context, int VirtualKey, bool IsUp, bool IsTest, IntPtr LParam, int* IsEaten) {
+        *IsEaten = 0;
+        var Mods = GetModifiers();
+        // lParam 第 16 到 23 位是掃描碼、第 24 位是擴展鍵位：
+        // VK_SHIFT 對左右是同一個值，只有靠掃描碼才分得出 El 左 Shift 與右 Shift。
+        var Scan = (int)((LParam.ToInt64() >> 16) & 0xFF);
+        var Ext = (int)((LParam.ToInt64() >> 24) & 1);
+        TsfReply? Reply = null;
+        try {
+            // step 1: 結算反方向尚未領走的徵詢結論（應用可能只送其中一半的事件）。
+            State.Policy.SettleOpposite(IsUp);
+            // step 2: 排一次插入點量測（非同步；量到的位置給下一次顯示用）。
+            BeginCaretMeasure(State, Context);
+            // step 3: 修飾鍵不參與吃鍵決策，但 Shift 要送給引擎。
+            // Rime 的中英切換與 `hold: Shift_L` 這類綁定全靠 Shift 的按下與鬆開；
+            // 先前把修飾鍵整批擋在門外（連問都不問），結果是引擎永遠收不到 Shift，
+            // 左右 Shift 切換中英因此完全失效（2026-11-15 使用者回報）。
+            // Ctrl／Alt／Win／CapsLock 仍然不送：引擎用不到，送進去只會給它機會吃掉應用快捷鍵。
+            if (TsfKeyPolicy.IsPassThrough(VirtualKey)) {
+                if (VirtualKey is TsfKeyPolicy.VkShift or TsfKeyPolicy.VkLShift or TsfKeyPolicy.VkRShift) {
+                    ResolveKeyAnchor(State, out var ModAnchorX, out var ModAnchorY);
+                    Reply = QueryKey(VirtualKey, Mods, ModAnchorX, ModAnchorY, IsUp, Scan, Ext);
+                }
+                *IsEaten = 0;
                 return;
             }
-            Cached = null;
-        }
-        else if (State.Policy.TryTakeKey(IsUp, VirtualKey, out var PendingEaten)) {
-            // 徵詢已經問過，這裡只領結果，不再問引擎。
-            *IsEaten = PendingEaten ? 1 : 0;
-            if (Cached is not null) {
-                // 有 commit 就上屏：吃不吃是「按鍵歸誰」的問題，上屏是「字有沒有進去」的問題。
-                CommitIfAny(State, Context, Cached);
+            var Cached = IsUp ? State.ReplyUp : State.ReplyDown;
+            if (IsTest) {
+                // 同一顆鍵的重複徵詢：沿用上一次的結論，不再送管道（否則引擎會處理兩次）。
+                if (State.Policy.TryReuseTest(IsUp, VirtualKey)) {
+                    *IsEaten = 1;
+                    return;
+                }
+                Cached = null;
+            }
+            else if (State.Policy.TryTakeKey(IsUp, VirtualKey, out var PendingEaten)) {
+                // 徵詢已經問過，這裡只領結果，不再問引擎。
+                *IsEaten = PendingEaten ? 1 : 0;
+                Reply = Cached;
+                if (Cached is not null) {
+                    // 上屏只在「執行」這條路徑做一次。
+                    // 先前徵詢那條也上屏，同一份回應因此被插進文件兩次（同字重複上屏）。
+                    CommitIfAny(State, Context, Cached);
+                    ClearReply(State, IsUp);
+                }
+                return;
+            }
+            ResolveKeyAnchor(State, out var AnchorX, out var AnchorY);
+            Reply = QueryKey(VirtualKey, Mods, AnchorX, AnchorY, IsUp, Scan, Ext);
+            var Eat = State.Policy.DecideEat(VirtualKey, IsUp, Reply is { Eaten: true });
+            *IsEaten = Eat ? 1 : 0;
+            if (Eat) {
+                // 只有吃掉才需要把結果留給 OnKeyXxx；沒吃掉時應用的按鍵照常走，不必再問一次。
+                SetReply(State, IsUp, Reply);
+            }
+            else {
                 ClearReply(State, IsUp);
             }
-            LogKey(IsUp, IsTest, VirtualKey, *IsEaten, Cached);
-            return;
+            if (!IsTest && Reply is not null) {
+                // 兩條上屏路徑只留這一條：
+                // + 應用送「徵詢 → 執行」時，上屏發生在執行那條（上面 TryTakeKey 的分支）；
+                // + 應用只送「執行」時，上屏發生在這裏。
+                CommitIfAny(State, Context, Reply);
+            }
+            if (IsTest && Eat) {
+                State.Policy.SetTest(IsUp, VirtualKey, true);
+            }
         }
-        ResolveKeyAnchor(State, out var AnchorX, out var AnchorY);
-        var Reply = QueryKey(VirtualKey, GetModifiers(), AnchorX, AnchorY, IsUp);
-        var Eat = State.Policy.DecideEat(VirtualKey, IsUp, Reply is { Eaten: true });
-        *IsEaten = Eat ? 1 : 0;
-        if (Eat) {
-            // 只有吃掉才需要把結果留給 OnKeyXxx；沒吃掉時應用的按鍵照常走，不必再問一次。
-            SetReply(State, IsUp, Reply);
-        } else {
-            ClearReply(State, IsUp);
+        finally {
+            // 每一條返回路徑都留一行；修飾鍵提早放行那條也記，否則看不到 Alt 的 down／up。
+            DiagKey(VirtualKey, Mods, IsUp, IsTest, LParam, *IsEaten, Reply);
         }
-        if (Reply is not null) {
-            CommitIfAny(State, Context, Reply);
-        }
-        if (IsTest && Eat) {
-            State.Policy.SetTest(IsUp, VirtualKey, true);
-        }
-        LogKey(IsUp, IsTest, VirtualKey, *IsEaten, Reply);
     }
 
     /// <summary>記下這一顆鍵的引擎回應，等對向回調領取。</summary>
@@ -559,7 +584,7 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, true, IsEaten);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, true, LParam, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
@@ -576,7 +601,7 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, false, IsEaten);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), false, false, LParam, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
@@ -593,7 +618,7 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, true, IsEaten);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, true, LParam, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {
@@ -610,7 +635,7 @@ internal static unsafe partial class NativeTsf {
                 *IsEaten = 0;
                 return EFail;
             }
-            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, false, IsEaten);
+            HandleKeyEvent(State, Context, (int)WParam.ToInt64(), true, false, LParam, IsEaten);
             return SOk;
         }
         catch (Exception Exception) {

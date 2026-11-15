@@ -24,6 +24,7 @@ public class TestTsfIpc : Tester{
 		this.AddTestCase(nameof(Reply_Should_RejectMalformed), Reply_Should_RejectMalformed!);
 		this.AddTestCase(nameof(KeyRequest_Should_RejectMalformed), KeyRequest_Should_RejectMalformed!);
 		this.AddTestCase(nameof(PipeName_Should_DifferPerInstallDir), PipeName_Should_DifferPerInstallDir!);
+		this.AddTestCase(nameof(KeyRequest_Should_CarryScanCode), KeyRequest_Should_CarryScanCode!);
 	}
 
 	[Doc("""
@@ -38,6 +39,22 @@ public class TestTsfIpc : Tester{
 		T(Back.Mods == TsfIpc.ModShift, "修飾位應保留");
 		T(Back.X == 100 && Back.Y == 200, "座標應保留");
 		T(Back.Ver == TsfIpc.Version, "版本應為當前版本");
+		return NIL;
+	}
+
+	[Doc("""
+	掃描碼與擴展鍵位要能原樣往返：左右 Shift 的區分完全靠這兩個欄位。
+	""")]
+	public async Task<nil> KeyRequest_Should_CarryScanCode(obj? O){
+		var T = Assert.IsTrue;
+		var Right = new TsfKeyRequest{ VirtualKey = 0x10, Scan = 0x36, Ext = 0 };
+		var Back = TsfKeyRequest.Parse(Right.Format());
+		T(Back is not null, "請求應可解析");
+		T(Back!.Scan == 0x36, $"掃描碼應為 0x36，實際 0x{Back.Scan:X}");
+		T(Back.Ext == 0, "擴展鍵位應為 0");
+		// 舊版（只有六欄）仍要能解析，缺的欄位補 0。
+		var Old = TsfKeyRequest.Parse("K|1|65|0|10|20");
+		T(Old is not null && Old.Scan == 0 && Old.Ext == 0, "舊版請求應補 0 而不是被拒絕");
 		return NIL;
 	}
 
@@ -58,8 +75,8 @@ public class TestTsfIpc : Tester{
 	""")]
 	public async Task<nil> KeyRequest_Should_RejectBadDirection(obj? O){
 		var T = Assert.IsTrue;
-		T(TsfKeyRequest.Parse("K|1|65|0|0|0|7") is null, "方向 7 應被拒絕");
-		T(TsfKeyRequest.Parse("K|1|65|0|0|0|x") is null, "方向非數字應被拒絕");
+		T(TsfKeyRequest.Parse("K|2|65|0|0|0|7") is null, "方向 7 應被拒絕");
+		T(TsfKeyRequest.Parse("K|2|65|0|0|0|x") is null, "方向非數字應被拒絕");
 		return NIL;
 	}
 
@@ -83,7 +100,7 @@ public class TestTsfIpc : Tester{
 		var Back = TsfKeyRequest.Parse(Req.Format());
 		T(Back is not null, "收起請求應可解析");
 		T(Back!.Kind == ETsfReqKind.Hide, "種類應為收起");
-		T(Req.Format() == "H|1", $"收起請求應為 H|1，實際 {Req.Format()}");
+		T(Req.Format() == "H|" + TsfIpc.Version, $"收起請求應為 H|{TsfIpc.Version}，實際 {Req.Format()}");
 		return NIL;
 	}
 

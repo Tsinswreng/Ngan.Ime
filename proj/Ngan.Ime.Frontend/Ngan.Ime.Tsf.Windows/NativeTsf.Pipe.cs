@@ -107,7 +107,7 @@ internal static unsafe partial class NativeTsf {
 	/// <param name="Y">插入點螢幕 Y。</param>
 	/// <param name="IsUp">true 表示擡起。</param>
 	/// <returns>服務端的回應；連不上、逾時或回應壞掉時為 null。</returns>
-	private static TsfReply? QueryKey(int VirtualKey, int Mods, int X, int Y, bool IsUp) {
+	private static TsfReply? QueryKey(int VirtualKey, int Mods, int X, int Y, bool IsUp, int Scan, int Ext) {
 		lock (PipeLock) {
 			// 服務端剛失敗過就先不試：這段路徑在 UI 執行緒上，等不起。
 			if (Environment.TickCount64 < RetryAfterTick) {
@@ -125,6 +125,8 @@ internal static unsafe partial class NativeTsf {
 						X = X,
 						Y = Y,
 						IsUp = IsUp,
+						Scan = Scan,
+						Ext = Ext,
 					};
 					PipeWriter!.WriteLine(Req.Format());
 					var Line = ReadLineWithTimeout();

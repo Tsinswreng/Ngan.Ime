@@ -16,7 +16,7 @@ using System.Runtime.InteropServices.Marshalling;
 /// 6 是 SetSelection，少算它一格就會把 9 的 GetActiveView 指到 8 的 GetEnd。
 /// </remarks>
 [GeneratedComInterface]
-[Guid("5188183E-B383-488A-9FE0-F5C12E8A8B5F")]
+[Guid("AA80E7FD-2021-11D2-93E0-0060B067B86E")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal partial interface ITfContextGen {
 	/// <summary>排入一次編輯會話；`Pes` 是手寫的 ITfEditSession 介面指標。</summary>

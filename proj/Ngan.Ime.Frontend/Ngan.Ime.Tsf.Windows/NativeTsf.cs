@@ -138,7 +138,9 @@ internal static unsafe partial class NativeTsf {
 
         RegisterCfgTargets();
         AddVectoredExceptionHandler(1, (IntPtr)(delegate* unmanaged<IntPtr, int>)&VectoredExceptionHandler);
-        Log("NativeTsf static init pid=" + Environment.ProcessId);
+        // 一律落盤：行程一載入這支 DLL 就留一行，連「TSF 有沒有來要 class factory」都還沒發生。
+        // 排查「某個應用切不過來」時，這一行有沒有出現就是第一個分界。
+        LogWarn("shell loaded pid=" + Environment.ProcessId + " path=" + (GetOwnModulePath() is { Length: > 0 } P ? P : "?"));
     }
 
     /// <summary>單一文字服務執行個體的狀態；兩個介面指標共用同一份參考計數。</summary>
@@ -203,7 +205,7 @@ internal static unsafe partial class NativeTsf {
     [UnmanagedCallersOnly(EntryPoint = "DllGetClassObject")]
     private static int DllGetClassObject(Guid* Rclsid, Guid* Riid, IntPtr* Ppv) {
         try {
-            Log("DllGetClassObject");
+            LogWarn("DllGetClassObject pid=" + Environment.ProcessId + " clsid=" + *Rclsid + " riid=" + *Riid);
             if (Rclsid is null || Riid is null || Ppv is null) {
                 return EInvalidArg;
             }
@@ -315,7 +317,7 @@ internal static unsafe partial class NativeTsf {
             if (Outer != IntPtr.Zero) {
                 return ENoAggregation;
             }
-            Log("CreateInstance riid=" + *Riid);
+            LogWarn("CreateInstance riid=" + *Riid);
             var State = new TsfState();
             State.TipView = MakeView(TipVtbl, State, out var TipHandle);
             State.TipHandle = TipHandle;
@@ -328,13 +330,16 @@ internal static unsafe partial class NativeTsf {
 
             if (*Riid == IidIUnknown || *Riid == IidTextInputProcessor) {
                 *Ppv = State.TipView;
+                LogWarn("CreateInstance ok tip=" + State.TipView.ToString("X"));
                 return SOk;
             }
             if (*Riid == IidKeyEventSink) {
                 *Ppv = State.SinkView;
+                LogWarn("CreateInstance ok sink=" + State.SinkView.ToString("X"));
                 return SOk;
             }
             *Ppv = IntPtr.Zero;
+            LogWarn("CreateInstance E_NOINTERFACE riid=" + *Riid);
             return ENoInterface;
         }
         catch (Exception Exception) {
@@ -374,6 +379,7 @@ internal static unsafe partial class NativeTsf {
                 ReleaseCom(KeystrokeMgr);
                 return EFail;
             }
+            LogWarn("Activate QI(ITfKeystrokeMgr) ok mgr=" + KeystrokeMgr.ToString("X"));
             Hr = KsGen.AdviseKeyEventSink(ClientId, State.SinkView, 1);
             if (Hr < 0) {
                 LogError("Activate AdviseKeyEventSink hr=0x" + Hr.ToString("X8"));
@@ -381,7 +387,7 @@ internal static unsafe partial class NativeTsf {
                 return Hr;
             }
             State.KeystrokeMgr = KeystrokeMgr;
-            Log("Activate ok clientId=" + ClientId);
+            LogWarn("Activate ok clientId=" + ClientId + " pid=" + Environment.ProcessId);
             return SOk;
         }
         catch (Exception Exception) {
@@ -407,7 +413,7 @@ internal static unsafe partial class NativeTsf {
             State.Policy.Reset();
             CancelCaretMeasure(State);
             SendHide();
-            Log("Deactivate done");
+            LogWarn("Deactivate done clientId=" + State.ClientId);
             return SOk;
         }
         catch (Exception Exception) {

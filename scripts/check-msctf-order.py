@@ -41,6 +41,22 @@ def header_methods(text: str, name: str):
 	return re.findall(r"STDMETHODCALLTYPE\s+(\w+)\s*\(", block)
 
 
+def header_iid(text: str, name: str):
+	"""取出頭文件裡某個介面的 IID。"""
+	start = re.search(r'MIDL_INTERFACE\("([0-9a-fA-F-]+)"\)\s*\n%s\s*:' % re.escape(name), text)
+	return start.group(1).upper() if start else None
+
+
+def cs_iid(text: str, name: str):
+	"""取出 C# 介面宣告上的 Guid 屬性（往回找最近的一個 Guid）。"""
+	decl = re.search(r'interface\s+%s\b' % re.escape(name), text)
+	if not decl:
+		return None
+	head = text[max(0, decl.start() - 600): decl.start()]
+	guids = re.findall(r'\[Guid\("([0-9A-Fa-f-]+)"\)\]', head)
+	return guids[-1].upper() if guids else None
+
+
 def cs_methods(text: str, name: str):
 	"""取出 C# 介面裡 [PreserveSig] 方法的序列。"""
 	start = re.search(r"interface\s+%s\b" % re.escape(name), text)
@@ -80,6 +96,17 @@ def main() -> int:
 			print(f"[FAIL] {cs_name} 沒有宣告任何方法")
 			failed += 1
 			continue
+		want_iid = header_iid(header, h_name)
+		got_iid = cs_iid(cs, cs_name)
+		if want_iid and got_iid and want_iid != got_iid:
+			print(f"[FAIL] {cs_name} 的 IID 是 {got_iid}，頭文件是 {want_iid}")
+			failed += 1
+			continue
+		if want_iid and not got_iid:
+			print(f"[FAIL] {cs_name} 沒有 Guid 屬性，頭文件是 {want_iid}")
+			failed += 1
+			continue
+
 		bad = None
 		for index, name in enumerate(got):
 			if index >= len(want):

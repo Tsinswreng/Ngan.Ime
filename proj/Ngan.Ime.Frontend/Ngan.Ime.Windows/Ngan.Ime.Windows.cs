@@ -50,8 +50,19 @@ sealed class Program{
 		CrashDump.Install();
 		var Opt = new OptHost{ DaemonMode = Args.Contains("--tsf") };
 		if (Opt.DaemonMode) {
-			// 常駐模式不理主控台控制事件：否則關掉承載它的終端機／安裝視窗，服務端會被一起帶走，
-			// 而且死得無聲無息（沒有崩潰事件、沒有 dump，看起來就像「輸入法突然沒了」）。
+			// 單實例：照 Weasel 的 `ServerImpl::Start`——已有同名互斥就直接退出。
+			// 外殼在探測失敗六次之後會自動拉起服務端，幾十個應用會同時去拉；
+			// 沒有這道互斥就會起來好幾支，各自開一個 Rime 引擎搶同一份 user data。
+			if (!SingleInstance.TryAcquire()) {
+				Console.Error.WriteLine("[Program] 這個安裝目錄已經有一個服務端在跑，本次啟動退出。");
+				return;
+			}
+			// 常駐模式不要有主控台：關掉承載它的終端機／安裝視窗會送 CTRL_CLOSE_EVENT，
+			// 系統仍會結束行程（SetConsoleCtrlHandler 擋不住），而且死得無聲無息
+			// （沒有崩潰事件、沒有 dump，看起來就像「輸入法突然沒了」）。
+			// Weasel 的服務端本來就是沒有主控台的 GUI 程式，這裡用 FreeConsole 達到同樣狀態。
+			ConsoleCtrl.Detach();
+			// 保險：若 Detach 失敗（沒有主控台或 FreeConsole 失敗），至少讓 Ctrl+C／Ctrl+Break 不生效。
 			ConsoleCtrl.IgnoreControlEvents();
 		}
 		AppComposition.MkServices(new HostBootstrap{

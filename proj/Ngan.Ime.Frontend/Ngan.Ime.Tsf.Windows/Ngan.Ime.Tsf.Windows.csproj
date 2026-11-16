@@ -25,6 +25,8 @@
 		     （兩者都只依賴 BCL，故外殼不需要任何托管庫）。 -->
 		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfIpc.cs" />
 		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfKeyPolicy.cs" />
+		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfCompositionPlanner.cs" />
+		<Compile Include="$(MSBuildThisFileDirectory)../../_shared/TsfCaretPolicy.cs" />
 	</ItemGroup>
 
 </Project>

@@ -28,7 +28,9 @@ public partial class ViewCandidatePopup{
 		Background = UiCfg.Inst.PopupBgColor;
 		TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
 		MkContent();
-		Vm.PropertyChanged += (_, _) => Refresh();
+		// 只訂閱「一份快照套完」這一個事件，不逐屬性訂閱：Apply 會改四個屬性，
+		// 逐屬性通知等於一顆鍵刷新四次（見 VmCandidatePopup.Applied 的註釋）。
+		Vm.Applied += Refresh;
 	}
 
 	[Doc("建立「組字列 ＋ 候選行容器」的控件樹。")]
@@ -137,7 +139,10 @@ public partial class ViewCandidatePopup{
 		var X = Anchor.X;
 		var Y = Anchor.Y;
 		// 依插入點所在的螢幕收邊界：多螢幕時用 Primary 會把副螢幕上的浮窗拉回主螢幕。
-		var Screen = Screens.ScreenFromPoint(Anchor) ?? Screens.Primary;
+		// `Screens` 在視窗還沒有 platform impl 時可以是 null，那時直接照原座標放，不要拋
+		// （拋了會被 CandidatePopup.Show 的 catch 接住，使用者看到的是「浮窗閃一下就不見」）。
+		var Screens = this.Screens;
+		var Screen = Screens?.ScreenFromPoint(Anchor) ?? Screens?.Primary;
 		if(Screen is not null){
 			var Area = Screen.WorkingArea;
 			// 先量一次自身尺寸，才知道收進來多少；未顯示時 Bounds 可能為 0，故有下限保護。

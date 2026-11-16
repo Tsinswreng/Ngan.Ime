@@ -31,15 +31,20 @@ TSF 外殼與服務端之間的管道契約：管道名、請求與回應的型�
 """)]
 public static class TsfIpc{
 
-	[Doc("協議版本；請求與回應都帶這一欄。")]
-	/// <summary>
-	/// 協議版本。
-	/// </summary>
-	/// <remarks>
-	/// 2：按鍵請求多了掃描碼與擴展鍵位兩個欄位。理由是同一個 `VK_SHIFT`（0x10）分不出左右，
-	/// 而左右 Shift 各自綁不同行為（例如左 Shift 切英文、右 Shift 切中文）是很常見的用法。
-	/// 舊版請求沒有這兩個欄位，解析時補 0。
-	/// </remarks>
+	[Doc($$"""
+	協議版本；請求與回應都帶這一欄。
+
+	2：按鍵請求多了掃描碼與擴展鍵位兩個欄位。理由是同一個 `VK_SHIFT`（0x10）分不出左右，
+	而左右 Shift 各自綁不同行為（例如左 Shift 切英文、右 Shift 切中文）是很常見的用法。
+	舊版請求沒有這兩個欄位，解析時補 0。
+
+	*版本必須相等*：服務端對 `Ver != Version` 一律回 `ETsfErr.UnsupportedVersion`（`eaten = false`），
+	並記一次 Warn（含雙方版本）。這不是保守，而是版本化安裝的前提：
+	每個安裝目錄有自己的 `identity.txt`、管道名與服務端，外殼與服務端永遠是同一次發布的產物，
+	版本天生一致；不一致只代表有人把不同版本的檔案混進同一個目錄。
+	解析端仍然容忍欄位短缺（見 `Parse`），那是為了讓同一版內的舊格式字串還能讀，不是跨版本相容。
+
+	""")]
 	public const i32 Version = 2;
 
 	[Doc($$"""
@@ -74,19 +79,20 @@ public static class TsfIpc{
 	#Rtn[形如 `NganIme.Tsf.v1.1a2b3c4d` 的管道名稱。]
 	""")]
 	public static str PipeNameFor(str BaseDir){
-		return PipeNameFrom(BaseDir, ReadIdentityKey(BaseDir));
+		return PipeNameFrom(ReadIdentityKey(BaseDir));
 	}
 
 	[Doc($$"""
-	由目錄與（可空的）版本識別算出管道名稱；純函數，方便測試。
-	#Prm[{{nameof(BaseDir)}}][組件所在目錄。]
+	由版本識別（可空）算出管道名稱；純函數，方便測試。
 	#Prm[{{nameof(IdentityKey)}}][本版識別（通常是 `clsid:<GUID>`）；null 表示沒有 identity.txt。]
 	#Rtn[管道名稱。]
 	""")]
-	public static str PipeNameFrom(str BaseDir, str? IdentityKey){
+	public static str PipeNameFrom(str? IdentityKey){
 		var Key = IdentityKey;
 		if(string.IsNullOrEmpty(Key)){
 			// 開發／手動註冊：沒有版本識別，沿用舊的固定名稱（兩邊都走這條，故仍能連上）。
+			// 注意：這裡刻意**不**用目錄名當鍵——外殼與服務端在開發佈局裡分處兩個目錄
+			// （`bin/Debug/net10.0` 與 `bin/Debug/net10.0/win-x86`），用目錄雜湊會各算一個名字而永遠連不上。
 			return PipeNamePrefix;
 		}
 		// FNV-1a 32 位元：不需要加密強度，只需要「同一鍵穩定、不同鍵幾乎不撞」。
@@ -127,7 +133,8 @@ public static class TsfIpc{
 				}
 			}
 		}catch{
-			// 讀不到就退回目錄鍵：一個小檔案的 IO 失敗不該讓輸入法連不上。
+			// 讀不到（權限、檔案半寫入）就當作「沒有版本識別」，退回**固定前綴**的名稱
+			// （不是目錄雜湊），與檔案不存在時的行為一致。
 		}
 		return null;
 	}
@@ -193,7 +200,7 @@ public static class TsfIpc{
 		return null;
 	}
 
-	[Doc("把欄位切成單行；去除尾端多餘的空欄（格式末尾總有一個 `|`）。")]
+	[Doc("把一行切成欄位；尾端的空欄（`Format` 固定以 `|` 結尾）由各解析器自行忽略，這裡不做修剪。")]
 	internal static str[] Split(str Line){
 		return Line.Split('|');
 	}

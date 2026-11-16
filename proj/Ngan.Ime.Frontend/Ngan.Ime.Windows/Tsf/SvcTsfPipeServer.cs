@@ -1,9 +1,6 @@
 namespace Ngan.Ime.Windows.Tsf;
 
 using System.Collections.Generic;
-using System.IO.Pipes;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,12 +42,6 @@ TSF 管道服務端：按鍵經具名管道送進來，交給引擎處理，再�
 """)]
 public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 
-	[Doc("最大同時連線數；每個應用行程各持一條。")]
-	const i32 MaxConnections = 16;
-
-	[Doc("接受連線失敗後的重試間隔（ms），避免忙等。")]
-	const i32 RetryDelayMs = 50;
-
 	[Doc("引擎輸入入口。")]
 	readonly IImeInput Input;
 
@@ -63,14 +54,11 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("串行化引擎存取：多個應用各自持有一條連線，但引擎只有一個會話。")]
 	readonly SemaphoreSlim EngineLock = new(1, 1);
 
-	[Doc("本安裝專屬的管道名稱：由服務端 exe 所在目錄算出，與同層的外殼算出同一個名稱。")]
-	static str PipeName => field ??= TsfIpc.PipeNameFor(AppContext.BaseDirectory);
+	[Doc("管道監聽端；只負責收發一行字，不碰協議與引擎。")]
+	readonly TsfPipeListener Listener = new(TsfIpc.PipeNameFor(AppContext.BaseDirectory));
 
 	[Doc("診斷模式：環境變數 NGAN_TSF_TIMING=1 時，逐鍵記錄耗時與座標（平時不記，避免日誌爆量）。")]
 	static readonly bool TimingEnabled = System.Environment.GetEnvironmentVariable("NGAN_TSF_TIMING") == "1";
-
-	[Doc("監聽迴圈的取消源；Start 時建立、Stop 時取消。")]
-	CancellationTokenSource? LoopCts;
 
 	[Doc("是否已啟動；保證 Start 冪等。")]
 	bool Started;
@@ -85,125 +73,95 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		this.Popup = Popup;
 	}
 
-	[Doc("開始監聽並嘗試連接引擎；重複呼叫無副作用。")]
+	[Doc($$"""
+	初始化引擎之後才開始監聽；重複呼叫無副作用。
+
+	*順序照 Weasel*：`WeaselServerApp::Run` 先 `m_handler->Initialize()`（Rime 初始化），
+	之後才 `m_server.Run()` 起管道監聽執行緒。反過來（先監聽、引擎在另一條 Task 裡連）
+	會讓啟動那一到兩秒內進來的按鍵全部排在 `EngineLock` 上，而外殼那一端是無逾時阻塞讀——
+	每一個正在打字的應用都會凍住，直到初始化結束。初始化期間管道根本不存在，
+	外殼的探測會立刻失敗（`Connect` 直接拋），按鍵即時交還給應用，這才是正確的行為。
+
+	*初始化失敗仍要監聽*：按鍵會拿到 {{nameof(ETsfErr.EngineFailed)}} 並被放行，
+	服務端不會變成「界面在、管道不在」的殭屍；下一次按鍵會再按需初始化一次。
+
+	*引擎鎖仍然共用*：引擎的 setup／initialize 不是執行緒安全的，初始化與按鍵處理
+	必須在同一把鎖下，否則會初始化同一個引擎兩次（輕則會話沒有方案，重則原生層存取違規）。
+	""")]
 	public void Start(){
 		lock(LifecycleGate){
 			if(Started){
 				return;
 			}
 			Started = true;
-			LoopCts = new CancellationTokenSource();
-			var Ct = LoopCts.Token;
-			_ = Task.Run(() => AcceptLoopAsy(Ct), Ct);
-			// 主動連接一次，讓界面狀態反映實情；失敗也不影響之後按需初始化。
-			// *必須與按鍵處理共用同一把引擎鎖*：引擎的 setup／initialize 不是執行緒安全的，
-			// 這裡若與首次按鍵的按需初始化並行，就會初始化同一個引擎兩次；
-			// 輕則會話沒有方案（按鍵全部不處理），重則原生層存取違規直接崩掉。
 			_ = Task.Run(async () => {
-				var Locked = false;
 				try{
-					await EngineLock.WaitAsync(Ct);
-					Locked = true;
-					await Input.ConnectAsy(Ct);
-				}catch(OperationCanceledException){
-					// Stop 之後才拿到取消：正常結束，不是錯誤。
-				}catch(Exception Ex){
-					AppLog.Error(Ex, "[TsfPipe] 連接引擎失敗，將在首次按鍵時重試");
-				}finally{
-					// 只有真的拿到鎖才釋放，否則會在 Stop 之後多減一次。
-					if(Locked){
+					await EngineLock.WaitAsync();
+					try{
+						await Input.ConnectAsy(default);
+					}finally{
+						// 只有真的拿到鎖才釋放，否則會在 Stop 之後多減一次。
 						EngineLock.Release();
 					}
+				}catch(Exception Ex){
+					// 初始化失敗仍要監聽：按鍵會拿到 EngineFailed 並被放行。
+					AppLog.Error(Ex, "[TsfPipe] 連接引擎失敗，按鍵將回報未處理，並在下次按鍵時重試");
 				}
-			}, Ct);
+				// 初始化完成（或失敗）之後才開始接受連線：照 Weasel 的順序。
+				// 初始化期間可能已經被 Stop：那就不要再開監聽。
+				lock(LifecycleGate){
+					if(!Started){
+						return;
+					}
+					Listener.Start(HandleWithEngineLockAsync);
+				}
+			});
 		}
 	}
 
-	[Doc("停止監聽；未啟動時無副作用。")]
+	[Doc($$"""
+	停止監聽；未啟動時無副作用。
+
+	*不 Dispose 取消源*：那是 {{nameof(TsfPipeListener)}} 的責任，它也不能 Dispose——
+	背景任務可能還拿着 token（`ReadLineAsync(Ct)`），Dispose 之後再註冊會拋
+	`ObjectDisposedException`，而先前那條路只有 `catch(Exception)` 接着，變成沒有痕跡的孤兒任務。
+	""")]
 	public void Stop(){
 		lock(LifecycleGate){
 			if(!Started){
 				return;
 			}
 			Started = false;
-			LoopCts?.Cancel();
-			LoopCts?.Dispose();
-			LoopCts = null;
+			Listener.Stop();
 		}
 		Popup.Hide();
 	}
 
-	[Doc("持續接受連線；取消時結束，每條連線交給一個背景任務。")]
-	async Task AcceptLoopAsy(CT Ct){
-		while(!Ct.IsCancellationRequested){
-			// 每輪新建一個實例：NamedPipeServerStream 斷線後不可重用。
-			// 所有權交給 ServeAsy：它結束時才釋放，不能在本輪結束時就 dispose。
-			// 建立實例本身也可能失敗（實例數用滿、被政策擋住）。必須放在 try 裏：
-			// 先前它在 try 外面，一拋就讓整個監聽迴圈（fire-and-forget 的工作）無聲結束，
-			// 行程還活着、介面還在，但輸入法永久沒反應。
-			try{
-				var Server = new NamedPipeServerStream(
-					PipeName
-					,PipeDirection.InOut
-					,MaxConnections
-					,PipeTransmissionMode.Byte
-					,PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly
-				);
-				await Server.WaitForConnectionAsync(Ct);
-				_ = Task.Run(() => ServeAsy(Server, Ct), Ct);
-			}catch(OperationCanceledException){
-				return;
-			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfPipe] 接受連線失敗");
-				await Task.Delay(RetryDelayMs, Ct).ConfigureAwait(false);
-			}
-		}
-	}
+	[Doc($$"""
+	把「引擎鎖 ＋ 一行進一行出」包成監聽端的處理器。
 
-	[Doc("服務一條連線：逐行讀請求、處理、回一行；連線關閉或取消才結束。")]
-	async Task ServeAsy(NamedPipeServerStream Server, CT Ct){
-		await using(Server){
-			try{
-				AppLog.Trace($"[TsfPipe] 連線來源 pid={ReadClientProcessId(Server)}");
-				using var Reader = new StreamReader(Server, Encoding.UTF8, leaveOpen: true);
-				using var Writer = new StreamWriter(Server, new UTF8Encoding(false), leaveOpen: true){ AutoFlush = true };
-				// 一條連線可送多個請求：外殼連一次、之後每顆鍵復用。
-				while(!Ct.IsCancellationRequested){
-					var Line = await Reader.ReadLineAsync(Ct);
-					if(Line is null){
-						return;
-					}
-					string Reply;
-					await EngineLock.WaitAsync(Ct);
-					try{
-						Reply = await HandleAsync(Line, Ct);
-					}finally{
-						EngineLock.Release();
-					}
-					await Writer.WriteLineAsync(Reply.AsMemory(), Ct);
-				}
-			}catch(OperationCanceledException){
-				// 停止服務：正常結束，不是錯誤。
-			}catch(IOException){
-				// 客戶端正常斷線（外殼換行程、使用者切換輸入法）也會走到這裡。
-				AppLog.Trace("[TsfPipe] 連線結束（客戶端斷線）");
-			}catch(Exception Ex){
-				AppLog.Error(Ex, "[TsfPipe] 連線異常結束");
-			}
-		}
-	}
-
-	[Doc("讀出這條連線的對端行程 id；取不到時回 0（只在日誌裏用）。")]
-	static uint ReadClientProcessId(NamedPipeServerStream Server){
+	引擎只有一個會話（照 Weasel 的 `g_api_mutex`），多條連線必須在這裡排隊；
+	鎖放在這一層而不是監聽端，是因為「要不要串行化」是協議／引擎的事，不是傳輸的事。
+	""")]
+	async Task<str> HandleWithEngineLockAsync(str Line, CT Ct){
+		await EngineLock.WaitAsync(Ct);
 		try{
-			return GetNamedPipeClientProcessId(Server.SafePipeHandle.DangerousGetHandle(), out var Pid) ? Pid : 0;
-		}catch{
-			return 0;
+			return await HandleAsync(Line, Ct);
+		}finally{
+			EngineLock.Release();
 		}
 	}
 
-	[DllImport("kernel32.dll", SetLastError = true)]
-	static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ProcessId);
+	[Doc("最後一個記過日誌的不符版本號；同一個版本只記一次，避免每顆鍵刷一則。")]
+	static i32 LastWarnedBadVer = i32.MinValue;
+
+	[Doc("協議版本不符時記一次 Warn（帶雙方版本）；同一版本號只記一次。")]
+	static void WarnBadVersionOnce(i32 Ver){
+		if(Interlocked.Exchange(ref LastWarnedBadVer, Ver) != Ver){
+			AppLog.Warn($"[TsfPipe] 協議版本不符：請求 {Ver}，本服務端 {TsfIpc.Version}；"
+				+ "該版本的所有按鍵都會被放行（外殼與服務端必須是同一次發布的產物）");
+		}
+	}
 
 	[Doc($$"""
 	處理一條請求並組出回應；畸形輸入回「未吃掉」加錯誤碼，不拋。
@@ -219,6 +177,10 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			return TsfReply.Fail(ETsfErr.BadRequest).Format();
 		}
 		if(Req.Ver != TsfIpc.Version){
+			// 版本不符是「整個功能靜默失效」的級別：外殼每一顆鍵都拿到「沒吃掉」，
+			// 使用者看到的是「那幾個程式突然打不出中文」。所以一定要留下痕跡，
+			// 但同一版本只記一次，免得每次按鍵都刷一則。
+			WarnBadVersionOnce(Req.Ver);
 			return TsfReply.Fail(ETsfErr.UnsupportedVersion).Format();
 		}
 		if(Req.Kind == ETsfReqKind.Hide){
@@ -331,28 +293,17 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 
 	[Doc($$"""
 	把請求還原成一個鍵。
+
+	表與判斷都在 {{nameof(KeyResolverByScan)}}（`Ngan.Ime.Core.Keys`）：
+	那是一段純資料 ＋ 純判斷，放 Core 才能被測試直接餵數字驗；
+	這裡只負責把服務端的 Vk 表（`KeyEventConverter`）餵進去。
+
 	#Prm[{{nameof(Vk)}}][Win32 虛擬鍵碼。]
 	#Prm[{{nameof(Scan)}}][掃描碼；0 表示外殼沒提供。]
 	#Prm[{{nameof(Ext)}}][擴展鍵位。]
 	#Rtn[對應的鍵；未登記的鍵回 null（回報「沒吃掉」）。]
 	""")]
-	/// <remarks>
-	/// *為何需要掃描碼*：`VK_SHIFT` 對左右 Shift 是同一個值（0x10），
-	/// 但「左 Shift 切英文、右 Shift 切中文」是很常見的配置。
-	/// 協定第 2 版起外殼會帶掃描碼與擴展鍵位，這裡據此把左右分開；
-	/// 舊版外殼沒有這兩欄（Scan 為 0），退回原本「左右不分、一律算左邊」的行為。
-	/// </remarks>
 	static IKeyChar? Resolve(i32 Vk, i32 Scan, i32 Ext){
-		if(Scan != 0){
-			switch(Scan){
-				case 0x2A: return KeyChars.Shift_L;
-				case 0x36: return KeyChars.Shift_R;
-				case 0x1D: return Ext != 0 ? KeyChars.Ctrl_R : KeyChars.Ctrl_L;
-				case 0x38: return Ext != 0 ? KeyChars.Alt_R : KeyChars.Alt_L;
-				case 0x5B: return KeyChars.Meta_L;
-				case 0x5C: return KeyChars.Meta_L;
-			}
-		}
-		return KeyEventConverter.Inst.KeyByVk.GetValueOrDefault(Vk);
+		return KeyResolverByScan.Resolve(Vk, Scan, Ext, KeyEventConverter.Inst.KeyByVk);
 	}
 }

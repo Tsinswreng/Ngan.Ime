@@ -10,6 +10,12 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<!-- 管道協議契約：腳本要印出「服務端實際期望的版本與格式」，
+		     不能自己在 ps1 裡再抄一份常量。 -->
+		<Compile Include="$(MSBuildThisFileDirectory)../_shared/TsfIpc.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- 檔案／進程／路徑工具，與模板及其他倉庫的 Scripts 一致。 -->
 		<PackageReference Include="Tsinswreng.CsSh" Version="0.3.0-alpha" />
 		<!-- GenAppJsonCtx：以 Roslyn 載入 Ngan.Ime.Core 專案、按語義分析收集標記接口的實現者。 -->

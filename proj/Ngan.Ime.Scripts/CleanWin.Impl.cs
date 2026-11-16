@@ -1,3 +1,4 @@
+using Tsinswreng.CsCore;
 using System.Diagnostics;
 using Microsoft.Win32;
 using Tsinswreng.CsSh;
@@ -5,137 +6,152 @@ using static Tsinswreng.CsSh.ShGlobal;
 
 namespace Ngan.Ime.Scripts;
 
-/// CleanWin 的流程實現。
+[Doc($$"""
+CleanWin 的流程實現。
+""")]
 internal static partial class CleanWin{
 
-	/// 安裝根目錄名（在使用者本機資料下）。
+	[Doc($$"""
+	安裝根目錄名（在使用者本機資料下）。
+	""")]
 	const str InstallRootName = "NganIme";
 
-	/// 版本目錄名的前綴；安裝腳本用 `v<yyyyMMdd-HHmmss>`。
+	[Doc($$"""
+	版本目錄名的前綴；安裝腳本用 `v<yyyyMMdd-HHmmss>`。
+	""")]
 	const str VersionDirPrefix = "v";
 
-	/// 排程工作名的前綴；`NganIme-Server-v<版本>`。
+	[Doc($$"""
+	排程工作名的前綴；`NganIme-Server-v<版本>`。
+	""")]
 	const str TaskNamePrefix = "NganIme-Server-";
 
-	/// 舊版安裝腳本用的固定排程工作名（沒有版本後綴）。
+	[Doc($$"""
+	舊版安裝腳本用的固定排程工作名（沒有版本後綴）。
+	""")]
 	const str LegacyTaskName = "NganIme-Server";
 
-	/// 註冊工具檔名；反註冊要用它自己的 identity.txt。
+	[Doc($$"""
+	註冊工具檔名；反註冊要用它自己的 identity.txt。
+	""")]
 	const str RegistrarFileName = "Ngan.Ime.Tsf.Registration.exe";
 
-	/// TSF 外殼的 CLSID 註冊樹（機器層）。
+	[Doc($$"""
+	TSF 外殼的 CLSID 註冊樹（機器層）。
+	""")]
 	const str ClsidRootKey = @"SOFTWARE\Classes\CLSID";
 
-	/// 註冊表裏指向外殼 DLL 的值名（預設值）。
+	[Doc($$"""
+	註冊表裏指向外殼 DLL 的值名（預設值）。
+	""")]
 	const str InprocServer32KeyName = "InprocServer32";
 
 	internal static partial Task<nil> Main(ISCtx Ctx, CT Ct){
-		var Opts = ParseOpts();
-		var Root = Path.Combine(
+		var opts = ParseOpts();
+		var root = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
 			InstallRootName);
-		if(!Directory.Exists(Root)){
-			Console.WriteLine($"[CleanWin] 沒有安裝目錄：{Root}");
+		if(!Directory.Exists(root)){
+			Console.WriteLine($"[CleanWin] 沒有安裝目錄：{root}");
 			return Task.FromResult(NIL);
 		}
 
-		var Registered = ListRegisteredShells(Root);
-		Console.WriteLine($"[CleanWin] 安裝根目錄：{Root}");
-		Console.WriteLine($"[CleanWin] 註冊表裏指向安裝根目錄的外殼：{Registered.Count} 個");
-		foreach(var One in Registered){
-			Console.WriteLine($"  已註冊：{One.Key}（{One.Value.Count} 個 CLSID）");
+		var registered = ListRegisteredShells(root);
+		Console.WriteLine($"[CleanWin] 安裝根目錄：{root}");
+		Console.WriteLine($"[CleanWin] 註冊表裏指向安裝根目錄的外殼：{registered.Count} 個");
+		foreach(var one in registered){
+			Console.WriteLine($"  已註冊：{one.Key}（{one.Value.Count} 個 CLSID）");
 		}
 
-		var Dirs = ListVersionDirs(Root);
+		var dirs = ListVersionDirs(root);
 		// 「最新版」＝目錄名排序最後一個（安裝腳本用 `v<時間戳>`，排序即時間）。
-		var Newest = Dirs.Count > 0 ? Dirs[^1] : "";
-		var LegacyTask = QueryLegacyTask();
-		Console.WriteLine($"[CleanWin] 最新版本：{Newest}");
-		if(Opts.UninstallOld){
+		var newest = dirs.Count > 0 ? dirs[^1] : "";
+		var legacyTask = QueryLegacyTask();
+		Console.WriteLine($"[CleanWin] 最新版本：{newest}");
+		if(opts.UninstallOld){
 			Console.WriteLine("[CleanWin] -UninstallOld：除了最新版以外的每一版都會先反註冊、再嘗試刪除。");
 		}
 
-		var Removed = 0;
-		var Kept = 0;
-		var Unregistered = 0;
-		foreach(var Dir in Dirs){
-			var IsNewest = string.Equals(Dir, Newest, StringComparison.OrdinalIgnoreCase);
-			var IsRegistered = Registered.ContainsKey(Dir);
-			var HasTask = HasScheduledTask(Dir, LegacyTask);
+		var removed = 0;
+		var kept = 0;
+		var unregistered = 0;
+		foreach(var dir in dirs){
+			var isNewest = str.Equals(dir, newest, StringComparison.OrdinalIgnoreCase);
+			var isRegistered = registered.ContainsKey(dir);
+			var hasTask = HasScheduledTask(dir, legacyTask);
 
 			// step 1: 先處理「舊版還在註冊表與排程工作裏」這件事，否則下面的保留條件
 			// 會讓每個裝過的版本永遠留着（每次安裝都多一個輸入法條目與一個自啟服務端）。
-			if(Opts.UninstallOld && !IsNewest){
-				if(Opts.DryRun){
-					Console.WriteLine($"  將反註冊（舊版）：{Dir}");
-				}
-				else{
-					if(IsRegistered && UnregisterVersion(Dir)){
-						IsRegistered = false;
-						Unregistered++;
+			if(opts.UninstallOld && !isNewest){
+				if(opts.DryRun){
+					Console.WriteLine($"  將反註冊（舊版）：{dir}");
+				} else{
+					if(isRegistered && UnregisterVersion(dir)){
+						isRegistered = false;
+						unregistered++;
 					}
-					RemoveScheduledTasks(Dir, LegacyTask);
-					HasTask = false;
+					RemoveScheduledTasks(dir, legacyTask);
+					hasTask = false;
 				}
 			}
 
 			// step 2: 三個判據都要看：註冊着、載入中、有排程工作。少任何一個都會誤刪。
-			var Holders = FindHolders(Dir);
-			if(IsRegistered || Holders.Count > 0 || HasTask){
-				Console.WriteLine($"  保留：{Dir}");
-				if(IsRegistered){
-					Console.WriteLine(Opts.DryRun && Opts.UninstallOld && !IsNewest
+			var holders = FindHolders(dir);
+			if(isRegistered || holders.Count > 0 || hasTask){
+				Console.WriteLine($"  保留：{dir}");
+				if(isRegistered){
+					Console.WriteLine(opts.DryRun && opts.UninstallOld && !isNewest
 						? "      仍在註冊表中（-DryRun 沒有實際反註冊）"
 						: "      仍在註冊表中（這個版本是「已安裝」狀態）");
 				}
-				if(HasTask){
-					Console.WriteLine(IsNewest
+				if(hasTask){
+					Console.WriteLine(isNewest
 						? "      有排程工作（登入時自動啟動）"
 						: "      仍有排程工作；-UninstallOld 會移除它");
 				}
-				foreach(var One in Holders){
-					Console.WriteLine($"      被載入：{One}");
+				foreach(var one in holders){
+					Console.WriteLine($"      被載入：{one}");
 				}
-				Kept++;
+				kept++;
 				continue;
 			}
-			if(Opts.DryRun){
-				Console.WriteLine($"  將刪除：{Dir}");
+			if(opts.DryRun){
+				Console.WriteLine($"  將刪除：{dir}");
 				continue;
 			}
 			try{
-				Directory.Delete(Dir, recursive: true);
-				Console.WriteLine($"  已刪除：{Dir}");
-				Removed++;
+				Directory.Delete(dir, recursive: true);
+				Console.WriteLine($"  已刪除：{dir}");
+				removed++;
 			}catch(Exception Ex){
-				Console.WriteLine($"  刪不掉：{Dir}（{Ex.GetType().Name}）");
+				Console.WriteLine($"  刪不掉：{dir}（{Ex.GetType().Name}）");
 			}
 		}
 
-		if(Opts.UninstallOld){
-			Console.WriteLine(Opts.DryRun
+		if(opts.UninstallOld){
+			Console.WriteLine(opts.DryRun
 				? "[CleanWin] -DryRun：以上「將反註冊」只是計劃，沒有真的改註冊表。"
-				: $"[CleanWin] 已反註冊 {Unregistered} 個舊版本。");
-			if(Unregistered == 0 && !Opts.DryRun){
+				: $"[CleanWin] 已反註冊 {unregistered} 個舊版本。");
+			if(unregistered == 0 && !opts.DryRun){
 				Console.WriteLine("[CleanWin] 提示：反註冊要寫 HKLM，請以管理員身分執行；否則上面會顯示「仍在註冊表中」。");
 			}
 		}
-		Console.WriteLine($"[CleanWin] 刪除 {Removed} 個、保留 {Kept} 個。");
+		Console.WriteLine($"[CleanWin] 刪除 {removed} 個、保留 {kept} 個。");
 		return Task.FromResult(NIL);
 	}
 
 	private static partial CleanOpts ParseOpts(){
-		var Opts = new CleanOpts();
-		foreach(var Arg in Environment.GetCommandLineArgs().Skip(1)){
-			if(!Arg.StartsWith("-", StringComparison.Ordinal)){
+		var opts = new CleanOpts();
+		foreach(var arg in Environment.GetCommandLineArgs().Skip(1)){
+			if(!arg.StartsWith("-", StringComparison.Ordinal)){
 				continue;
 			}
-			switch(Arg.TrimStart('-').ToLowerInvariant()){
+			switch(arg.TrimStart('-').ToLowerInvariant()){
 				case "dryrun":
-					Opts.DryRun = true;
+					opts.DryRun = true;
 					break;
 				case "uninstallold":
-					Opts.UninstallOld = true;
+					opts.UninstallOld = true;
 					break;
 				case "help":
 				case "h":
@@ -145,29 +161,29 @@ internal static partial class CleanWin{
 					Environment.Exit(0);
 					break;
 				default:
-					throw new ArgumentException($"未知選項：{Arg}。可用：-DryRun");
+					throw new ArgumentException($"未知選項：{arg}。可用：-DryRun");
 			}
 		}
-		return Opts;
+		return opts;
 	}
 
 	private static partial List<str> FindHolders(str Dir){
-		var Result = new List<str>();
-		foreach(var Proc in Process.GetProcesses()){
+		var result = new List<str>();
+		foreach(var proc in Process.GetProcesses()){
 			try{
-				if(Proc.Id == Environment.ProcessId){
+				if(proc.Id == Environment.ProcessId){
 					continue;
 				}
 				// 先看主模組：服務端自己就是以該目錄的 exe 啟動的，它不一定出現在 Modules 裏
 				// （64 位元行程看 32 位元行程時只有 64 位元的模組檢視）。
-				var Main = Proc.MainModule;
-				if(Main?.FileName is {} MainPath && IsUnder(MainPath, Dir)){
-					Result.Add($"{Proc.ProcessName}（pid={Proc.Id}，主模組）");
+				var main = proc.MainModule;
+				if(main?.FileName is {} MainPath && IsUnder(MainPath, Dir)){
+					result.Add($"{proc.ProcessName}（pid={proc.Id}，主模組）");
 					continue;
 				}
-				foreach(ProcessModule Module in Proc.Modules){
+				foreach(ProcessModule Module in proc.Modules){
 					if(Module.FileName is {} File && IsUnder(File, Dir)){
-						Result.Add($"{Proc.ProcessName}（pid={Proc.Id}）");
+						result.Add($"{proc.ProcessName}（pid={proc.Id}）");
 						break;
 					}
 				}
@@ -176,14 +192,16 @@ internal static partial class CleanWin{
 				// 但「讀不到」不等於「沒在用」，所以稍後還要用註冊表與排程工作交叉確認。
 			}
 		}
-		return Result;
+		return result;
 	}
 
-	/// 路徑是否在指定目錄底下（不分大小寫、以目錄邊界判斷）。
-	/// <remarks>參數刻意不叫 `Path`：那會遮蔽 <see cref="System.IO.Path"/>，編譯時很難看出來。</remarks>
+	[Doc($$"""
+	路徑是否在指定目錄底下（不分大小寫、以目錄邊界判斷）。
+	參數刻意不叫 `Path`：那會遮蔽 {{nameof(System.IO.Path)}}，編譯時很難看出來。
+	""")]
 	static bool IsUnder(str FilePath, str Dir){
-		var NormalizedDir = Dir.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar;
-		return FilePath.StartsWith(NormalizedDir, StringComparison.OrdinalIgnoreCase)
+		var normalizedDir = Dir.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar;
+		return FilePath.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase)
 			|| FilePath.Equals(Dir, StringComparison.OrdinalIgnoreCase);
 	}
 
@@ -195,36 +213,38 @@ internal static partial class CleanWin{
 	}
 
 	private static partial Dictionary<str, List<str>> ListRegisteredShells(str Root){
-		var Result = new Dictionary<str, List<str>>(StringComparer.OrdinalIgnoreCase);
+		var result = new Dictionary<str, List<str>>(StringComparer.OrdinalIgnoreCase);
 		try{
-			using var ClsidRoot = Registry.LocalMachine.OpenSubKey(ClsidRootKey);
-			if(ClsidRoot is null){
-				return Result;
+			using var clsidRoot = Registry.LocalMachine.OpenSubKey(ClsidRootKey);
+			if(clsidRoot is null){
+				return result;
 			}
-			foreach(var Clsid in ClsidRoot.GetSubKeyNames()){
-				using var Server = ClsidRoot.OpenSubKey(Clsid + "\\" + InprocServer32KeyName);
-				if(Server?.GetValue(null) is not str Path || Path.Length == 0){
+			foreach(var clsid in clsidRoot.GetSubKeyNames()){
+				using var server = clsidRoot.OpenSubKey(clsid + "\\" + InprocServer32KeyName);
+				if(server?.GetValue(null) is not str Path || Path.Length == 0){
 					continue;
 				}
-				var Dir = System.IO.Path.GetDirectoryName(Path);
-				if(string.IsNullOrEmpty(Dir) || !IsUnder(Dir, Root)){
+				var dir = System.IO.Path.GetDirectoryName(Path);
+				if(str.IsNullOrEmpty(dir) || !IsUnder(dir, Root)){
 					continue;
 				}
-				if(!Result.TryGetValue(Dir, out var List)){
-					List = [];
-					Result[Dir] = List;
+				if(!result.TryGetValue(dir, out var list)){
+					list = [];
+					result[dir] = list;
 				}
-				List.Add(Clsid);
+				list.Add(clsid);
 			}
 		}catch(Exception Ex){
 			// 讀不到 HKLM 不算致命：至少「被載入」與「有排程工作」兩條還在，
 			// 但那兩條不足以判斷「已安裝」，所以要明確警告。
 			Console.Error.WriteLine($"[CleanWin] 讀取註冊表失敗，這次判斷可能不完整：{Ex.Message}");
 		}
-		return Result;
+		return result;
 	}
 
-	/// 版本目錄對應的排程工作名。
+	[Doc($$"""
+	版本目錄對應的排程工作名。
+	""")]
 	static str TaskNameOf(str Dir){
 		return TaskNamePrefix + Path.GetFileName(Dir);
 	}
@@ -247,8 +267,7 @@ internal static partial class CleanWin{
 		if(RunSchtasks(["/Query", "/TN", TaskNameOf(Dir)]) is not null){
 			if(RunSchtasks(["/Delete", "/TN", TaskNameOf(Dir), "/F"]) is not null){
 				Console.WriteLine($"      已移除排程工作：{TaskNameOf(Dir)}");
-			}
-			else{
+			} else{
 				Console.WriteLine($"      排程工作刪不掉：{TaskNameOf(Dir)}（需要管理員？）");
 			}
 		}
@@ -261,54 +280,67 @@ internal static partial class CleanWin{
 	}
 
 	private static partial bool UnregisterVersion(str Dir){
-		var Registrar = Path.Combine(Dir, RegistrarFileName);
-		if(!File.Exists(Registrar)){
-			Console.WriteLine($"      找不到註冊工具，無法反註冊這個版本：{Registrar}");
+		var registrar = Path.Combine(Dir, RegistrarFileName);
+		if(!File.Exists(registrar)){
+			Console.WriteLine($"      找不到註冊工具，無法反註冊這個版本：{registrar}");
 			return false;
 		}
 		// 先用它自己的 identity.txt 從使用者清單移除，再拆機器層註冊。
 		// 兩步都失敗（例如沒提權）就回 false，讓呼叫端繼續把「仍註冊中」印出來。
-		var UserOk = RunTool(Registrar, ["--uninstall-user"], out var UserExit);
-		var SystemOk = RunTool(Registrar, ["--unregister-system"], out var SystemExit);
-		if(!UserOk || UserExit != 0){
-			Console.WriteLine($"      從使用者清單移除失敗（exit={UserExit}）；可能需要管理員或該版本已不在清單中。");
+		var userOk = RunTool(registrar, ["--uninstall-user"], out var userExit);
+		var systemOk = RunTool(registrar, ["--unregister-system"], out var systemExit);
+		if(!userOk || userExit != 0){
+			Console.WriteLine($"      從使用者清單移除失敗（exit={userExit}）；可能需要管理員或該版本已不在清單中。");
 		}
-		if(!SystemOk || SystemExit != 0){
-			Console.WriteLine($"      移除機器層註冊失敗（exit={SystemExit}）；請以管理員身分重跑。");
+		if(!systemOk || systemExit != 0){
+			Console.WriteLine($"      移除機器層註冊失敗（exit={systemExit}）；請以管理員身分重跑。");
 			return false;
 		}
 		Console.WriteLine($"      已反註冊：{Dir}");
 		return true;
 	}
 
-	/// <summary>執行一個外部工具並取得結束碼；起不來時回 false。</summary>
+	[Doc($$"""
+	執行一個外部工具並取得結束碼；起不來時回 false。
+	""")]
 	static bool RunTool(str Exe, str[] Args, out i32 ExitCode){
 		ExitCode = -1;
 		try{
-			var Info = new ProcessStartInfo(Exe){
+			var info = new ProcessStartInfo(Exe){
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,
 				UseShellExecute = false,
 				CreateNoWindow = true,
 			};
-			foreach(var One in Args){
-				Info.ArgumentList.Add(One);
+			foreach(var one in Args){
+				info.ArgumentList.Add(one);
 			}
-			using var Proc = Process.Start(Info);
-			if(Proc is null){
+			using var proc = Process.Start(info);
+			if(proc is null){
 				return false;
 			}
-			// 一定要讀掉輸出，否則子行程可能卡在寫滿的管線上。
-			var Output = Proc.StandardOutput.ReadToEnd() + Proc.StandardError.ReadToEnd();
-			if(!Proc.WaitForExit(30_000)){
+			// 一邊讀輸出、一邊等逾時：`ReadToEnd` 是同步阻塞的，子行程若掛住不關 stdout，
+			// 那一次呼叫永遠不返回，後面的 `WaitForExit(30s)` 根本走不到（先前就是這樣）。
+			// 這裡改成先非同步把兩個串流讀完，再對「行程結束」本身計時。
+			var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+			var stderrTask = proc.StandardError.ReadToEndAsync();
+			if(!proc.WaitForExit(30_000)){
+				// 逾時：把行程收掉，避免留下孤兒程序；輸出不再等待。
+				try{
+					proc.Kill(entireProcessTree: true);
+				}catch{
+					// 已經結束或無權限：忽略。
+				}
+				Console.WriteLine($"      外部工具逾時（30 秒）：{Exe}");
 				return false;
 			}
-			ExitCode = Proc.ExitCode;
-			if(Output.Length > 0){
-				foreach(var Line in Output.Split('\n')){
-					var Trimmed = Line.Trim();
-					if(Trimmed.Length > 0){
-						Console.WriteLine("        " + Trimmed);
+			var output = stdoutTask.GetAwaiter().GetResult() + stderrTask.GetAwaiter().GetResult();
+			ExitCode = proc.ExitCode;
+			if(output.Length > 0){
+				foreach(var line in output.Split('\n')){
+					var trimmed = line.Trim();
+					if(trimmed.Length > 0){
+						Console.WriteLine("        " + trimmed);
 					}
 				}
 			}
@@ -319,27 +351,29 @@ internal static partial class CleanWin{
 		}
 	}
 
-	/// <summary>執行 schtasks 並回傳輸出；非 0 結束碼回 null。</summary>
+	[Doc($$"""
+	執行 schtasks 並回傳輸出；非 0 結束碼回 null。
+	""")]
 	static str? RunSchtasks(str[] Args){
 		try{
-			var Info = new ProcessStartInfo("schtasks"){
+			var info = new ProcessStartInfo("schtasks"){
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,
 				UseShellExecute = false,
 				CreateNoWindow = true,
 			};
-			foreach(var One in Args){
-				Info.ArgumentList.Add(One);
+			foreach(var one in Args){
+				info.ArgumentList.Add(one);
 			}
-			using var Proc = Process.Start(Info);
-			if(Proc is null){
+			using var proc = Process.Start(info);
+			if(proc is null){
 				return null;
 			}
-			var Output = Proc.StandardOutput.ReadToEnd() + Proc.StandardError.ReadToEnd();
-			if(!Proc.WaitForExit(10_000)){
+			var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
+			if(!proc.WaitForExit(10_000)){
 				return null;
 			}
-			return Proc.ExitCode == 0 ? Output : null;
+			return proc.ExitCode == 0 ? output : null;
 		}catch{
 			return null;
 		}

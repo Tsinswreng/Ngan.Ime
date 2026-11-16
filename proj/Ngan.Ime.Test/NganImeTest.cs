@@ -46,12 +46,15 @@ public class NganImeTester : Tester{
 		// AddTester 是 ITester 的擴展方法，故顯式用 this 作接收者。
 		this.AddTester<TestKeyChars>();
 		this.AddTester<TestKeyChar>();
+		this.AddTester<TestKeyResolverByScan>();
 		this.AddTester<TestRimeKeyCharConverter>();
 		this.AddTester<TestKeyLayout>();
 		this.AddTester<TestVolcengineProtocolCodec>();
 		this.AddTester<TestImeUiState>();
 		this.AddTester<TestTsfIpc>();
 		this.AddTester<TestTsfKeyPolicy>();
+		this.AddTester<TestTsfCompositionPlanner>();
+		this.AddTester<TestTsfCaretPolicy>();
 		this.AddTester<TestVmCandidatePopup>();
 	}
 }

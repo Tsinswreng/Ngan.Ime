@@ -1,3 +1,4 @@
+using Tsinswreng.CsCore;
 using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
@@ -6,22 +7,34 @@ using static Tsinswreng.CsSh.ShGlobal;
 
 namespace Ngan.Ime.Scripts;
 
-/// GenAppJsonCtx 的流程實現。
+[Doc($$"""
+GenAppJsonCtx 的流程實現。
+""")]
 internal static partial class GenAppJsonCtx{
-	/// 要分析的專案；相對於倉庫根。
+	[Doc($$"""
+	要分析的專案；相對於倉庫根。
+	""")]
 	const str CsprojRelPath = "proj/Ngan.Ime.Core/Ngan.Ime.Core.csproj";
 
-	/// 生成物路徑；相對於倉庫根。必須入庫，否則第一次複製出來會編不過。
+	[Doc($$"""
+	生成物路徑；相對於倉庫根。必須入庫，否則第一次複製出來會編不過。
+	""")]
 	const str OutRelPath = "proj/Ngan.Ime.Core/Tsinswreng.SrcGen/Ngan.Ime.Gen.g.cs";
 
-	/// 標記接口：實現／繼承它者，登記 `[JsonSerializable]`。
+	[Doc($$"""
+	標記接口：實現／繼承它者，登記 `[JsonSerializable]`。
+	""")]
 	const str MarkerAppSerializable = "Ngan.Ime.Infra.Json.IAppSerializable";
 
-	/// 生成檔的命名空間；必須與 `AppJsonCtx.cs` 一致，否則 partial 接不起來。
+	[Doc($$"""
+	生成檔的命名空間；必須與 `AppJsonCtx.cs` 一致，否則 partial 接不起來。
+	""")]
 	const str Ns = "Ngan.Ime.Infra.Json";
 
-	/// 手動額外型別：外部型別無法實作本專案的標記接口，只能在此列出。
-	/// 現階段只有錯誤視圖：它屬 CsErr，不能反向依賴本專案。
+	[Doc($$"""
+	手動額外型別：外部型別無法實作本專案的標記接口，只能在此列出。
+	現階段只有錯誤視圖：它屬 CsErr，不能反向依賴本專案。
+	""")]
 	static readonly str[] ExtraJsonTypes = [
 		"global::Tsinswreng.CsErr.TypedErrView",
 		"global::Tsinswreng.CsErr.ITypedErrView",
@@ -37,83 +50,89 @@ internal static partial class GenAppJsonCtx{
 		Workspace.WorkspaceFailed += (_, E) => Console.Error.WriteLine($"[workspace] {E.Diagnostic.Message}");
 
 		var Project = await Workspace.OpenProjectAsync(Ctx.RootDir/CsprojRelPath, null, Ct);
-		var Compilation = await Project.GetCompilationAsync(Ct)
+		var compilation = await Project.GetCompilationAsync(Ct)
 			?? throw new InvalidOperationException("GetCompilationAsync 返回 null：專案載入失敗。");
 
 		// step 2: 收集標記接口的實現者。
-		var AppTypes = FindImplementers(Compilation, MarkerAppSerializable).ToArray();
+		var appTypes = FindImplementers(compilation, MarkerAppSerializable).ToArray();
 
 		// step 3: 組裝單檔並覆寫。統一換行為 LF，避免生成檔混用 CRLF／LF 造成整檔 diff。
-		var Code = BuildCode(AppTypes).Replace("\r\n", "\n");
-		var OutPath = Ctx.RootDir/OutRelPath;
-		Write(OutPath, Code);
-		Echo($"GenAppJsonCtx: {AppTypes.Length} app types -> {OutPath}");
+		var code = BuildCode(appTypes).Replace("\r\n", "\n");
+		var outPath = Ctx.RootDir/OutRelPath;
+		Write(outPath, code);
+		Echo($"GenAppJsonCtx: {appTypes.Length} app types -> {outPath}");
 	}
 
-	/// <summary>
-	/// 依全限定名找標記接口，收集編譯單元裡所有實現／繼承它的命名型別。
-	/// 標記也可能打在公共介面上（介面本身也該有 metadata），故介面一併收。
-	/// 排序是為了輸出穩定：生成檔會入庫，成員順序一變就是整檔 diff。
-	/// </summary>
+	[Doc($$"""
+	依全限定名找標記接口，收集編譯單元裡所有實現／繼承它的命名型別。
+	標記也可能打在公共介面上（介面本身也該有 metadata），故介面一併收。
+	排序是為了輸出穩定：生成檔會入庫，成員順序一變就是整檔 diff。
+	""")]
 	static IEnumerable<INamedTypeSymbol> FindImplementers(Compilation Compilation, str MarkerFullName) {
-		var Marker = Compilation.GetTypeByMetadataName(MarkerFullName)
+		var marker = Compilation.GetTypeByMetadataName(MarkerFullName)
 			?? throw new InvalidOperationException($"標記接口找不到：{MarkerFullName}");
 		return Compilation.SourceModule.GlobalNamespace
 			.GetAllNamedTypes()
-			.Where(T => !SymbolEqualityComparer.Default.Equals(T, Marker) && IsSubType(T, Marker))
+			.Where(T => !SymbolEqualityComparer.Default.Equals(T, marker) && IsSubType(T, marker))
 			.OrderBy(T => T.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal);
 	}
 
-	/// <summary>判斷 Candidate 是否為 Marker 之子型別：實作／繼承 Marker。</summary>
+	[Doc($$"""
+	判斷 Candidate 是否為 Marker 之子型別：實作／繼承 Marker。
+	""")]
 	static bool IsSubType(INamedTypeSymbol Candidate, INamedTypeSymbol Marker) {
 		if(Candidate.AllInterfaces.Contains(Marker, SymbolEqualityComparer.Default)){
 			return true;
 		}
-		for(var Base = Candidate.BaseType; Base is not null; Base = Base.BaseType){
-			if(SymbolEqualityComparer.Default.Equals(Base, Marker)){
+		for(var baseType = Candidate.BaseType; baseType is not null; baseType = baseType.BaseType){
+			if(SymbolEqualityComparer.Default.Equals(baseType, Marker)){
 				return true;
 			}
 		}
 		return false;
 	}
 
-	/// <summary>遞歸收集命名空間下所有命名型別（含嵌套命名空間與嵌套型別）。</summary>
+	[Doc($$"""
+	遞歸收集命名空間下所有命名型別（含嵌套命名空間與嵌套型別）。
+	""")]
 	static IEnumerable<INamedTypeSymbol> GetAllNamedTypes(this INamespaceSymbol Ns) {
-		foreach(var Member in Ns.GetMembers()){
-			switch(Member){
+		foreach(var member in Ns.GetMembers()){
+			switch(member){
 				case INamespaceSymbol NestedNs:
-					foreach(var T in NestedNs.GetAllNamedTypes()){
-						yield return T;
+					foreach(var t in NestedNs.GetAllNamedTypes()){
+						yield return t;
 					}
 					break;
 				case INamedTypeSymbol Type:
 					yield return Type;
-					foreach(var Nested in Type.GetAllNestedTypes()){
-						yield return Nested;
+					foreach(var nested in Type.GetAllNestedTypes()){
+						yield return nested;
 					}
 					break;
 			}
 		}
 	}
 
-	/// <summary>遞歸收集嵌套型別。</summary>
+	[Doc($$"""
+	遞歸收集嵌套型別。
+	""")]
 	static IEnumerable<INamedTypeSymbol> GetAllNestedTypes(this INamedTypeSymbol Type) {
-		foreach(var Nested in Type.GetTypeMembers()){
-			yield return Nested;
-			foreach(var Deeper in Nested.GetAllNestedTypes()){
-				yield return Deeper;
+		foreach(var nested in Type.GetTypeMembers()){
+			yield return nested;
+			foreach(var deeper in nested.GetAllNestedTypes()){
+				yield return deeper;
 			}
 		}
 	}
 
-	/// <summary>
-	/// 組裝單檔內容。
-	/// 為何三個 partial 宣告、而不是一個：`[JsonSerializable]` 必須全部集中同一個宣告
-	/// （STJ 源生成器不支援分散）；`[JsonSourceGenerationOptions]` 與方法實現分開放比較清楚。
-	/// </summary>
+	[Doc($$"""
+	組裝單檔內容。
+	為何三個 partial 宣告、而不是一個：`[JsonSerializable]` 必須全部集中同一個宣告
+	（STJ 源生成器不支援分散）；`[JsonSourceGenerationOptions]` 與方法實現分開放比較清楚。
+	""")]
 	static str BuildCode(IReadOnlyList<INamedTypeSymbol> AppTypes) {
-		var JsonLines = string.Join('\n', AppTypes.Select(T => JsonSerializablePair(FullName(T))));
-		var ExtraLines = string.Join('\n', ExtraJsonTypes.Select(T => $"[JsonSerializable(typeof({T}))]"));
+		var jsonLines = str.Join('\n', AppTypes.Select(T => JsonSerializablePair(FullName(T))));
+		var extraLines = str.Join('\n', ExtraJsonTypes.Select(T => $"[JsonSerializable(typeof({T}))]"));
 
 		return $$"""
 		// <auto-generated/>
@@ -125,8 +144,8 @@ internal static partial class GenAppJsonCtx{
 		using System.Text.Json.Serialization;
 
 		// ===== AppJsonCtx：JsonSerializable 註冊（必須集中於此宣告）=====
-		{{JsonLines}}
-		{{ExtraLines}}
+		{{jsonLines}}
+		{{extraLines}}
 		public partial class AppJsonCtx { }
 
 		// ===== AppJsonCtx：生成期選項 =====
@@ -148,12 +167,16 @@ internal static partial class GenAppJsonCtx{
 		""";
 	}
 
-	/// <summary>型別的全限定名（含 `global::` 前綴），避免生成檔受 using 影響。</summary>
+	[Doc($$"""
+	型別的全限定名（含 `global::` 前綴），避免生成檔受 using 影響。
+	""")]
 	static str FullName(INamedTypeSymbol T) {
 		return T.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 	}
 
-	/// <summary>一個型別的註冊對：本體 ＋ `IList<T>`（列表響應很常見，缺了就得回頭補）。</summary>
+	[Doc($$"""
+	一個型別的註冊對：本體 ＋ `IList<T>`（列表響應很常見，缺了就得回頭補）。
+	""")]
 	static str JsonSerializablePair(str Full) {
 		return $"""
 		[JsonSerializable(typeof({Full}))]

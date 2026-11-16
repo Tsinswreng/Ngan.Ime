@@ -193,12 +193,18 @@ if($Cfg.SkipSmoke -ne '1'){
     }
     $SmokePipeName = ('NganIme.Tsf.v1.{0:x8}' -f $PipeHash)
     Log ('管道名：' + $SmokePipeName)
+    # 協議版本由主機端印在 deploy-args.txt（`ProtoInfo`，即 C# 的 `TsfIpc.Version`）；
+    # 缺這個欄位就直接失敗——猜一個版本只會讓煙霧測試靜默變成假通過。
+    if ([string]::IsNullOrWhiteSpace($Cfg.ProtoVersion)) {
+        Fail 'deploy-args.txt 缺少 ProtoVersion（主機端的 DeployWinVm 太舊？）'
+    }
+    Log ('協議版本：' + $Cfg.ProtoVersion)
     $SmokeLog = Join-Path $WorkDir 'smoke.log'
     $SmokePs1 = Join-Path $In 'do-smoke.ps1'
     @"
 `$out = '$SmokeLog'
 function Send-Key([string]`$payload){
-    `$c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'NganIme.Tsf.v1')
+    `$c = New-Object System.IO.Pipes.NamedPipeClientStream('.', '$SmokePipeName')
     `$c.Connect(5000)
     `$w = New-Object System.IO.StreamWriter(`$c); `$w.AutoFlush = `$true
     `$r = New-Object System.IO.StreamReader(`$c)
@@ -210,21 +216,21 @@ function Send-Key([string]`$payload){
 function Fields([string]`$line){ return `$line.Split('|') }
 `$fail = @()
 try {
-    `$down = Send-Key 'K|1|67|0|100|100|0'
+    `$down = Send-Key ('K|' + '$($Cfg.ProtoVersion)' + '|67|0|100|100|0')
     `$f = Fields `$down
     if(`$f[0] -ne 'R'){ `$fail += 'a 按下：首欄不是 R' }
-    if(`$f[1] -ne '1'){ `$fail += 'a 按下：協議版本不是 1' }
+    if(`$f[1] -ne '$($Cfg.ProtoVersion)'){ `$fail += ('a 按下：協議版本不是 ' + '$($Cfg.ProtoVersion)') }
     if(`$f[2] -ne '1'){ `$fail += 'a 按下：引擎沒有吃掉' }
     if([string]::IsNullOrEmpty(`$f[5])){ `$fail += 'a 按下：沒有組字串' }
     if([int]`$f[6] -lt 1){ `$fail += 'a 按下：沒有候選' }
-    `$up = Send-Key 'K|1|67|0|100|100|1'
+    `$up = Send-Key ('K|' + '$($Cfg.ProtoVersion)' + '|67|0|100|100|1')
     if((Fields `$up)[0] -ne 'R'){ `$fail += 'a 擡起：回應無法解析' }
-    Send-Key 'K|1|27|0|100|100|0' | Out-Null
-    `$f4 = Send-Key 'K|1|115|0|100|100|0'
+    Send-Key ('K|' + '$($Cfg.ProtoVersion)' + '|27|0|100|100|0') | Out-Null
+    `$f4 = Send-Key ('K|' + '$($Cfg.ProtoVersion)' + '|115|0|100|100|0')
     `$f4f = Fields `$f4
     if(`$f4f[2] -ne '1'){ `$fail += 'F4：引擎沒有吃掉（方案選單熱鍵失效）' }
     if([int]`$f4f[6] -lt 1){ `$fail += 'F4：沒有候選（方案選單沒開）' }
-    Send-Key 'K|1|27|0|100|100|0' | Out-Null
+    Send-Key ('K|' + '$($Cfg.ProtoVersion)' + '|27|0|100|100|0') | Out-Null
 } catch {
     `$fail += ('例外：' + `$_.Exception.Message)
 }

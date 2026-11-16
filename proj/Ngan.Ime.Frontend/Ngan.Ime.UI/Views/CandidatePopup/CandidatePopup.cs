@@ -43,11 +43,12 @@ public sealed class CandidatePopup : ICandidatePopup{
 		Dispatcher.UIThread.Post(() => {
 			try{
 				EnsureWindow();
+				// Apply 收尾會發一次 Applied，視圖訂閱它刷新；這裡不再另外呼叫 Refresh，
+				// 否則一顆鍵會刷新兩次（先前逐屬性訂閱時是五次）。
 				Vm!.Apply(Preedit, Page);
-				Window!.Refresh();
 				// 位置未知時不動視窗：寧可留在上一次的位置，也不要把浮窗搬到螢幕原點。
 				if(Anchor is {} Point){
-					Window.MoveTo(Point);
+					Window!.MoveTo(Point);
 				}
 			}catch(Exception Ex){
 				// 浮窗壞掉不該拖垮輸入：記日誌、收起，下次按鍵再試。

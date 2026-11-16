@@ -1,147 +1,236 @@
 namespace Ngan.Ime.Tsf.Registration;
 
+using Tsinswreng.CsCore;
 using Microsoft.Win32;
 using System;
 using System.Runtime.InteropServices;
 
-/// <summary>Windows TSF profile manager used to register a selectable input-method profile.</summary>
+[Doc($$"""
+Windows TSF profile manager used to register a selectable input-method profile.
+""")]
 [ComImport]
 [Guid("71C6E74C-0F28-11D8-A82A-00065B84435C")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface ITfInputProcessorProfileMgr {
-    /// <summary>Activates one existing profile.</summary>
-    [PreserveSig]
-    int ActivateProfile(uint ProfileType, ushort LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, uint Flags);
-    /// <summary>Deactivates one existing profile.</summary>
-    [PreserveSig]
-    int DeactivateProfile(uint ProfileType, ushort LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, uint Flags);
-    /// <summary>Reads one profile into a native structure not required by this POC.</summary>
-    [PreserveSig]
-    int GetProfile(uint ProfileType, ushort LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, out nint Profile);
-    /// <summary>Enumerates profiles; retained to preserve the Windows vtable layout.</summary>
-    [PreserveSig]
-    int EnumProfiles(ushort LanguageId, out nint Enumerator);
-    /// <summary>Releases a registered text processor.</summary>
-    [PreserveSig]
-    int ReleaseInputProcessor(in Guid ClassId, uint Flags);
-    /// <summary>Registers the profile metadata that Windows presents as an input method.</summary>
-    [PreserveSig]
-    int RegisterProfile(in Guid ClassId, ushort LanguageId, in Guid ProfileId, [MarshalAs(UnmanagedType.LPWStr)] string Description, uint DescriptionLength, [MarshalAs(UnmanagedType.LPWStr)] string IconPath, uint IconPathLength, uint IconIndex, nint SubstituteKeyboardLayout, uint PreferredLayout, [MarshalAs(UnmanagedType.Bool)] bool IsEnabledByDefault, uint Flags);
-    /// <summary>Removes the registered profile metadata.</summary>
-    [PreserveSig]
-    int UnregisterProfile(in Guid ClassId, ushort LanguageId, in Guid ProfileId, uint Flags);
+	[Doc($$"""
+	Activates one existing profile.
+	""")]
+	[PreserveSig]
+	i32 ActivateProfile(u32 ProfileType, u16 LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, u32 Flags);
+	[Doc($$"""
+	Deactivates one existing profile.
+	""")]
+	[PreserveSig]
+	i32 DeactivateProfile(u32 ProfileType, u16 LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, u32 Flags);
+	[Doc($$"""
+	Reads one profile into a native structure not required by this POC.
+	""")]
+	[PreserveSig]
+	i32 GetProfile(u32 ProfileType, u16 LanguageId, in Guid ClassId, in Guid ProfileId, nint KeyboardLayout, out nint Profile);
+	[Doc($$"""
+	Enumerates profiles; retained to preserve the Windows vtable layout.
+	""")]
+	[PreserveSig]
+	i32 EnumProfiles(u16 LanguageId, out nint Enumerator);
+	[Doc($$"""
+	Releases a registered text processor.
+	""")]
+	[PreserveSig]
+	i32 ReleaseInputProcessor(in Guid ClassId, u32 Flags);
+	[Doc($$"""
+	Registers the profile metadata that Windows presents as an input method.
+	""")]
+	[PreserveSig]
+	i32 RegisterProfile(in Guid ClassId, u16 LanguageId, in Guid ProfileId, [MarshalAs(UnmanagedType.LPWStr)] str Description, u32 DescriptionLength, [MarshalAs(UnmanagedType.LPWStr)] str IconPath, u32 IconPathLength, u32 IconIndex, nint SubstituteKeyboardLayout, u32 PreferredLayout, [MarshalAs(UnmanagedType.Bool)] bool IsEnabledByDefault, u32 Flags);
+	[Doc($$"""
+	Removes the registered profile metadata.
+	""")]
+	[PreserveSig]
+	i32 UnregisterProfile(in Guid ClassId, u16 LanguageId, in Guid ProfileId, u32 Flags);
 }
 
-/// <summary>Windows TSF 分類管理器；Windows 只會將標為鍵盤的 TIP 視為輸入法。</summary>
+[Doc($$"""
+Windows TSF 分類管理器；Windows 只會將標為鍵盤的 TIP 視為輸入法。
+""")]
 [ComImport]
 [Guid("C3ACEFB5-F69D-4905-938F-FCADCF4BE830")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface ITfCategoryMgr {
-    /// <summary>將文字服務歸入一個 TSF 分類。</summary>
-    [PreserveSig]
-    int RegisterCategory(in Guid ClassId, in Guid CategoryId, in Guid ItemId);
+	[Doc($$"""
+	將文字服務歸入一個 TSF 分類。
+	""")]
+	[PreserveSig]
+	i32 RegisterCategory(in Guid ClassId, in Guid CategoryId, in Guid ItemId);
 
-    /// <summary>移除本 POC 擁有的一個 TSF 分類。</summary>
-    [PreserveSig]
-    int UnregisterCategory(in Guid ClassId, in Guid CategoryId, in Guid ItemId);
+	[Doc($$"""
+	移除本 POC 擁有的一個 TSF 分類。
+	""")]
+	[PreserveSig]
+	i32 UnregisterCategory(in Guid ClassId, in Guid CategoryId, in Guid ItemId);
 }
 
-/// <summary>Per-user COM and TSF profile registration for the x64 proof of concept.</summary>
+[Doc($$"""
+Per-user COM and TSF profile registration for the x64 proof of concept.
+""")]
 internal static partial class TsfRegistration {
-    /// <summary>COM class identity exported by the C# TSF assembly.</summary>
-    private static Guid TextServiceClass = new("9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31");
-    /// <summary>Stable TSF language-profile identity.</summary>
-    private static Guid LanguageProfile = new("D3A1C7E2-6B4F-4E8A-9C15-7F2B8D4E6A90");
-    /// <summary>簡體中文語言識別碼；必須與目前使用者的中文輸入法清單一致。</summary>
-    private const ushort LanguageId = 0x0804;
-    /// <summary>第一版錯誤建立的英文 profile 語言識別碼；僅用於升級時清理遺留資料。</summary>
-    private const ushort LegacyLanguageId = 0x0409;
-    /// <summary>Display name presented by Windows input settings.</summary>
-    private static string ProfileName = "Ngan IME";
-    /// <summary>CLSID of the Windows TSF profile-manager COM class.</summary>
-    private static readonly Guid ProfileManagerClass = new("33C53A50-F456-4884-B049-85FD643ECFED");
-    /// <summary>IID of the modern TSF profile registration interface.</summary>
-    private static readonly Guid ProfileManagerInterface = new("71C6E74C-0F28-11D8-A82A-00065B84435C");
-    /// <summary>CLSID of the Windows TSF category manager.</summary>
-    private static readonly Guid CategoryManagerClass = new("A4B544A1-438D-4B41-9325-869523E2D6C7");
-    /// <summary>IID of the Windows TSF category manager.</summary>
-    private static readonly Guid CategoryManagerInterface = new("C3ACEFB5-F69D-4905-938F-FCADCF4BE830");
-    /// <summary>TSF category identifying one component as a text input processor.</summary>
-    private static readonly Guid TipCategory = new("534C48C1-0607-4098-A521-4FC899C73E90");
-    /// <summary>TSF category identifying one text input processor as a keyboard.</summary>
-    private static readonly Guid KeyboardCategory = new("34745C63-B2F0-4784-8B67-5E12C8701A31");
-    /// <summary>IID that every TSF text service must expose to Windows.</summary>
-    private static readonly Guid TextInputProcessorInterface = new("AA80E7F7-2021-11D2-93E0-0060B067B86E");
-    /// <summary>Allows the system to create the in-process TSF profile manager.</summary>
-    private const uint ClassContextAll = 0x17;
-    /// <summary>Creates the Windows TSF profile manager through the standard COM factory.</summary>
-    [DllImport("ole32.dll")]
-    private static extern int CoCreateInstance(in Guid ClassId, nint Outer, uint ClassContext, in Guid InterfaceId, [MarshalAs(UnmanagedType.Interface)] out ITfInputProcessorProfileMgr Profiles);
-    /// <summary>以指定 TSF 介面直接啟用文字服務，供註冊前驗證使用。</summary>
-    [DllImport("ole32.dll", EntryPoint = "CoCreateInstance")]
-    private static extern int CoCreateTextService(in Guid ClassId, nint Outer, uint ClassContext, in Guid InterfaceId, out nint TextService);
-    /// <summary>Creates the Windows TSF category manager through the standard COM factory.</summary>
-    [DllImport("ole32.dll", EntryPoint = "CoCreateInstance")]
-    private static extern int CoCreateCategoryManager(in Guid ClassId, nint Outer, uint ClassContext, in Guid InterfaceId, [MarshalAs(UnmanagedType.Interface)] out ITfCategoryMgr Categories);
-    /// <summary>將一個已註冊 TSF profile 安裝到呼叫使用者的語言與輸入法清單。</summary>
-    [DllImport("input.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    private static extern int InstallLayoutOrTip(string TipSpecifier, uint Flags);
+	[Doc($$"""
+	COM class identity exported by the C# TSF assembly.
+	""")]
+	private static Guid TextServiceClass = new("9B7E5C42-3A1D-4F6E-8B2A-5C1D0E9F7A31");
+	[Doc($$"""
+	Stable TSF language-profile identity.
+	""")]
+	private static Guid LanguageProfile = new("D3A1C7E2-6B4F-4E8A-9C15-7F2B8D4E6A90");
+	[Doc($$"""
+	簡體中文語言識別碼；必須與目前使用者的中文輸入法清單一致。
+	""")]
+	private const u16 LanguageId = 0x0804;
+	[Doc($$"""
+	第一版錯誤建立的英文 profile 語言識別碼；僅用於升級時清理遺留資料。
+	""")]
+	private const u16 LegacyLanguageId = 0x0409;
+	[Doc($$"""
+	Display name presented by Windows input settings.
+	""")]
+	private static str ProfileName = "Ngan IME";
+	[Doc($$"""
+	CLSID of the Windows TSF profile-manager COM class.
+	""")]
+	private static readonly Guid ProfileManagerClass = new("33C53A50-F456-4884-B049-85FD643ECFED");
+	[Doc($$"""
+	IID of the modern TSF profile registration interface.
+	""")]
+	private static readonly Guid ProfileManagerInterface = new("71C6E74C-0F28-11D8-A82A-00065B84435C");
+	[Doc($$"""
+	CLSID of the Windows TSF category manager.
+	""")]
+	private static readonly Guid CategoryManagerClass = new("A4B544A1-438D-4B41-9325-869523E2D6C7");
+	[Doc($$"""
+	IID of the Windows TSF category manager.
+	""")]
+	private static readonly Guid CategoryManagerInterface = new("C3ACEFB5-F69D-4905-938F-FCADCF4BE830");
+	[Doc($$"""
+	TSF category identifying one component as a text input processor.
+	""")]
+	private static readonly Guid TipCategory = new("534C48C1-0607-4098-A521-4FC899C73E90");
+	[Doc($$"""
+	TSF category identifying one text input processor as a keyboard.
+	""")]
+	private static readonly Guid KeyboardCategory = new("34745C63-B2F0-4784-8B67-5E12C8701A31");
+	[Doc($$"""
+	IID that every TSF text service must expose to Windows.
+	""")]
+	private static readonly Guid TextInputProcessorInterface = new("AA80E7F7-2021-11D2-93E0-0060B067B86E");
+	[Doc($$"""
+	Allows the system to create the in-process TSF profile manager.
+	""")]
+	private const u32 ClassContextAll = 0x17;
+	[Doc($$"""
+	Creates the Windows TSF profile manager through the standard COM factory.
+	""")]
+	[DllImport("ole32.dll")]
+	private static extern i32 CoCreateInstance(in Guid ClassId, nint Outer, u32 ClassContext, in Guid InterfaceId, [MarshalAs(UnmanagedType.Interface)] out ITfInputProcessorProfileMgr Profiles);
+	[Doc($$"""
+	以指定 TSF 介面直接啟用文字服務，供註冊前驗證使用。
+	""")]
+	[DllImport("ole32.dll", EntryPoint = "CoCreateInstance")]
+	private static extern i32 CoCreateTextService(in Guid ClassId, nint Outer, u32 ClassContext, in Guid InterfaceId, out nint TextService);
+	[Doc($$"""
+	Creates the Windows TSF category manager through the standard COM factory.
+	""")]
+	[DllImport("ole32.dll", EntryPoint = "CoCreateInstance")]
+	private static extern i32 CoCreateCategoryManager(in Guid ClassId, nint Outer, u32 ClassContext, in Guid InterfaceId, [MarshalAs(UnmanagedType.Interface)] out ITfCategoryMgr Categories);
+	[Doc($$"""
+	將一個已註冊 TSF profile 安裝到呼叫使用者的語言與輸入法清單。
+	""")]
+	[DllImport("input.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+	private static extern i32 InstallLayoutOrTip(str TipSpecifier, u32 Flags);
 
-    /// <summary>Executes the explicit register or unregister command.</summary>
-    internal static partial int Run(string[] Args);
+	[Doc($$"""
+	Executes the explicit register or unregister command.
+	""")]
+	internal static partial i32 Run(str[] Args);
 
-    /// <summary>Registers the machine-wide COM server, keyboard categories, and Chinese TSF profile.</summary>
-    private static partial int RegisterSystem(string ComHostPath, string? DisplayName);
+	[Doc($$"""
+	Registers the machine-wide COM server, keyboard categories, and Chinese TSF profile.
+	""")]
+	private static partial i32 RegisterSystem(str ComHostPath, str? DisplayName);
 
-    /// <summary>Installs the already-registered profile into the invoking user's input-method list.</summary>
-    private static partial int InstallUser();
+	[Doc($$"""
+	Installs the already-registered profile into the invoking user's input-method list.
+	""")]
+	private static partial i32 InstallUser();
 
-    /// <summary>Removes the installed profile from the invoking user's input-method list.</summary>
-    private static partial int UninstallUser();
+	[Doc($$"""
+	Removes the installed profile from the invoking user's input-method list.
+	""")]
+	private static partial i32 UninstallUser();
 
-    /// <summary>Removes all machine-wide registration state owned by this POC.</summary>
-    private static partial int UnregisterSystem();
+	[Doc($$"""
+	Removes all machine-wide registration state owned by this POC.
+	""")]
+	private static partial i32 UnregisterSystem();
 
-    /// <summary>Writes the current-user COM server mapping used by the .NET COM host.</summary>
-    private static partial void WriteComRegistration(string ComHostPath);
+	[Doc($$"""
+	Writes the current-user COM server mapping used by the .NET COM host.
+	""")]
+	private static partial void WriteComRegistration(str ComHostPath);
 
-    /// <summary>Verifies that the registered COM class exposes the mandatory TSF text-service interface.</summary>
-    private static partial void VerifyTextServiceInterface();
+	[Doc($$"""
+	Verifies that the registered COM class exposes the mandatory TSF text-service interface.
+	""")]
+	private static partial void VerifyTextServiceInterface();
 
-    /// <summary>Creates the Windows-managed TSF input-processor profile service.</summary>
-    private static partial ITfInputProcessorProfileMgr CreateProfiles();
+	[Doc($$"""
+	Creates the Windows-managed TSF input-processor profile service.
+	""")]
+	private static partial ITfInputProcessorProfileMgr CreateProfiles();
 
-    /// <summary>Removes the obsolete English profile written by the first POC registration implementation.</summary>
-    private static partial void TryRemoveLegacyProfile();
+	[Doc($$"""
+	Removes the obsolete English profile written by the first POC registration implementation.
+	""")]
+	private static partial void TryRemoveLegacyProfile();
 
-    /// <summary>Creates the Windows-managed TSF category service.</summary>
-    private static partial ITfCategoryMgr CreateCategories();
+	[Doc($$"""
+	Creates the Windows-managed TSF category service.
+	""")]
+	private static partial ITfCategoryMgr CreateCategories();
 
-    /// <summary>Registers the minimum categories required for Windows to expose this TIP as a keyboard.</summary>
-    private static partial void RegisterCategories();
+	[Doc($$"""
+	Registers the minimum categories required for Windows to expose this TIP as a keyboard.
+	""")]
+	private static partial void RegisterCategories();
 
-    /// <summary>Removes the categories registered by <see cref="RegisterCategories"/>.</summary>
-    private static partial void UnregisterCategories();
+	[Doc($$"""
+	Removes the categories registered by {{nameof(RegisterCategories)}}.
+	""")]
+	private static partial void UnregisterCategories();
 
-    /// <summary>Returns the `0804:{CLSID}{Profile}` identifier consumed by Windows input.dll.</summary>
-    private static partial string GetTipSpecifier();
+	[Doc($$"""
+	Returns the `0804:{CLSID}{Profile}` identifier consumed by Windows input.dll.
+	""")]
+	private static partial str GetTipSpecifier();
 
-    /// <summary>Installs or removes this profile from the current user's Windows input-method list.</summary>
-    private static partial void InstallTip(bool IsUninstall);
+	[Doc($$"""
+	Installs or removes this profile from the current user's Windows input-method list.
+	""")]
+	private static partial void InstallTip(bool IsUninstall);
 
-    /// <summary>
-    /// 從安裝目錄的 `identity.txt` 讀取本版本的 CLSID、profile GUID 與顯示名稱。
-    /// </summary>
-    /// <remarks>
-    /// 版本化安裝＝每次安裝都是一個獨立輸入法：CLSID 與 profile 都由安裝器生成並寫在這裡，
-    /// 註冊、加入清單、卸載都讀同一份，故各版本互不相干，可單獨移除。
-    /// 檔案不存在時退回內建的那組 GUID，行為與舊版相同。
-    /// </remarks>
-    private static partial void LoadIdentity();
+	[Doc($$"""
+	從安裝目錄的 `identity.txt` 讀取本版本的 CLSID、profile GUID 與顯示名稱。
+	版本化安裝＝每次安裝都是一個獨立輸入法：CLSID 與 profile 都由安裝器生成並寫在這裡，
+	註冊、加入清單、卸載都讀同一份，故各版本互不相干，可單獨移除。
+	檔案不存在時退回內建的那組 GUID，行為與舊版相同。
+	""")]
+	private static partial void LoadIdentity();
 
-    /// <summary>Returns the exact current-user registry path owned by this POC.</summary>
-    private static partial string GetComKeyPath();
+	[Doc($$"""
+	Returns the exact current-user registry path owned by this POC.
+	""")]
+	private static partial str GetComKeyPath();
 
-    /// <summary>Converts a failed native result into an exception containing the failed operation name.</summary>
-    private static partial void ThrowOnFailure(int HResult, string Operation);
+	[Doc($$"""
+	Converts a failed native result into an exception containing the failed operation name.
+	""")]
+	private static partial void ThrowOnFailure(i32 HResult, str Operation);
 }

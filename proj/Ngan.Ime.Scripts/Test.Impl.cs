@@ -1,11 +1,16 @@
+using Tsinswreng.CsCore;
 using Tsinswreng.CsSh;
 using static Tsinswreng.CsSh.ShGlobal;
 
 namespace Ngan.Ime.Scripts;
 
-/// Test 命令的流程實現。
+[Doc($$"""
+Test 命令的流程實現。
+""")]
 internal static partial class Test{
-	/// 測試專案相對於倉庫根的路徑。
+	[Doc($$"""
+	測試專案相對於倉庫根的路徑。
+	""")]
 	const str TestCsprojRelPath = "proj/Ngan.Ime.Frontend/Ngan.Ime.Test/Ngan.Ime.Test.csproj";
 
 	internal static async partial Task Main(ISCtx Ctx, CT Ct){

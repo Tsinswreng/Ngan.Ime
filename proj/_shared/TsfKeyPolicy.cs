@@ -24,6 +24,16 @@ using Tsinswreng.CsCore;
 	也可能只送 `OnKeyDown`（QQ2012）；{{nameof(TryReuseTest)}} 與 {{nameof(TryTakeKey)}}
 	保證「問引擎」與「用答案」各只發生一次。
 
+*對照 Weasel（2026-11-16 逐行核對 `WeaselTSF/KeyEventSink.cpp`）*：
+
++ `OnTestKeyDown`／`OnTestKeyUp` **只在引擎說吃掉時**才把 pending 旗標設起來（`:101-104`、`:130-133`）。
++ `OnKeyDown`／`OnKeyUp` 一旦看到 pending，就**一律回 TRUE** 並清旗標，不再問引擎
+	（`:111-118`、`:141-148`）——它不回去看上一次的具體結論。
++ 因此「引擎說不吃時，執行階段的回調會再問一次引擎」是 Weasel 的原樣行為，*不是缺陷*；
+	它同時說明第一條與第三條不變式的精確範圍：只對「已被吃掉」的鍵成立。
+	殼端因此把 `SetTest` 只在 `Eat == true` 時呼叫、把沿用 pending 的分支寫成 `IsEaten = 1`；
+	改這兩行之前先讀本段，否則會把「照 Weasel」改成「自創規則」。
+
 #Eg[
 	```cs
 	var Policy = new TsfKeyPolicy();
@@ -69,7 +79,7 @@ public sealed class TsfKeyPolicy{
 	[Doc("右 Alt 的獨立虛擬鍵碼。")]
 	public const i32 VkRMenu = 0xA5;
 
-	[Doc("記錄「按下是否被吃掉」的槽位數；正常打字不會同時有超過十顆鍵在途。")]
+	[Doc("記錄「按下是否被吃掉」的槽位數。正常打字同時按住的鍵遠少於此；滿了就整批清掉。")]
 	const i32 MaxTrackedKeys = 32;
 
 	[Doc("每顆鍵的虛擬鍵碼；0 表示空槽。")]
@@ -101,14 +111,14 @@ public sealed class TsfKeyPolicy{
 
 	[Doc($$"""
 	這顆鍵是不是修飾鍵（Shift／Ctrl／Alt／Win／CapsLock）。
+
+	*這條規則只用來分類，不再用來放行*。先前殼端拿它當「一律不吃、也不問引擎」的依據，
+	結果引擎永遠收不到 Alt 等修飾鍵，與 Weasel 的行為不同（Weasel 所有鍵都送引擎，
+	吃不吃由引擎回答）。現在修飾鍵照樣送引擎，本方法只供其他判斷參考。
+
 	#Prm[{{nameof(Vk)}}][虛擬鍵碼。]
 	#Rtn[true 表示是修飾鍵。]
 	""")]
-	/// <remarks>
-	/// *這條規則只用來分類，不再用來放行*。先前殼端拿它當「一律不吃、也不問引擎」的依據，
-	/// 結果引擎永遠收不到 Alt 等修飾鍵，與 Weasel 的行為不同（Weasel 所有鍵都送引擎，
-	/// 吃不吃由引擎回答）。現在修飾鍵照樣送引擎，本方法只供其他判斷參考。
-	/// </remarks>
 	public static bool IsModifier(i32 Vk){
 		return Vk == VkShift || Vk == VkCtrl || Vk == VkMenu || Vk == VkCapital
 			|| Vk == VkLWin || Vk == VkRWin
@@ -155,9 +165,14 @@ public sealed class TsfKeyPolicy{
 
 	[Doc($$"""
 	這次 `OnTestKeyXxx` 能否沿用上一次的答案（不問引擎）。
-	#Prm[{{nameof(IsUp)}}][方向。]
-	#Prm[{{nameof(Vk)}}][虛擬鍵碼。]
-	#Rtn[true 表示同方向、同鍵的結論還在，直接沿用。]
+
+	*回 true 就一定代表「吃掉」*：本類的 `SetTest` 只在引擎說吃掉時才被呼叫
+	（`NativeTsf.HandleKeyEvent` 的 `if (IsTest && Eat)`），所以呼叫端領到 true 時回
+	`IsEaten = 1` 是正確的——這正是 Weasel `OnKeyDown` 的行為：
+	`if (_fTestKeyDownPending) { *pfEaten = TRUE; ... }`（`WeaselTSF/KeyEventSink.cpp:111-118`），
+	它也是寫死 TRUE，不回去看上一次的具體值。
+	若哪天有人讓 `SetTest` 也記錄「沒吃掉」，這裡就必須改成 `out bool Eaten`——
+	這個前提寫在這裡，免得下一輪被當成 bug 改掉。
 	""")]
 	public bool TryReuseTest(bool IsUp, i32 Vk){
 		if(IsUp){
@@ -219,6 +234,8 @@ public sealed class TsfKeyPolicy{
 		HasTestUp = false;
 		TestDownVk = 0;
 		TestUpVk = 0;
+		TestDownEaten = false;
+		TestUpEaten = false;
 	}
 
 	[Doc("記住某顆鍵按下時的結論；同一顆鍵重複記錄就覆蓋。")]
@@ -255,10 +272,5 @@ public sealed class TsfKeyPolicy{
 			return Eaten;
 		}
 		return false;
-	}
-
-	[Doc("忘掉某顆鍵的記錄（修飾鍵轉為放行時用）。")]
-	void Forget(i32 Vk){
-		_ = Take(Vk);
 	}
 }

@@ -43,6 +43,16 @@ function Test-Admin {
     return $P.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# 路徑是否落在某個目錄之下（含該目錄本身）。
+# 只比前綴會誤判：`v20261116-170000` 也是 `v20261116-1700001` 的前綴。
+# CleanWin 的 IsUnder 用的是同一種判法，兩處不要各寫一套。
+function Test-UnderDir([string]$Path, [string]$Dir) {
+    if ([string]::IsNullOrEmpty($Path) -or [string]::IsNullOrEmpty($Dir)) { return $false }
+    $D = $Dir.TrimEnd('\', '/')
+    if ($Path.Equals($D, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $Path.StartsWith($D + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
 # 列出所有載入了某個目錄下檔案的行程；用來告訴使用者「哪些要重開」。
 function Find-Holders([string]$Dir) {
     $Result = @()
@@ -50,12 +60,12 @@ function Find-Holders([string]$Dir) {
         if ($Proc.Id -eq $PID) { continue }
         try {
             $Main = $Proc.MainModule
-            if ($Main -and $Main.FileName -and $Main.FileName.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase)) {
+            if ($Main -and $Main.FileName -and (Test-UnderDir $Main.FileName $Dir)) {
                 $Result += [pscustomobject]@{ Id = $Proc.Id; Name = $Proc.ProcessName; File = $Main.FileName }
                 continue
             }
             foreach ($Module in $Proc.Modules) {
-                if ($Module.FileName -and $Module.FileName.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase)) {
+                if ($Module.FileName -and (Test-UnderDir $Module.FileName $Dir)) {
                     $Result += [pscustomobject]@{ Id = $Proc.Id; Name = $Proc.ProcessName; File = $Module.FileName }
                     break
                 }
@@ -144,8 +154,11 @@ if (-not $ShareUserData) {
 }
 if ($NewUserData -ne $UserDataSrc) {
     # 只改這兩個路徑；其他鍵與註釋保持原樣會被 ConvertTo-Json 弄丟，故先確認檔案裏沒有註釋。
+    # 判定收窄成「行首或空白之後的 //」：單純 `-match '//'` 會命中字串值裡的 `//`
+    # （例如 `https://…` 或某些路徑），於是靜默退回「共用 Rime 用戶資料」，
+    # 使用者不會知道自己的版本其實沒有獨立 user data。
     $Raw = Get-Content -LiteralPath $NewCfg -Raw -Encoding UTF8
-    if ($Raw -match '//') {
+    if ($Raw -match '(?m)(^|\s)//') {
         Warn '配置文件含註釋，無法安全改寫路徑；這個版本會與來源共用 Rime 用戶資料。'
         $NewUserData = $UserDataSrc
     }

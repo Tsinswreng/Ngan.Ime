@@ -15,24 +15,33 @@ public partial class VmCandidatePopup{
 		return new VmCandidatePopup();
 	}
 
-	[Doc("以快照覆蓋組字串、候選與高亮；高亮超出範圍時退回第一個。")]
+	[Doc("以快照覆蓋組字串、候選與高亮；高亮超出範圍時退回第一個。最後發一次 Applied。")]
 	public partial void Apply(str Preedit, CandidatePage? Page){
-		this.Preedit = Preedit ?? "";
-		var Items = Page?.Data;
-		Candidates = Items is null ? [] : [.. Items];
-		var Highlight = Page?.HighlightedIndex ?? -1;
-		if(Highlight < 0 || Highlight >= Candidates.Count){
-			Highlight = Candidates.Count > 0 ? 0 : -1;
+		try{
+			this.Preedit = Preedit ?? "";
+			var Items = Page?.Data;
+			Candidates = Items is null ? [] : [.. Items];
+			var Highlight = Page?.HighlightedIndex ?? -1;
+			if(Highlight < 0 || Highlight >= Candidates.Count){
+				Highlight = Candidates.Count > 0 ? 0 : -1;
+			}
+			Highlighted = Highlight;
+			HasContent = this.Preedit.Length > 0 || Candidates.Count > 0;
+		}finally{
+			// 不管中途哪一步拋，浮窗都要收到一次通知，否則畫面會停在上一次的快照。
+			Applied?.Invoke();
 		}
-		Highlighted = Highlight;
-		HasContent = this.Preedit.Length > 0 || Candidates.Count > 0;
 	}
 
-	[Doc("清空所有內容。")]
+	[Doc("清空所有內容。最後發一次 Applied。")]
 	public partial void Clear(){
-		Preedit = "";
-		Candidates = [];
-		Highlighted = -1;
-		HasContent = false;
+		try{
+			Preedit = "";
+			Candidates = [];
+			Highlighted = -1;
+			HasContent = false;
+		}finally{
+			Applied?.Invoke();
+		}
 	}
 }

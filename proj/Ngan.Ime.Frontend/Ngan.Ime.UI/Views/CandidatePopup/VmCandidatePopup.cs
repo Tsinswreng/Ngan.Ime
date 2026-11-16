@@ -52,6 +52,15 @@ public partial class VmCandidatePopup : AppVmBase, IMk<VmCandidatePopup>{
 	[Doc("建立無依賴實例；測試與設計器用它，不必先建容器。")]
 	public static partial VmCandidatePopup Mk();
 
+	[Doc($$"""
+	一次快照套用完成的通知。
+
+	*為何不是逐屬性訂閱*：{{nameof(Apply)}} 會改四個屬性，逐屬性通知等於一次按鍵刷新四次浮窗
+	（每次重建行文字、可能觸發排版）。以「整份快照套完」為一個單位通知，浮窗每顆鍵只刷新一次。
+	事件由 {{nameof(Apply)}}／{{nameof(Clear)}} 在最後一步發出；例外或提早返回時也要發（用 finally）。
+	""")]
+	public event Action? Applied;
+
 	[Doc("用一次快照覆蓋本 VM 的狀態。")]
 	public partial void Apply(str Preedit, CandidatePage? Page);
 

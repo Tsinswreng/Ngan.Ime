@@ -21,6 +21,8 @@
 		<!-- 管道協議契約與按鍵決策：測試直接驗解析、序列化與吃鍵規則，不必啟動 TSF 或真引擎。 -->
 		<Compile Include="$(MSBuildThisFileDirectory)../_shared/TsfIpc.cs" />
 		<Compile Include="$(MSBuildThisFileDirectory)../_shared/TsfKeyPolicy.cs" />
+		<Compile Include="$(MSBuildThisFileDirectory)../_shared/TsfCompositionPlanner.cs" />
+		<Compile Include="$(MSBuildThisFileDirectory)../_shared/TsfCaretPolicy.cs" />
 		<ProjectReference Include="..\Ngan.Ime.Rime\Ngan.Ime.Rime.csproj" />
 		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.UI\Ngan.Ime.UI.csproj" />
 		<ProjectReference Include="..\Ngan.Ime.Frontend\Ngan.Ime.Backend\Ngan.Ime.Backend.csproj" />

@@ -1,3 +1,4 @@
+using Tsinswreng.CsCore;
 using Ngan.Ime.Core.Voice;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -5,13 +6,17 @@ using NAudio.Wave;
 namespace Ngan.Ime.Windows.Voice;
 
 public sealed partial class WindowsAudioInputSource{
-	/// 建構子刻意不碰 COM：NAudio 的 WASAPI 在 NativeAOT 下無法建立（`[ComImport]` 類介面），
-	/// 若在這裡就 new，桌面模式一建界面就會崩。真正的建立延到第一次錄音。
+	[Doc($$"""
+	建構子刻意不碰 COM：NAudio 的 WASAPI 在 NativeAOT 下無法建立（`[ComImport]` 類介面），
+	若在這裡就 new，桌面模式一建界面就會崩。真正的建立延到第一次錄音。
+	""")]
 	public partial WindowsAudioInputSource(){
 	}
 
-	/// 取得（必要時建立）端點枚舉器。
-	/// AOT 版本直接給出可讀的錯誤，而不是讓 `InvalidProgramException` 冒到界面上。
+	[Doc($$"""
+	取得（必要時建立）端點枚舉器。
+	AOT 版本直接給出可讀的錯誤，而不是讓 `InvalidProgramException` 冒到界面上。
+	""")]
 	MMDeviceEnumerator EnsureEnumerator(){
 		if(!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported){
 			throw new VoiceRecognitionException(
@@ -21,7 +26,9 @@ public sealed partial class WindowsAudioInputSource{
 		return DeviceEnumerator ??= new MMDeviceEnumerator();
 	}
 
-	/// 打开默认通信麦克风，建立转换链路并在所有资源就绪后开始采集。
+	[Doc($$"""
+	打开默认通信麦克风，建立转换链路并在所有资源就绪后开始采集。
+	""")]
 	public async partial Task<IAudioInputSession> Start(AudioInputOptions Options, CT Ct){
 		Ct.ThrowIfCancellationRequested();
 		ArgumentNullException.ThrowIfNull(Options);
@@ -42,17 +49,17 @@ public sealed partial class WindowsAudioInputSource{
 				ReadFully = false,
 				BufferDuration = TimeSpan.FromMilliseconds(Options.ChunkDurationMs * Options.MaxBufferedChunks),
 			};
-			var TargetFormat = new WaveFormat(Options.SampleRate, Options.BitsPerSample, Options.Channels);
-			Resampler = new MediaFoundationResampler(SourceBuffer, TargetFormat){ResamplerQuality = 60};
-			TargetBuffer = new BufferedWaveProvider(TargetFormat){
+			var targetFormat = new WaveFormat(Options.SampleRate, Options.BitsPerSample, Options.Channels);
+			Resampler = new MediaFoundationResampler(SourceBuffer, targetFormat){ResamplerQuality = 60};
+			TargetBuffer = new BufferedWaveProvider(targetFormat){
 				DiscardOnBufferOverflow = false,
 				ReadFully = false,
 				BufferDuration = TimeSpan.FromMilliseconds(Options.ChunkDurationMs * Options.MaxBufferedChunks),
 			};
-			var Session = new WindowsAudioInputSession(Device, Capture, SourceBuffer, Resampler, TargetBuffer, Options, Ct);
-			Session.Start();
+			var session = new WindowsAudioInputSession(Device, Capture, SourceBuffer, Resampler, TargetBuffer, Options, Ct);
+			session.Start();
 			await Task.CompletedTask;
-			return Session;
+			return session;
 		}catch(VoiceRecognitionException){
 			throw;
 		}catch(Exception Error){
@@ -63,7 +70,9 @@ public sealed partial class WindowsAudioInputSource{
 		}
 	}
 
-	/// 火山首版只支持常规 PCM，约束格式使转换后的字节长度和协议一致。
+	[Doc($$"""
+	火山首版只支持常规 PCM，约束格式使转换后的字节长度和协议一致。
+	""")]
 	private partial void ValidateOptions(AudioInputOptions Options){
 		if(Options.SampleRate <= 0 || Options.Channels is < 1 or > 2 || Options.BitsPerSample != 16 || Options.ChunkDurationMs is < 50 or > 1000 || Options.MaxBufferedChunks <= 0){
 			throw new VoiceRecognitionException(EVoiceRecognitionErrorKind.Configuration, "語音音頻配置無效；首版要求 16-bit PCM、50~1000ms 分包及正數緩衝包數");

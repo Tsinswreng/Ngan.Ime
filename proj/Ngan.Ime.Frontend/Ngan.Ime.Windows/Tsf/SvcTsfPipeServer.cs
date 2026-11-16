@@ -59,6 +59,12 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("診斷模式：環境變數 NGAN_TSF_TIMING=1 時，逐鍵記錄耗時與座標（平時不記，避免日誌爆量）。")]
 	static readonly bool TimingEnabled = System.Environment.GetEnvironmentVariable("NGAN_TSF_TIMING") == "1";
 
+	[Doc("待顯示的引擎回應：等外殼推來插入點位置才放上浮窗。")]
+	TsfReply? PendingReply;
+
+	[Doc("待顯示內容的互斥；按鍵執行緒與位置更新執行緒都會碰它。")]
+	readonly object PopupGate = new();
+
 	[Doc("是否已啟動；保證 Start 冪等。")]
 	bool Started;
 
@@ -68,12 +74,16 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("最近一次量到的插入點；狀態提示貼着它顯示。")]
 	readonly CaretAnchor Anchor;
 
+	[Doc("模式提示：英文模式每顆鍵都顯示 `A`（照 Weasel 的狀態圖示條件）。")]
+	readonly SvcModeTip ModeTip;
+
 	[Doc("建立服務端；依賴全部由容器給。")]
-	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup, CaretAnchor Anchor){
+	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup, CaretAnchor Anchor, SvcModeTip ModeTip){
 		this.Input = Input;
 		this.State = State;
 		this.Popup = Popup;
 		this.Anchor = Anchor;
+		this.ModeTip = ModeTip;
 	}
 
 	[Doc($$"""
@@ -156,7 +166,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	#Prm[{{nameof(Line)}}][請求行；格式見 {{nameof(TsfIpc)}}。]
 	#Rtn[回應行。]
 	""")]
-	async Task<str> HandleAsync(str Line, CT Ct){
+	async Task<str?> HandleAsync(str Line, CT Ct){
 		if(Line.Length > TsfIpc.MaxLineLength){
 			return TsfReply.Fail(ETsfErr.LineTooLong).Format();
 		}
@@ -183,8 +193,16 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		if(Req.Kind == ETsfReqKind.Position){
 			// 只移動浮窗，不碰引擎（Weasel 的 UpdateInputPosition 也只碰 UI）。
 			// 外殼在每次量到插入點時就推一條過來，浮窗因此即時跟隨光標。
-			Anchor.Set(Req.X, Req.Y);
-			Popup.MoveTo(Req.X, Req.Y);
+			Anchor.Set(Req.X, Req.Y, Req.Top);
+			// 有待顯示的內容就一次做完「套內容 ＋ 定位 ＋ 顯示」；沒有就只換位置。
+			// 拆成兩步會先畫在舊位置再搬，使用者就會看到跳一下。
+			var Showed = ApplyPendingShow();
+			if(!Showed){
+				Popup.MoveTo(Req.X, Req.Y, Req.Top);
+			}
+			AppLog.Info($"[Pos] x={Req.X} y={Req.Y} top={Req.Top} show={(Showed ? 1 : 0)}");
+			// 單向請求：不回一行，外殼也不必等。
+			return null;
 			return TsfReply.Empty().Format();
 		}
 		return await HandleKeyAsync(Req, Ct);
@@ -219,11 +237,16 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			EngineLock.Release();
 		}
 		if(Req.X != 0 || Req.Y != 0){
-			// 按鍵請求順帶的座標也是量測結果，記下來給狀態提示用（(0,0) 代表未知）。
-			Anchor.Set(Req.X, Req.Y);
+			// 按鍵請求順帶的座標也是量測結果，記下來給狀態提示與逾時兜底用
+			// （(0,0) 代表未知；請求沒有上緣欄位，用下緣代替）。
+			// 按鍵請求沒有上緣欄位：把下緣當上緣（高度 0），只用於狀態提示與逾時兜底。
+			Anchor.Set(Req.X, Req.Y, Req.Y);
 		}
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。
 		if(!Req.IsUp){
+			// 狀態圖示照 Weasel 的條件：英文模式每顆鍵都帶着 `A`
+			//（`ShouldDisplayStatusIcon` 的第一條，不看成員狀態有沒有變）。
+			ModeTip.OnKeyDown();
 			ShowPopup(Reply, Req);
 		}
 		if(Watch is not null){
@@ -284,17 +307,46 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	""")]
 	void ShowPopup(TsfReply Reply, TsfKeyRequest Req){
 		if(Reply.Preedit.Length == 0 && Reply.Candidates.Count == 0){
+			ClearPendingShow();
 			Popup.Hide();
 			return;
+		}
+		// 照 Weasel 的單一位置寫入者：內容先存着，等外殼量到插入點推來位置再顯示。
+		// 先前是「先用按鍵請求裡的舊座標顯示、收到位置再搬」，於是每顆鍵都先出現在
+		// 上一顆鍵的位置、然後跳一下。
+		lock(PopupGate){
+			PendingReply = Reply;
+		}
+		AppLog.Info($"[Pos] pending cand={Reply.Candidates.Count} preedit={Reply.Preedit.Length}");
+	}
+
+	[Doc($$"""
+	把「等位置」的內容放上浮窗，並用目前已知的位置一次顯示完。
+	#Rtn[true 表示確實有內容被放上去。]
+	""")]
+	bool ApplyPendingShow(){
+		TsfReply? Reply;
+		lock(PopupGate){
+			Reply = PendingReply;
+			PendingReply = null;
+		}
+		if(Reply is null){
+			return false;
 		}
 		var Page = new CandidatePage{
 			HighlightedIndex = Reply.Highlight,
 			Data = [.. Reply.Candidates.ConvertAll(One => (ICandidate)new Candidate{ Text = One.Text, Comment = One.Comment })],
 		};
-		// (0,0) 是協議定義的「拿不到插入點」，不是螢幕左上角。傳 null 讓浮窗保持原位，
-		// 否則量測一失敗，候選窗就會被搬到螢幕角落並一直留在那裏。
-		PixelPoint? Anchor = (Req.X == 0 && Req.Y == 0) ? null : new PixelPoint(Req.X, Req.Y);
-		Popup.Show(Reply.Preedit, Page, Anchor);
+		// 位置與顯示在同一次呼叫裡完成（見 ICandidatePopup.ShowAt 的說明）。
+		Popup.ShowAt(Reply.Preedit, Page, Anchor.X, Anchor.Y, Anchor.Top);
+		return true;
+	}
+
+	[Doc("丟掉待顯示的內容；沒有時無副作用。")]
+	void ClearPendingShow(){
+		lock(PopupGate){
+			PendingReply = null;
+		}
 	}
 
 	[Doc($$"""

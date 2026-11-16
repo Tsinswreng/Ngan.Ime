@@ -16,6 +16,7 @@ public class TestTsfCaretPolicy : Tester{
 	""")]
 	public override void Init(){
 		this.AddTestCase(nameof(Adopt_Should_RejectAllZeroRect), Adopt_Should_RejectAllZeroRect!);
+		this.AddTestCase(nameof(Adopt_Should_ReturnRectTop), Adopt_Should_ReturnRectTop!);
 		this.AddTestCase(nameof(Adopt_Should_TakeBottomLeft), Adopt_Should_TakeBottomLeft!);
 		this.AddTestCase(nameof(Adopt_Should_ShiftClientRectIntoForeground), Adopt_Should_ShiftClientRectIntoForeground!);
 		this.AddTestCase(nameof(Adopt_Should_KeepRectWhenForegroundUnknown), Adopt_Should_KeepRectWhenForegroundUnknown!);
@@ -29,7 +30,18 @@ public class TestTsfCaretPolicy : Tester{
 	""")]
 	public async Task<nil> Adopt_Should_RejectAllZeroRect(obj? O){
 		var T = Assert.IsTrue;
-		T(!TsfCaretPolicy.TryAdopt(0, 0, 0, 0, 0, 0, 1000, 1000, true, false, 0, 0, out _, out _), "全零矩形不可採用");
+		T(!TsfCaretPolicy.TryAdopt(0, 0, 0, 0, 0, 0, 1000, 1000, true, false, 0, 0, out _, out _, out _), "全零矩形不可採用");
+		return NIL;
+	}
+
+	[Doc("""
+	上緣要原樣吐出來：浮窗翻到文字行上方時靠它定位，只用下緣會蓋住整個字。
+	""")]
+	public async Task<nil> Adopt_Should_ReturnRectTop(obj? O){
+		var T = Assert.IsTrue;
+		var Ok = TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 100, 100, 900, 700, true, false, 0, 0, out _, out _, out var Top);
+		T(Ok, "視窗內的矩形應被採用");
+		T(Top == 300, $"上緣應為 300，實際 {Top}");
 		return NIL;
 	}
 
@@ -38,7 +50,7 @@ public class TestTsfCaretPolicy : Tester{
 	""")]
 	public async Task<nil> Adopt_Should_TakeBottomLeft(obj? O){
 		var T = Assert.IsTrue;
-		var Ok = TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 100, 100, 900, 700, true, false, 0, 0, out var X, out var Y);
+		var Ok = TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 100, 100, 900, 700, true, false, 0, 0, out var X, out var Y, out _);
 		T(Ok, "視窗內的矩形應被採用");
 		T(X == 200, $"錨點 X 應取左邊 200，實際 {X}");
 		T(Y == 320, $"錨點 Y 應取下面 320，實際 {Y}");
@@ -52,12 +64,12 @@ public class TestTsfCaretPolicy : Tester{
 	public async Task<nil> Adopt_Should_ShiftClientRectIntoForeground(obj? O){
 		var T = Assert.IsTrue;
 		// 客戶區 (10,20)-(30,40)，前景視窗原點 (100,100)，caret 客戶區 (5,6)。
-		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, true, 5, 6, out var X, out var Y);
+		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, true, 5, 6, out var X, out var Y, out _);
 		T(Ok, "客戶區座標應被平移而不是丟棄");
 		T(X == 105, $"平移後左邊應為 105（100-10+5），實際 {X}");
 		T(Y == 126, $"平移後下緣應為 126（100-20+6+40），實際 {Y}");
 		// caret 未知時只補前景視窗原點。
-		TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, false, 0, 0, out var X2, out var Y2);
+		TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, false, 0, 0, out var X2, out var Y2, out _);
 		T(X2 == 100, $"caret 未知時左邊應為 100，實際 {X2}");
 		T(Y2 == 120, $"caret 未知時下緣應為 120，實際 {Y2}");
 		return NIL;
@@ -68,7 +80,7 @@ public class TestTsfCaretPolicy : Tester{
 	""")]
 	public async Task<nil> Adopt_Should_KeepRectWhenForegroundUnknown(obj? O){
 		var T = Assert.IsTrue;
-		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 0, 0, 0, 0, false, true, 5, 6, out var X, out var Y);
+		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 0, 0, 0, 0, false, true, 5, 6, out var X, out var Y, out _);
 		T(Ok, "前景未知時仍可採用");
 		T(X == 10 && Y == 40, $"應保持原值 (10,40)，實際 ({X},{Y})");
 		return NIL;

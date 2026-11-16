@@ -69,20 +69,22 @@ public partial class ViewCandidatePopup{
 		_Preedit.IsVisible = Vm.Preedit.Length > 0;
 		SyncRowCount(Vm.Candidates.Count);
 		for(var I = 0; I < Vm.Candidates.Count; I++){
-			var Cand = Vm.Candidates[I];
+			// 翻到插入點上方時把行序倒過來（照 Weasel 的 `m_istorepos`）：
+			// 第一候選留在最靠近光標的那一端，而不是跑到最上面。
+			var Src = Reversed ? Vm.Candidates.Count - 1 - I : I;
+			var Cand = Vm.Candidates[Src];
 			var Row = Rows[I];
-			// 序號由界面自己產生：引擎只給文字與註釋，序號是顯示層的事。
-			Row.Index.Text = (I + 1).ToString() + ".";
+			// 序號由界面自己產生：引擎只給文字與註釋，序號是顯示層的事；
+			// 倒排時序號跟著候選走，不能跟著列走。
+			Row.Index.Text = (Src + 1).ToString() + ".";
 			Row.Text.Text = Cand.Text ?? "";
 			Row.Comment.Text = Cand.Comment ?? "";
 			Row.Comment.IsVisible = !string.IsNullOrEmpty(Cand.Comment);
-			Row.Frame.Background = I == Vm.Highlighted
+			Row.Frame.Background = Src == Vm.Highlighted
 				? UiCfg.Inst.PopupHighlightColor
 				: Brushes.Transparent;
 		}
-		if(!IsVisible){
-			Show();
-		}
+		// 不在這裡顯示：顯示與定位由 ShowAt 一次做完，否則會先出現在舊位置再被搬走。
 	}
 
 	[Doc("把候選行數量調到 Count：不足就補、多餘就撤。")]
@@ -139,39 +141,84 @@ public partial class ViewCandidatePopup{
 	}
 
 	[Doc($$"""
-	照 Weasel `WeaselPanel::MoveTo` ＋ `_RepositionWindow`（`WeaselUI/WeaselPanel.cpp:1121-1223`）：
-	+ 先把插入點下緣往下讓 6px（`OffsetRect(0, 6)`），候選窗從那裡開始，所以不會蓋住光標；
-	+ 取插入點所在螢幕的工作區，x 夾在左右邊界內；
-	+ 下方放不下（`y > 工作區下緣 - 高度`）就翻到插入點上方（`y = 插入點下緣 - 高度`），
-		翻過一次就固定在上方（`m_sticky`），避免高度變動時來回跳；
-	+ 最後 y 不得高於工作區上緣。
+	顯示並定位；順序照 Weasel：先把內容排好、算好位置，視窗最後才第一次出現。
+	#Prm[{{nameof(Anchor)}}][插入點下緣。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣。]
 	""")]
-	public partial void MoveTo(PixelPoint Anchor){
-		// 首次顯示時 Bounds 可能還是 0，用 DesiredSize 才不會把位置算錯。
-		var size = Bounds.Width > 0 ? Bounds.Size : DesiredSize;
-		var width = (i32)Math.Ceiling(size.Width);
-		var height = (i32)Math.Ceiling(size.Height);
-		var screens = Screens;
-		var screen = screens?.ScreenFromPoint(Anchor) ?? screens?.Primary;
-		var work = screen?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
-		var x = Anchor.X;
-		var y = Anchor.Y + AnchorGapPx;
-		var maxX = work.Right - width;
-		var maxY = work.Bottom - height;
-		if(x > maxX){
-			x = maxX;
+	public partial void ShowAt(PixelPoint Anchor, i32 Top){
+		ApplyPlacement(Anchor, Top);
+		if(!IsVisible){
+			Show();
 		}
-		if(x < work.X){
-			x = work.X;
+	}
+
+	[Doc("只換位置（內容沒變時，例如光標移動）；不負責顯示。")]
+	public partial void MoveTo(PixelPoint Anchor, i32 Top){
+		ApplyPlacement(Anchor, Top);
+	}
+
+	[Doc($$"""
+	算位置並寫進 {{nameof(Position)}}；不顯示。
+
+	*照 Weasel `WeaselPanel::MoveTo` ＋ `_RepositionWindow`（`WeaselUI/WeaselPanel.cpp:1121-1223`）*：
+	+ 插入點下緣往下讓 6px（`OffsetRect(0, 6)`）；
+	+ x 夾在插入點所在螢幕的工作區內；
+	+ 下方放不下就翻到插入點**上緣之上**：`y = Top - 高度`
+		（Weasel：`m_inputPos.top - height - 6`，`m_inputPos.top` 是上緣 + 6）；
+	+ 翻上去時行序倒排（{{nameof(Reversed)}}，照 `m_istorepos`），第一候選貼着光標；
+	+ 翻過一次就固定上方（`m_sticky`）；y 不得高於工作區上緣。
+
+	*尺寸一定用 `DesiredSize`*：`Bounds` 是上一輪內容的尺寸，候選行數一變就是錯的。
+	""")]
+	void ApplyPlacement(PixelPoint Anchor, i32 Top){
+		MeasureContent();
+		var Width = (i32)Math.Ceiling(ContentSize.Width);
+		var Height = (i32)Math.Ceiling(ContentSize.Height);
+		var Screens = this.Screens;
+		var Screen = Screens?.ScreenFromPoint(Anchor) ?? Screens?.Primary;
+		var Work = Screen?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
+		var Below = Anchor.Y + AnchorGapPx;
+		var Flip = Below > Work.Bottom - Height || Sticky;
+		if(Flip != Reversed){
+			// 行序一換高度就變：先換、重量，再用新高度算 y。
+			Reversed = Flip;
+			Refresh();
+			MeasureContent();
+			Width = (i32)Math.Ceiling(ContentSize.Width);
+			Height = (i32)Math.Ceiling(ContentSize.Height);
 		}
-		if(y > maxY || Sticky){
+		if(Flip){
 			Sticky = true;
-			// Weasel：y = inputPos.top - height - 6，而 inputPos.top 是「插入點下緣 + 6」。
-			y = Anchor.Y - height;
 		}
-		if(y < work.Y){
-			y = work.Y;
+		var X = Anchor.X;
+		var Y = Flip ? Top - Height : Anchor.Y + AnchorGapPx;
+		var MaxX = Work.Right - Width;
+		if(X > MaxX){
+			X = MaxX;
 		}
-		Position = new PixelPoint(x, y);
+		if(X < Work.X){
+			X = Work.X;
+		}
+		if(Y < Work.Y){
+			Y = Work.Y;
+		}
+		Position = new PixelPoint(X, Y);
+		AppLog.Info($"[Place] anchor=({Anchor.X},{Anchor.Y}) top={Top} w={Width} h={Height} work={Work.X},{Work.Y},{Work.Right},{Work.Bottom} flip={(Flip ? 1 : 0)} rev={(Reversed ? 1 : 0)} pos=({X},{Y})");
+	}
+
+	[Doc("量一次內容的尺寸：`Window.Measure` 受視窗系統影響，直接量子控件最可靠。")]
+	void MeasureContent(){
+		var Root = Content as Layoutable;
+		if(Root is not null){
+			Root.Measure(Size.Infinity);
+		}
+	}
+
+	[Doc("內容的期望尺寸；沒有內容時退回視窗自己的 `DesiredSize`。")]
+	Size ContentSize{
+		get{
+			var Root = Content as Layoutable;
+			return Root is not null ? Root.DesiredSize : DesiredSize;
+		}
 	}
 }

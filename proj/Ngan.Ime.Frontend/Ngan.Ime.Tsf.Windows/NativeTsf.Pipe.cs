@@ -34,6 +34,9 @@ using Ngan.Ime.Tsf.Ipc;
 """)]
 internal static unsafe partial class NativeTsf {
 
+	[Doc("診斷開關：環境變數 NGAN_TSF_DIAG=1 時，把每次位置推送也寫進日誌。")]
+	private static readonly bool DiagEnabled = System.Environment.GetEnvironmentVariable("NGAN_TSF_DIAG") == "1";
+
 	[Doc($$"""
 	連線等待上限（毫秒）；對應 Weasel `_Connect` 裡的 `WaitNamedPipe(name, 500)`。
 	""")]
@@ -352,7 +355,22 @@ internal static unsafe partial class NativeTsf {
 	（`WeaselTSF/Composition.cpp:228-243`）。我們的浮窗在另一支行程，只能靠這條請求即時推過去；
 	不推就只會在下一顆按鍵時才動，看起來就是「大致跟隨、還常常蓋住光標」。
 	""")]
-	private static void SendCaretPosition(i32 X, i32 Y) {
-		SendCommand(new TsfKeyRequest { Kind = ETsfReqKind.Position, X = X, Y = Y });
+	private static void SendCaretPosition(i32 X, i32 Y, i32 Top) {
+		// 單向：寫出去就結束，不讀回覆。
+		// *為何不讀*：這條請求跑在 TSF 的 edit session 裡、應用的 UI 執行緒上，
+		// 多一次阻塞往返就是多一次卡頓；而位置更新丟掉也無妨——下一顆鍵會再送一次。
+		lock (PipeLock) {
+			if (!EnsureConnected()) {
+				return;
+			}
+			try {
+				PipeWriter!.WriteLine(new TsfKeyRequest { Kind = ETsfReqKind.Position, X = X, Y = Y, Top = Top }.Format());
+			} catch (Exception) {
+				Disconnect();
+			}
+		}
+		if (DiagEnabled) {
+			LogWarn("[Pos] sent x=" + X + " y=" + Y + " top=" + Top);
+		}
 	}
 }

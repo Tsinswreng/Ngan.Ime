@@ -48,6 +48,7 @@ public partial class ViewStatusTip{
 
 	[Doc("移到插入點下方；超出工作區就往內收。")]
 	public partial void MoveTo(PixelPoint Anchor){
+		// 照 Weasel 的 ascii tip：貼在光標**上方**（`irc = cursor - SIZE`），不壓住文字。
 		var size = Bounds.Width > 0 ? Bounds.Size : DesiredSize;
 		var width = (i32)Math.Ceiling(size.Width);
 		var height = (i32)Math.Ceiling(size.Height);

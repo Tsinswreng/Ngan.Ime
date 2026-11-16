@@ -28,20 +28,25 @@ using Ngan.Ime.Core.Ime;
 public interface ICandidatePopup{
 
 	[Doc($$"""
-	顯示或更新候選浮窗。
+	套上新內容並顯示在指定位置；顯示與定位在同一次 UI 操作裡完成。
+
+	*為何不能拆成 Show ＋ MoveTo*：拆開就會「先畫在舊位置、下一幀再搬」，
+	每一顆鍵都會跳一下。照 Weasel：位置算好、視窗才第一次出現。
 	#Prm[{{nameof(Preedit)}}][組字串；空串表示只顯示候選。]
 	#Prm[{{nameof(Page)}}][候選頁快照。]
-	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標；浮窗貼在它左下角。null 表示「不知道位置」，
-		此時浮窗保持原位，不可把它移到螢幕原點。]
+	#Prm[{{nameof(X)}}][插入點左邊。]
+	#Prm[{{nameof(Y)}}][插入點下緣。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣。]
 	""")]
-	public void Show(str Preedit, CandidatePage Page, PixelPoint? Anchor);
+	public void ShowAt(str Preedit, CandidatePage Page, i32 X, i32 Y, i32 Top);
 
 	[Doc($$"""
 	把浮窗移到插入點：插入點下緣為基準，浮窗往下 6px 開始；下方放不下就翻到插入點上方。
 	#Prm[{{nameof(X)}}][插入點左邊（螢幕座標）。]
 	#Prm[{{nameof(Y)}}][插入點下緣（螢幕座標）。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣；翻到上方時用它定位，浮窗才不會蓋住文字行。]
 	""")]
-	public void MoveTo(i32 X, i32 Y);
+	public void MoveTo(i32 X, i32 Y, i32 Top);
 
 	[Doc("收起浮窗；已收起時無副作用。")]
 	public void Hide();

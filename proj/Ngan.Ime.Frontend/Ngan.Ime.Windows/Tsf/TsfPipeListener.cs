@@ -32,7 +32,7 @@ internal sealed class TsfPipeListener{
 	public str PipeName{get;}
 
 	[Doc("收到一行請求時呼叫：一行進、一行出。")]
-	Func<str, CT, Task<str>>? Handle;
+	Func<str, CT, Task<str?>>? Handle;
 
 	[Doc("監聽迴圈的取消源；Start 時建立、Stop 時取消。")]
 	CancellationTokenSource? LoopCts;
@@ -46,7 +46,7 @@ internal sealed class TsfPipeListener{
 	開始接受連線；重複呼叫無副作用。
 	#Prm[{{nameof(OnRequest)}}][收到請求時的處理器。]
 	""")]
-	public void Start(Func<str, CT, Task<str>> OnRequest){
+	public void Start(Func<str, CT, Task<str?>> OnRequest){
 		if(LoopCts is not null){
 			return;
 		}
@@ -112,6 +112,10 @@ internal sealed class TsfPipeListener{
 						return;
 					}
 					var Reply = await Handler(Line, Ct);
+					if(Reply is null){
+						// 單向請求（位置更新）：沒有回覆，也就沒有額外往返。
+						continue;
+					}
 					await Writer.WriteLineAsync(Reply.AsMemory(), Ct);
 				}
 			}catch(OperationCanceledException){

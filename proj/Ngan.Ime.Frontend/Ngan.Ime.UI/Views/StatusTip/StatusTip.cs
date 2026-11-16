@@ -42,7 +42,9 @@ public sealed class StatusTip : IStatusTip{
 				RestartTimer();
 			}catch(Exception Ex){
 				AppLog.Error(Ex, "[StatusTip] 顯示失敗");
+				return;
 			}
+			AppLog.Info($"[Tip] shown text={Text} x={(Anchor?.X ?? -1)} y={(Anchor?.Y ?? -1)} visible={Window?.IsVisible}");
 		});
 	}
 

@@ -189,12 +189,13 @@ public class TestTsfIpc : Tester{
 	""")]
 	public async Task<nil> Position_Should_RoundTrip(obj? O){
 		var T = Assert.IsTrue;
-		var Req = new TsfKeyRequest{ Kind = ETsfReqKind.Position, X = 321, Y = 654 };
-		T(Req.Format() == "P|" + TsfIpc.Version + "|321|654", $"格式應為 P|ver|x|y，實際 {Req.Format()}");
+		var Req = new TsfKeyRequest{ Kind = ETsfReqKind.Position, X = 321, Y = 654, Top = 630 };
+		T(Req.Format() == "P|" + TsfIpc.Version + "|321|654|630", $"格式應為 P|ver|x|y|top，實際 {Req.Format()}");
 		var Back = TsfKeyRequest.Parse(Req.Format());
 		T(Back is not null, "位置更新應可解析");
 		T(Back!.Kind == ETsfReqKind.Position, "種類應為位置更新");
 		T(Back.X == 321 && Back.Y == 654, $"座標應保留，實際 ({Back.X},{Back.Y})");
+		T(Back.Top == 630, $"上緣應保留，實際 {Back.Top}");
 		return NIL;
 	}
 

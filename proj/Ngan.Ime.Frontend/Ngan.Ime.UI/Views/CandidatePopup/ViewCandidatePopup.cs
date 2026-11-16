@@ -55,8 +55,17 @@ public partial class ViewCandidatePopup : Window{
 	""")]
 	public bool Sticky;
 
-	[Doc("移到插入點：先放下方（間距 6px），下方不夠就翻到上方；一律夾在工作區內。")]
-	public partial void MoveTo(PixelPoint Anchor);
+	[Doc($$"""
+	翻到插入點上方時候選行倒排；照 Weasel 的 `m_istorepos`
+	（`WeaselPanel.cpp:276` 起多處依它反轉繪製順序）。由 {{nameof(MoveTo)}} 維護。
+	""")]
+	public bool Reversed;
+
+	[Doc("套好內容後呼叫：排版、定位、顯示一次完成；順序照 Weasel（位置算好才顯示）。")]
+	public partial void ShowAt(PixelPoint Anchor, i32 Top);
+
+	[Doc("只換位置（內容沒變）；不負責顯示。")]
+	public partial void MoveTo(PixelPoint Anchor, i32 Top);
 }
 
 [Doc($$"""

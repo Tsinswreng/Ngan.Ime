@@ -13,14 +13,14 @@ using Ngan.Ime.Infra;
 呼叫方不必知道這件事，切換在這一層完成。
 
 *為何視窗延後建立*：Android 等沒有視窗的宿主也可能註冊本類但從不呼叫；
-延後到第一次 {{nameof(Show)}} 才建，避免在沒有桌面生命週期的行程裡造 Window。
+延後到第一次 {{nameof(ShowAt)}} 才建，避免在沒有桌面生命週期的行程裡造 Window。
 
 *為何只有一個實例*：候選窗是全域唯一（同時只會有一個輸入上下文在組字），
 多開會出現兩個浮窗搶位置。
 
 #Eg[
 	```cs
-	Popup.Show("ni", Page, new PixelPoint(100, 200));
+	Popup.ShowAt("ni", Page, 100, 200, 184);
 	```
 ]
 """)]
@@ -33,22 +33,24 @@ public sealed class CandidatePopup : ICandidatePopup{
 	VmCandidatePopup? Vm;
 
 	[Doc($$"""
-	顯示或更新浮窗。
+	套上新內容並顯示在指定位置；顯示與定位在同一次 UI 操作裡完成。
+
+	*為何不能拆*：先前是 `Vm.Apply`（內含 `Refresh` → `Show`）之後再 `MoveTo`，
+	兩者各是一則 UI 訊息，中間會渲染一幀，於是每顆鍵都「先出現在舊位置、再跳一次」。
 	#Prm[{{nameof(Preedit)}}][組字串。]
 	#Prm[{{nameof(Page)}}][候選頁快照。]
-	#Prm[{{nameof(Anchor)}}][插入點的螢幕座標；null 表示未知，浮窗保持原位。]
+	#Prm[{{nameof(X)}}][插入點左邊。]
+	#Prm[{{nameof(Y)}}][插入點下緣。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣。]
 	""")]
-	public void Show(str Preedit, CandidatePage Page, PixelPoint? Anchor){
+	public void ShowAt(str Preedit, CandidatePage Page, i32 X, i32 Y, i32 Top){
 		Dispatcher.UIThread.Post(() => {
 			try{
 				EnsureWindow();
-				// Apply 收尾會發一次 Applied，視圖訂閱它刷新；這裡不再另外呼叫 Refresh，
-				// 否則一顆鍵會刷新兩次（先前逐屬性訂閱時是五次）。
+				// Apply 收尾會發一次 Applied，視圖訂閱它刷新內容；刷新不再自己 Show。
 				Vm!.Apply(Preedit, Page);
-				// 位置未知時不動視窗：寧可留在上一次的位置，也不要把浮窗搬到螢幕原點。
-				if(Anchor is {} Point){
-					Window!.MoveTo(Point);
-				}
+				// 內容就緒之後才排版、定位、顯示——一次完成。
+				Window!.ShowAt(new PixelPoint(X, Y), Top);
 			}catch(Exception Ex){
 				// 浮窗壞掉不該拖垮輸入：記日誌、收起，下次按鍵再試。
 				AppLog.Error(Ex, "[CandidatePopup] 顯示失敗");
@@ -61,14 +63,15 @@ public sealed class CandidatePopup : ICandidatePopup{
 	把浮窗移到插入點；還沒建立過浮窗就什麼都不做（沒有東西可移）。
 	#Prm[{{nameof(X)}}][插入點左邊（螢幕座標）。]
 	#Prm[{{nameof(Y)}}][插入點下緣（螢幕座標）。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣。]
 	""")]
-	public void MoveTo(i32 X, i32 Y){
+	public void MoveTo(i32 X, i32 Y, i32 Top){
 		Dispatcher.UIThread.Post(() => {
 			try{
 				if(Window is null){
 					return;
 				}
-				Window.MoveTo(new PixelPoint(X, Y));
+				Window.MoveTo(new PixelPoint(X, Y), Top);
 			}catch(Exception Ex){
 				// 移動失敗只影響位置，不該把候選內容一起收掉。
 				AppLog.Error(Ex, "[CandidatePopup] 移動失敗");

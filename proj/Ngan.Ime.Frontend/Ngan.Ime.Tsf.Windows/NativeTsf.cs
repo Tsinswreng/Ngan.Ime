@@ -373,6 +373,10 @@ internal static unsafe partial class NativeTsf {
 		""")]
 		public i32 CaretPointY;
 		[Doc($$"""
+		插入點矩形的上邊界（像素）；浮窗翻到文字行上方時用它定位。
+		""")]
+		public i32 CaretPointTop;
+		[Doc($$"""
 		是否量到過插入點。false 時 x/y 的 0 代表「未知」，不是螢幕左上角。
 		""")]
 		public bool CaretValid;
@@ -1269,6 +1273,12 @@ internal static unsafe partial class NativeTsf {
 				// 從未量到過：退回 Win32 的 caret，至少不要讓浮窗落在螢幕原點。
 				TryTakeCaretFromGui(state);
 			}
+			// 每顆「有內容要顯示」的鍵都送一次位置（單向、不等待）：
+			// 量到就用新值，量不到就沿用最後已知值。浮窗因此只由這條訊息驅動，
+			// 不會出現「先用舊座標顯示、再被新座標搬走」的兩次定位。
+			if (state.CaretValid) {
+				SendCaretPosition(state.CaretPointX, state.CaretPointY, state.CaretPointTop);
+			}
 			return SOk;
 		} catch (Exception Exception) {
 			LogError("DoCaretSession EX " + Exception);
@@ -1364,14 +1374,13 @@ internal static unsafe partial class NativeTsf {
 		var hasCaret = GetCaretPos(ref caret);
 		if (!TsfCaretPolicy.TryAdopt(Rect.Left, Rect.Top, Rect.Right, Rect.Bottom,
 			fgLeft, fgTop, fgRight, fgBottom, hasForeground,
-			hasCaret, caret.X, caret.Y, out var x, out var y)) {
+			hasCaret, caret.X, caret.Y, out var x, out var y, out var rectTop)) {
 			return false;
 		}
 		State.CaretPointX = x;
 		State.CaretPointY = y;
+		State.CaretPointTop = rectTop;
 		State.CaretValid = true;
-		// 量到就推：候選窗與 Weasel 一樣即時跟隨，而不是等下一顆鍵。
-		SendCaretPosition(x, y);
 		return true;
 	}
 
@@ -1430,9 +1439,9 @@ internal static unsafe partial class NativeTsf {
 			State.CaretPointX = asScreen.X;
 			State.CaretPointY = asScreen.Y;
 			State.CaretValid = true;
+			// 沒有量到矩形的上緣，用下緣當上緣（高度 0）。
+			State.CaretPointTop = State.CaretPointY;
 			LogWarn("Caret GUITHREADINFO adopted x=" + State.CaretPointX + " y=" + State.CaretPointY);
-			// 兜底路徑也推一次位置，浮窗才不會等到下一顆鍵才動。
-			SendCaretPosition(State.CaretPointX, State.CaretPointY);
 		} catch (Exception Exception) {
 			LogError("TryTakeCaretFromGui EX " + Exception);
 		}

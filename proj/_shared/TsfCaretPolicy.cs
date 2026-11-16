@@ -36,16 +36,18 @@ public static class TsfCaretPolicy{
 	#Prm[{{nameof(CaretY)}}][caret 的客戶區 Y。]
 	#Prm[{{nameof(X)}}][採用的錨點 X（螢幕座標）。]
 	#Prm[{{nameof(Y)}}][採用的錨點 Y（螢幕座標，取矩形下緣）。]
+	#Prm[{{nameof(RectTop)}}][矩形的上緣（螢幕座標）；浮窗翻到上方時用它定位。]
 	#Rtn[true 表示採用。]
 	""")]
 	public static bool TryAdopt(
 		i32 Left, i32 Top, i32 Right, i32 Bottom,
 		i32 FgLeft, i32 FgTop, i32 FgRight, i32 FgBottom, bool HasForeground,
 		bool HasCaret, i32 CaretX, i32 CaretY,
-		out i32 X, out i32 Y
+		out i32 X, out i32 Y, out i32 RectTop
 	){
 		X = 0;
 		Y = 0;
+		RectTop = 0;
 		// Weasel：`(rc.left != 0 || rc.top != 0)` 才算有效。
 		if(Left == 0 && Top == 0){
 			return false;
@@ -65,6 +67,7 @@ public static class TsfCaretPolicy{
 		}
 		X = l;
 		Y = b;
+		RectTop = t;
 		return true;
 	}
 

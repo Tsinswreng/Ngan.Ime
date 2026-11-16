@@ -44,7 +44,7 @@ public static class TsfIpc{
 	解析端仍然容忍欄位短缺（見 `Parse`），那是為了讓同一版內的舊格式字串還能讀，不是跨版本相容。
 
 	""")]
-	public const i32 Version = 2;
+	public const i32 Version = 3;
 
 	[Doc($$"""
 	管道名稱的前綴。
@@ -291,8 +291,11 @@ public sealed class TsfKeyRequest{
 	[Doc("插入點螢幕 X（像素）。")]
 	public i32 X{get;set;}
 
-	[Doc("插入點螢幕 Y（像素）。")]
+	[Doc("插入點螢幕 Y（像素）；位置更新時是插入點矩形的下緣。")]
 	public i32 Y{get;set;}
+
+	[Doc("插入點矩形的上緣（像素）；只有位置更新（`P`）會用到，0 表示未知。")]
+	public i32 Top{get;set;}
 
 	[Doc("true 表示擡起，false 表示按下。")]
 	public bool IsUp{get;set;}
@@ -315,7 +318,10 @@ public sealed class TsfKeyRequest{
 			return TsfIpc.EchoTag + "|" + Ver;
 		}
 		if(Kind == ETsfReqKind.Position){
-			return TsfIpc.PosTag + "|" + Ver + "|" + X + "|" + Y;
+			// 完整插入點矩形：左、下緣、上緣。Weasel 的浮窗靠上緣翻到文字行上方
+			// （`WeaselPanel.cpp:1196` 的 `y = inputPos.top - height - 6`），
+			// 只有下緣的話翻上去會蓋住整個文字行。
+			return TsfIpc.PosTag + "|" + Ver + "|" + X + "|" + Y + "|" + Top;
 		}
 		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0")
 			+ "|" + Scan + "|" + Ext;
@@ -350,6 +356,8 @@ public sealed class TsfKeyRequest{
 				Kind = ETsfReqKind.Position,
 				X = Parts.Length > 2 ? (TsfIpc.ParseInt(Parts[2]) ?? 0) : 0,
 				Y = Parts.Length > 3 ? (TsfIpc.ParseInt(Parts[3]) ?? 0) : 0,
+				// 上緣是版本 3 才有的欄位；舊外殼沒有它，補 0（由接收端用下緣推算）。
+				Top = Parts.Length > 4 ? (TsfIpc.ParseInt(Parts[4]) ?? 0) : 0,
 			};
 		}
 		if(Parts[0] != TsfIpc.KeyTag || Parts.Length < 6){

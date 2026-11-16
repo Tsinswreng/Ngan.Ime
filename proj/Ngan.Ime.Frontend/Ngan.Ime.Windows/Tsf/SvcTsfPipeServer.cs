@@ -225,6 +225,11 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			Popup.Hide();
 			return TsfReply.Empty().Format();
 		}
+		if(Req.Kind == ETsfReqKind.Echo){
+			// 探測不碰引擎：外殼每一顆鍵都先問它一次（照 Weasel 的 ECHO）。
+			// 能在這裡回答就代表「管道通、服務端活著」，不必等引擎鎖。
+			return TsfReply.Empty().Format();
+		}
 		return await HandleKeyAsync(Req, Ct);
 	}
 

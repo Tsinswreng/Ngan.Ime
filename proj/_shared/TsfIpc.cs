@@ -141,6 +141,14 @@ public static class TsfIpc{
 	[Doc("請求首欄：收起候選窗。")]
 	public const str HideTag = "H";
 
+	[Doc($$"""
+	請求首欄：連線探測。
+	照 Weasel 的 `WEASEL_IPC_ECHO`（`WeaselIPC/WeaselClientImpl.cpp` 的 `ClientImpl::Echo`）：
+	外殼每一顆鍵都先用它問一次「服務端還在嗎」，失敗就重連，連六次失敗就把服務端拉起來。
+	比「等按鍵請求失敗了才推測服務端不在」可靠：探測本身不碰引擎，成本是一次空往返。
+	""")]
+	public const str EchoTag = "E";
+
 	[Doc("回應首欄。")]
 	public const str ReplyTag = "R";
 
@@ -203,6 +211,9 @@ public enum ETsfReqKind{
 
 	[Doc("收起候選窗。")]
 	Hide = 1,
+
+	[Doc("連線探測（Weasel 的 ECHO）。")]
+	Echo = 2,
 }
 
 [Doc($$"""
@@ -280,6 +291,9 @@ public sealed class TsfKeyRequest{
 		if(Kind == ETsfReqKind.Hide){
 			return TsfIpc.HideTag + "|" + Ver;
 		}
+		if(Kind == ETsfReqKind.Echo){
+			return TsfIpc.EchoTag + "|" + Ver;
+		}
 		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0")
 			+ "|" + Scan + "|" + Ext;
 	}
@@ -303,6 +317,9 @@ public sealed class TsfKeyRequest{
 		}
 		if(Parts[0] == TsfIpc.HideTag){
 			return new TsfKeyRequest{ Ver = Ver.Value, Kind = ETsfReqKind.Hide };
+		}
+		if(Parts[0] == TsfIpc.EchoTag){
+			return new TsfKeyRequest{ Ver = Ver.Value, Kind = ETsfReqKind.Echo };
 		}
 		if(Parts[0] != TsfIpc.KeyTag || Parts.Length < 6){
 			return null;

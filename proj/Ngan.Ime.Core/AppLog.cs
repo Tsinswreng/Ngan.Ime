@@ -1,7 +1,6 @@
 namespace Ngan.Ime;
 
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 using Tsinswreng.CsLog;
 
 [Doc($$"""

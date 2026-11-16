@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Infra;
 
 using System.Text;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 從 TTF／OTF 檔讀出字體家族名（`name` 表）。

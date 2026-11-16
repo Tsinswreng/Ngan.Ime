@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Fonts;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 界面主題常量的唯一出處：字級、尺寸、顏色、鍵盤字體。

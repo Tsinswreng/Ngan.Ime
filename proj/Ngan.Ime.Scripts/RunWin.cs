@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Scripts;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsSh;
 
 [Doc($$"""

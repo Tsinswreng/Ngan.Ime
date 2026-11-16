@@ -2,7 +2,6 @@ namespace Ngan.Ime.Infra.Log;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 日誌相關的依賴注入裝配。

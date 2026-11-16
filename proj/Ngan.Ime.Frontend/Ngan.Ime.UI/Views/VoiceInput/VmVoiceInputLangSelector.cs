@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using Ngan.Ime.Core.Language;
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 語音識別語言選擇頁的 ViewModel：目錄來自 {{nameof(IVoiceRecognitionProvider.SupportedLanguages)}}，本類只做過濾。

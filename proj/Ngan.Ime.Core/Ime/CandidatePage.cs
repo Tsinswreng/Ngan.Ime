@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Ime;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsPage;
 
 [Doc($$"""

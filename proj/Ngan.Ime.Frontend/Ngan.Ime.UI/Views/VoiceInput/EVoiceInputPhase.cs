@@ -1,6 +1,5 @@
 namespace Ngan.Ime.UI.Views.VoiceInput;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 語音輸入的前端階段。

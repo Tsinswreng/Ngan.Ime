@@ -7,7 +7,6 @@ using Avalonia.Themes.Fluent;
 using Microsoft.Extensions.DependencyInjection;
 using Ngan.Ime.Infra;
 using Ngan.Ime.UI.Views;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Avalonia 應用入口。

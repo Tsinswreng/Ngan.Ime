@@ -8,7 +8,6 @@ using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.Tsf.Ipc;
 using Ngan.Ime.UI.Views.CandidatePopup;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 TSF 管道服務端：按鍵經具名管道送進來，交給引擎處理，再把結果回給外殼。

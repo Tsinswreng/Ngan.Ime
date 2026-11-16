@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Infra.Cfg;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
 using Tsinswreng.CsCfg;
 
 [Doc($$"""

@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views;
 
 using Avalonia.Controls;
 using Ngan.Ime.UI.Views.Ime;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 界面根視圖：只放一個 {{nameof(ViewIme)}}。

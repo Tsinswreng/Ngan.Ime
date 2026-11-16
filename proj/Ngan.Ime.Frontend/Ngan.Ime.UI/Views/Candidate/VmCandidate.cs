@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.Candidate;
 using Avalonia.Media;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 單個候選詞的 ViewModel。

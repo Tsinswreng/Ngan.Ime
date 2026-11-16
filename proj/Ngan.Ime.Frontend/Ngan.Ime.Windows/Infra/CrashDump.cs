@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Windows.Infra;
 
-using Tsinswreng.CsCore;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;

@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.SplitKeyboard;
 
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 分體模式的一側頂條：內嵌一份「兩倍寬」的完整頂條，再裁出左半或右半。

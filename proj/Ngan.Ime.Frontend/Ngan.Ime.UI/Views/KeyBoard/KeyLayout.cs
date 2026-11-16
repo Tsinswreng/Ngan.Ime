@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Views.KeyBoard;
 
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 using static Ngan.Ime.UI.Views.KeyBoard.KeyGesture;
 
 [Doc($$"""

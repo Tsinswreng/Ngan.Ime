@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.Candidate;
 using Avalonia;
 using Avalonia.Controls;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 單個候選槽位：上註釋、下候選詞；點擊上屏由 ViewModel 的 {{nameof(VmCandidate.Click)}} 決定。

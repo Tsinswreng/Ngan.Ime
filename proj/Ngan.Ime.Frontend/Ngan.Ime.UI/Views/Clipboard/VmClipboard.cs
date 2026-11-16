@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.Clipboard;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 剪貼板頁 ViewModel：頁面打開時抓一次系統剪貼板，點一項就上屏並退出。

@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using Avalonia;
 using Ngan.Ime.Core.Ime;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 桌面候選浮窗的對外介面。

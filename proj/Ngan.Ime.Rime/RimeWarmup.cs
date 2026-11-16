@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Rime;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 在背景線程預先建立 {{nameof(RimeSetup)}}，避免第一次彈鍵盤時才同步初始化 librime。

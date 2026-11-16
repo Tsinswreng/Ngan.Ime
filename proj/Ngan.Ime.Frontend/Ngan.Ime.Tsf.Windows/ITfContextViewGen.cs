@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Tsf.Windows;
 
-using Tsinswreng.CsCore;
 using System;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;

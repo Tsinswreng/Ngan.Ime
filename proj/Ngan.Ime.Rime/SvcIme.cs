@@ -3,7 +3,6 @@ using Ngan.Ime.Core.Keys;
 using Rime.Api;
 using Rime.Api.Types;
 using Tsinswreng.CsInterop;
-using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.Rime;
 

@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Infra;
 
 using CommunityToolkit.Mvvm.ComponentModel;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 所有 ViewModel 的基類。

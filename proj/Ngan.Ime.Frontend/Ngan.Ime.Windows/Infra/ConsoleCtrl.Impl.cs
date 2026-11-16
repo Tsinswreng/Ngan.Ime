@@ -3,7 +3,6 @@ namespace Ngan.Ime.Windows.Infra;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using Tsinswreng.CsCore;
 
 [Doc("""
 {{nameof(ConsoleCtrl)}} 的實現：把 Win32 的主控台呼叫包成不拋的形式。

@@ -1,6 +1,5 @@
 namespace Ngan.Ime.UI.Infra;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 沒有鍵盤宿主能力的實現（Desktop 預覽、Browser、iOS 骨架）。

@@ -1,4 +1,3 @@
-using Tsinswreng.CsCore;
 using Ngan.Ime.Core.Voice;
 
 namespace Ngan.Ime.Windows.Voice;

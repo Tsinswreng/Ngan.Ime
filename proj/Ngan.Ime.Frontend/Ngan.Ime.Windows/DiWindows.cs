@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Windows;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
 using Ngan.Ime.Infra;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI;

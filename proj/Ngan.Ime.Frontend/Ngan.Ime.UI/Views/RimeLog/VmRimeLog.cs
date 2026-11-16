@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.RimeLog;
 
 using System.Collections.ObjectModel;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 引擎日誌頁 ViewModel：直接投影 {{nameof(EngineLogBuffer.Lines)}}。

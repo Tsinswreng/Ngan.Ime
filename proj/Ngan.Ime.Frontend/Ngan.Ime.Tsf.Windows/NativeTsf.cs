@@ -1,5 +1,4 @@
 namespace Ngan.Ime.Tsf.Windows;
-using Tsinswreng.CsCore;
 
 using System;
 using System.Collections.Generic;

@@ -3,7 +3,6 @@ namespace Ngan.Ime.Infra.Log;
 using System.Text;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 using Ngan.Ime.Infra.Storage;
 
 [Doc($$"""

@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Storage;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 應用儲存區根目錄的抽象。

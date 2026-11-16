@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Infra;
 
 using Avalonia.Controls;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Grid 的簡寫：用一個字符串宣告行／列定義。

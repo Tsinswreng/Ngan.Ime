@@ -4,7 +4,6 @@ using Avalonia.Threading;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 預編輯列（preedit）的 ViewModel。

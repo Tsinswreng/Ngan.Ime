@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Json;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 標記接口：實現它 ＝ 這個型別要進 JSON 源生成上下文（{{nameof(AppJsonCtx)}}）。

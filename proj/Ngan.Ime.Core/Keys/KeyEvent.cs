@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 {{nameof(IKeyEvent)}} 的默認實現。

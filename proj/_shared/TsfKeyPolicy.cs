@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Tsf.Ipc;
 
-using Tsinswreng.CsCore;
 
 // 本檔只用 BCL 與專案別名，故外殼（不帶 CLR 庫）也能一起編譯。
 // `Doc` 屬性在外殼專案裏由 DocShim.cs 提供同名替身。

@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 把一批「即將交給 OS」的按鍵事件做二次映射。

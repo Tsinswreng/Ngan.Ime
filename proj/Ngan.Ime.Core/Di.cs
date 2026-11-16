@@ -1,7 +1,6 @@
 namespace Ngan.Ime;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
 
 [Doc("全局依賴注入管理：進程唯一的服務容器，以及「取不到就退回最小構造」的取用入口。")]
 public class Di{

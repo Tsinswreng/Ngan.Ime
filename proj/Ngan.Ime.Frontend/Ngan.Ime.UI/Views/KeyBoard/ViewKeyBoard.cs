@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.KeyBoard;
 using Avalonia.Controls;
 using Ngan.Ime.UI.Infra;
 using Ngan.Ime.UI.Views.Key;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 虛擬鍵盤視圖：把 {{nameof(KeyLayout)}} 的資料畫成兩層（字母層／數字層），並切換顯示。

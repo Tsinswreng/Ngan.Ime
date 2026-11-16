@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.KeyBoard;
 
 using Avalonia.Media;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 單顆虛擬鍵的 ViewModel。

@@ -4,6 +4,10 @@
 </ItemGroup>
 #endif
 
+// CsCore 的 Doc（註釋屬性）與其他基礎型別全專案共用：
+// 由這裡一次引入，各檔不必再寫 using Tsinswreng.CsCore;。
+global using Tsinswreng.CsCore;
+
 #pragma warning disable CS8981
 global using u8 = System.Byte;
 global using i8 = System.SByte;

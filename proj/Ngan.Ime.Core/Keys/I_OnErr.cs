@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc("錯誤處理委託：回傳值目前不使用，統一寫成 object? 以便將來放處理結果（如「已重試」）。")]
 public delegate obj? ErrHandler(obj Sender, obj? Arg);

@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Infra.Log;
 
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 向界面暴露「輸入法引擎日誌流」的抽象。

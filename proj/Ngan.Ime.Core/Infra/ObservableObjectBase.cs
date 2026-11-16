@@ -2,7 +2,6 @@ namespace Ngan.Ime.Infra;
 
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 最小可觀察對象基類：只提供 {{nameof(INotifyPropertyChanged)}} 與 `SetProperty`。

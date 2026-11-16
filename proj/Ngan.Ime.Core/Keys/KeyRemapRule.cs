@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 最基本的單鍵對單鍵映射規則。

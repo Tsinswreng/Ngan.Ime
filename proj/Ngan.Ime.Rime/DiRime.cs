@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Rime;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 

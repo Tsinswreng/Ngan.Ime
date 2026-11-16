@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 把「虛擬鍵碼 ＋ 掃描碼 ＋ 擴展鍵位」還原成一個鍵；掃描碼優先。

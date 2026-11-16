@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Views.Preedit;
 
 using Ngan.Ime.UI.Views.Input;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 預編輯列。

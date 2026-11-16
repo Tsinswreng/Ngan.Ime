@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 {{nameof(IKeyEventRemapper)}} 的默認實現：按「來源鍵名」建索引，命中就交給規則改寫。

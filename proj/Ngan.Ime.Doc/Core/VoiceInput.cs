@@ -2,7 +2,6 @@ namespace Ngan.Ime.Doc.Core;
 
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.Backend.Voice.Volcengine;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 #H[語音輸入分層][

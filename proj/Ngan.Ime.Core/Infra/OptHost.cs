@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 宿主運行模式的選項。

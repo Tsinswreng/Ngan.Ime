@@ -1,6 +1,5 @@
 namespace Ngan.Ime;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsErr;
 using K = Tsinswreng.CsErr.IErrNode;
 using static Tsinswreng.CsErr.ErrNode;

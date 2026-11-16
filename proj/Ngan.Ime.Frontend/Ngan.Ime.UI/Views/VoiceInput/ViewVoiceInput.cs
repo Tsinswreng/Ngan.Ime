@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.VoiceInput;
 using Avalonia.Controls;
 using Ngan.Ime.Core.Language;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 語音輸入頁：左邊是草稿，右邊是語言、狀態與錄音操作，語言選擇是覆蓋層。

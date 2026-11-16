@@ -1,4 +1,3 @@
-using Tsinswreng.CsCore;
 using Ngan.Ime.Backend.Voice.Volcengine;
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.UI.Views.VoiceInput;

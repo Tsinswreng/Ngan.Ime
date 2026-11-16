@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Ngan.Ime.Tsf.Ipc;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 具名管道的監聽端：只負責「接受連線、逐行收發」，不碰協議內容也不碰引擎。

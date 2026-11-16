@@ -4,7 +4,6 @@ using Avalonia.Media;
 using Ngan.Ime.Core.Language;
 using Ngan.Ime.Core.Voice;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 語音輸入頁的 ViewModel：協調「音頻採集 → 遠端識別 → 草稿 → 上屏」四件事。

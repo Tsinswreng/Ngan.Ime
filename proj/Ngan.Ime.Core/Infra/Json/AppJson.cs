@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Json;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsJson;
 
 [Doc($$"""

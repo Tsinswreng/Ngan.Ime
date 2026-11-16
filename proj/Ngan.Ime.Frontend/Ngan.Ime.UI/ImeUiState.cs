@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI;
 
 using Tsinswreng.CsCfg;
-using Tsinswreng.CsCore;
 using Ngan.Ime.UI.Infra;
 
 [Doc($$"""

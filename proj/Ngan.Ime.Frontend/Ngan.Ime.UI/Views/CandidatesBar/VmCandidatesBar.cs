@@ -7,7 +7,6 @@ using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Infra;
 using Ngan.Ime.UI.Views.Candidate;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 候選欄 ViewModel：把引擎的候選頁映射到固定 16 個 {{nameof(VmCandidate)}} 槽位。

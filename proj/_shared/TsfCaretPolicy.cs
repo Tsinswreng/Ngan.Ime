@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Tsf.Ipc;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 插入點座標的採用規則；純幾何，不碰 COM 也不碰 Win32。

@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.Clipboard;
 
 using Avalonia.Controls;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 剪貼板頁：可滾動的文本列表。

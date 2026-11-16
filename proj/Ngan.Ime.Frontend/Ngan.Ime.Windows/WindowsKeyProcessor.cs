@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Windows;
 
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Windows 的「未處理按鍵 → 作業系統」轉發器。

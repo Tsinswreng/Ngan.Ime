@@ -8,7 +8,6 @@ using Ngan.Ime.UI;
 using Ngan.Ime.Windows.Infra;
 using Ngan.Ime.Windows.Voice;
 using Avalonia;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Windows 桌面服務端入口。

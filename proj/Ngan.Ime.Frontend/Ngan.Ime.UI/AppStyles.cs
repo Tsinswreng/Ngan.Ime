@@ -6,7 +6,6 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 全域控件樣式（純 C#）。

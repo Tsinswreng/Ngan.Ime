@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Windows;
 
 using System.Runtime.InteropServices;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Win32 `keybd_event` 的薄封裝。

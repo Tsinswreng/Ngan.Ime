@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.VoiceInput;
 using Avalonia.Controls;
 using Ngan.Ime.Core.Language;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 語言選擇覆蓋層：頂部搜索列 ＋ 可滾動語言列表 ＋ 空結果提示。

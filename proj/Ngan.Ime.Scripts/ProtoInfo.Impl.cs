@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Scripts;
 
 using Ngan.Ime.Tsf.Ipc;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 {{nameof(ProtoInfo)}} 的實現：把 `TsfIpc` 的常量與格式器印成 `key=value`。

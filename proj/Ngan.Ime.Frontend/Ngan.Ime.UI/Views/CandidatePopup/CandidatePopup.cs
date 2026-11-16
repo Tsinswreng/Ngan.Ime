@@ -5,7 +5,6 @@ using Avalonia;
 using Avalonia.Threading;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 {{nameof(ICandidatePopup)}} 的桌面實現：把呼叫切到 UI 執行緒，持有唯一的浮窗。

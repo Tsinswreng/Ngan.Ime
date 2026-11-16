@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 爲 `Di.DiOrMk<T>()` 提供顯式的兜底構造約定。

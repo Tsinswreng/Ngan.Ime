@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Scripts;
 
-using Tsinswreng.CsCore;
 using System.Runtime.CompilerServices;
 using Tsinswreng.CsSh;
 using static Tsinswreng.CsSh.ShGlobal;

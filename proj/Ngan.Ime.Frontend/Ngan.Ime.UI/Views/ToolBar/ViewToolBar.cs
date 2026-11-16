@@ -4,7 +4,6 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Ngan.Ime.UI.Icons;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 頂部工具欄：七個功能入口，等寬排列。

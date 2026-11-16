@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.CandidatePopup;
 using System.Collections.Generic;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 候選浮窗的 ViewModel：只描述「顯示甚麼」，不碰視窗定位與控件。

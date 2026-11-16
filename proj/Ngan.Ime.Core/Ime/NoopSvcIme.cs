@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Ime;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 沒有引擎的輸入法實現：狀態永遠是「已連接、無組字、無候選」。

@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Core.Ime;
 
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法的「按鍵入口與連接生命週期」。

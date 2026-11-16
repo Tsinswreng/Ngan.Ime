@@ -3,7 +3,6 @@ using Ngan.Ime.Infra.Storage;
 using Ngan.Ime.UI;
 using Avalonia;
 using Avalonia.Browser;
-using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.Browser;
 

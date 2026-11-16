@@ -2,7 +2,6 @@ namespace Ngan.Ime.Rime;
 
 using Microsoft.Extensions.Logging;
 using Ngan.Ime.Infra.Log;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 保存最近一段 Rime 日誌，供稍後纔建立的界面直接回放。

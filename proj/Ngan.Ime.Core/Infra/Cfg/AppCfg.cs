@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Cfg;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsCfg;
 using Tsinswreng.CsCfg.Json;
 using Ngan.Ime.Infra.Storage;

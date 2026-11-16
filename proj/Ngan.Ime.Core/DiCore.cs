@@ -1,7 +1,6 @@
 namespace Ngan.Ime;
 
 using Microsoft.Extensions.DependencyInjection;
-using Tsinswreng.CsCore;
 using Tsinswreng.CsJson;
 using Ngan.Ime.Infra.Json;
 

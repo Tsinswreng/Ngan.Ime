@@ -3,7 +3,6 @@ namespace Ngan.Ime.Tsf.Ipc;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 TSF 外殼與服務端之間的管道契約：管道名、請求與回應的型別，以及它們的序列化。

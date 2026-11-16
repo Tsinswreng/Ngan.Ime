@@ -1,6 +1,5 @@
 using Rime.Api;
 using Rime.Api.Types;
-using Tsinswreng.CsCore;
 using Tsinswreng.CsInterop;
 using Tsinswreng.CsErr;
 using Microsoft.Extensions.Logging;

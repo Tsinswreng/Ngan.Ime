@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Android;
 
-using Tsinswreng.CsCore;
 using Ngan.Ime.Infra.Storage;
 
 [Doc($$"""

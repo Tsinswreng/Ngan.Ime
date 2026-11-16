@@ -5,7 +5,6 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using Ngan.Ime.UI.Infra;
 using Ngan.Ime.UI.Views.KeyBoard;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 單顆虛擬鍵的視圖。

@@ -1,7 +1,6 @@
 namespace Ngan.Ime.UI.Views.KeyBoard;
 
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 一個鍵位在布局中的完整描述：送哪個鍵、鍵帽顯示什麼、五個手勢各做什麼。

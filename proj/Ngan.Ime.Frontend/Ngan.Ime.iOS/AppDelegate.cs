@@ -5,7 +5,6 @@ using Ngan.Ime.Infra.Storage;
 using Ngan.Ime.UI;
 using Avalonia;
 using Avalonia.iOS;
-using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.iOS;
 

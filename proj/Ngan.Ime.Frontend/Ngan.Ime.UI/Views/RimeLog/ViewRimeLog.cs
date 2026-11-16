@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views.RimeLog;
 
 using Avalonia.Controls;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 引擎日誌頁：可滾動的逐行文字。

@@ -7,7 +7,6 @@ using Ngan.Ime.UI.Views.CandidatesBar;
 using Ngan.Ime.UI.Views.Ime;
 using Ngan.Ime.UI.Views.Preedit;
 using Ngan.Ime.UI.Views.ToolBar;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 分體模式的中間窄頂條：只有預編輯列與頂欄（工具欄／候選欄），不含鍵盤。

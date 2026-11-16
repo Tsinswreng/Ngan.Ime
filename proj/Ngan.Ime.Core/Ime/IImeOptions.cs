@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Ime;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法的可切換選項。與 {{nameof(IImeState)}} 分開，因為切換是「動作」，讀取是「狀態」；

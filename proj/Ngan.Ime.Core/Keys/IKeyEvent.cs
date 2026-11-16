@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 一次按鍵事件：按了哪個鍵、是按下還是擡起、當時鍵盤上還按著什麼。

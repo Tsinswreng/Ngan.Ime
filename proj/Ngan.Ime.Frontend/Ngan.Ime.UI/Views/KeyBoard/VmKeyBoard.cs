@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.KeyBoard;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 鍵盤的 ViewModel：把布局資料變成 {{nameof(VmKey)}}，並把使用者手勢翻譯成輸入動作。

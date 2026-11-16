@@ -3,7 +3,6 @@ namespace Ngan.Ime.Infra.Json;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 本應用的 JSON 源生成上下文（`System.Text.Json` 源生成）。

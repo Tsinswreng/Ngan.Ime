@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Windows;
 
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 using static Ngan.Ime.Core.Keys.KeyChars;
 
 [Doc($$"""

@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.Input;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 預編輯列：一行可折行的文字，讀取 {{nameof(VmInput.Text)}}。

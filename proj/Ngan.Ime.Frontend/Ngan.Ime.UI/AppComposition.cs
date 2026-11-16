@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Infra.Storage;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 一個宿主要提供給組合根的東西。

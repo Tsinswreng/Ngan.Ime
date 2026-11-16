@@ -1,7 +1,6 @@
 //Impl: 聲明見 DeployWinVm.cs。
 namespace Ngan.Ime.Scripts;
 
-using Tsinswreng.CsCore;
 using System.IO.Compression;
 using System.Text;
 using Ngan.Ime.Tsf.Ipc;

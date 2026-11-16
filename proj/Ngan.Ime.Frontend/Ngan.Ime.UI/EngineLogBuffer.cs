@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI;
 using System.Collections.ObjectModel;
 using Avalonia.Threading;
 using Ngan.Ime.Infra.Log;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 界面側的引擎日誌緩衝：把 {{nameof(IEngineLogSource)}} 的事件搬成可綁定的集合。

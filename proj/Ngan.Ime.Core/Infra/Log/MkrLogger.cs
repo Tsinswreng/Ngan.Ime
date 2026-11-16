@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Infra.Log;
 
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 內層日誌器的製造器：把「這一端要寫到哪裡」集中在一處。

@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.CandidatePopup;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 桌面候選浮窗：無邊框、置頂、不搶焦點，貼着插入點顯示。

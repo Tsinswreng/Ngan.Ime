@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Storage;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 桌面宿主的應用儲存區根目錄：可執行檔所在目錄。

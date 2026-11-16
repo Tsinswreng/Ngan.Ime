@@ -1,6 +1,5 @@
 namespace Ngan.Ime;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 本應用的異常標籤——只宣告「例外情況」。

@@ -1,6 +1,5 @@
 using Android.OS;
 using Android.Views.InputMethods;
-using Tsinswreng.CsCore;
 
 namespace Ngan.Ime.Android;
 

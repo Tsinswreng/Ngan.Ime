@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Tsf.Ipc;
 
-using Tsinswreng.CsCore;
 
 [Doc("組字的一步；一步對應一次非同步編輯會話。")]
 public enum ETsfCompositionStep{

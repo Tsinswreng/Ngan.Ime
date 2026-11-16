@@ -2,7 +2,6 @@ namespace Ngan.Ime.Windows.Infra;
 
 using System;
 using System.Runtime.InteropServices;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 行程級的主控台控制事件處理。

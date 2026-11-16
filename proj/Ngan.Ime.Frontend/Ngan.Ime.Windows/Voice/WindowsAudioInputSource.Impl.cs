@@ -1,4 +1,3 @@
-using Tsinswreng.CsCore;
 using Ngan.Ime.Core.Voice;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;

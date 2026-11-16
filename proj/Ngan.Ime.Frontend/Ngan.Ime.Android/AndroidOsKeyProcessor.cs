@@ -1,7 +1,6 @@
 using Android.Views;
 using Android.Views.InputMethods;
 using Ngan.Ime.Core.Keys;
-using Tsinswreng.CsCore;
 using AKey = Android.Views.Keycode;
 
 namespace Ngan.Ime.Android;

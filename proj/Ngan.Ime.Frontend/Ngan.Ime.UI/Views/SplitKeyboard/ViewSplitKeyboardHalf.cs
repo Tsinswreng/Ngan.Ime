@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.SplitKeyboard;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Ngan.Ime.UI.Views.KeyBoard;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 分體鍵盤的一側：內嵌一份「兩倍寬」的完整鍵盤，再由容器裁出左半或右半。

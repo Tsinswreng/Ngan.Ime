@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Ime;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 一個候選詞。

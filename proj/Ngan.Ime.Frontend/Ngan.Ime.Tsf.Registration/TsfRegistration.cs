@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Tsf.Registration;
 
-using Tsinswreng.CsCore;
 using Microsoft.Win32;
 using System;
 using System.Runtime.InteropServices;

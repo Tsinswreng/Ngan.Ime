@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Backend.Voice.Volcengine;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 火山 v3 WebSocket 二進制幀的編解碼器。

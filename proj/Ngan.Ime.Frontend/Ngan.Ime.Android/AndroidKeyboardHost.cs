@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Android;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 Android 鍵盤宿主：把「隱藏鍵盤」與「上屏」轉給當前輸入法服務。

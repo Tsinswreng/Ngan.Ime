@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Core.Ime;
 
 using System.ComponentModel;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法的「可觀察狀態」，界面只讀。

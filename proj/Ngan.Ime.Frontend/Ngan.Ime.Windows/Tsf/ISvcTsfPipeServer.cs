@@ -2,7 +2,6 @@ namespace Ngan.Ime.Windows.Tsf;
 
 using System;
 using Ngan.Ime.Core.Ime;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 TSF 管道服務端的契約。

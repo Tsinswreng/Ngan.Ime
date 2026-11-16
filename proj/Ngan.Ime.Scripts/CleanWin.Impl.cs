@@ -1,4 +1,3 @@
-using Tsinswreng.CsCore;
 using System.Diagnostics;
 using Microsoft.Win32;
 using Tsinswreng.CsSh;

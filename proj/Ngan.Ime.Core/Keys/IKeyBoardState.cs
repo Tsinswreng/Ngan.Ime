@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 一次按鍵發生時，鍵盤上「還有哪些鍵被按著」。

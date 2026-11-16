@@ -3,7 +3,6 @@ namespace Ngan.Ime.Core.Ime;
 using System.Threading.Channels;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法服務的抽象基類：狀態（{{nameof(IImeState)}}）＋按鍵入口（{{nameof(IImeInput)}}）＋選項（{{nameof(IImeOptions)}}）。

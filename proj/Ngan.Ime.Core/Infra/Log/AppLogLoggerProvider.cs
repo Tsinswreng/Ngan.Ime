@@ -1,7 +1,6 @@
 namespace Ngan.Ime.Infra.Log;
 
 using Microsoft.Extensions.Logging;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 把容器裡產生的一切日誌（含泛型分類版）都導向 {{nameof(AppLog)}} 的日誌提供者。

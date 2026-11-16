@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Views;
 
 using Avalonia.Controls;
 using Avalonia.Media;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 桌面宿主的主視窗：只有一個 {{nameof(MainView)}}。

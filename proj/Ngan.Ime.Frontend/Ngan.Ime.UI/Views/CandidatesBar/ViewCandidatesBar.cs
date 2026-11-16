@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.CandidatesBar;
 using Avalonia.Controls;
 using Ngan.Ime.UI.Infra;
 using Ngan.Ime.UI.Views.Candidate;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 候選欄視圖：一條水平排列的 16 個候選槽位。

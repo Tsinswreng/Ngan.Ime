@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Cfg;
 
-using Tsinswreng.CsCore;
 using Tsinswreng.CsKeyNode;
 
 [Doc($$"""

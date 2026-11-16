@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Tsinswreng.CsCore;
 
 [Doc(@$"Operation Button.
 when processing, underline will have rolling bar.

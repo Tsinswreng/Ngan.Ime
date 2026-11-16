@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 裝飾器：在「把未處理按鍵交給作業系統」之前先套一層映射。

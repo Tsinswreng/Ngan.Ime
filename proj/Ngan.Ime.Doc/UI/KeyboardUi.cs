@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Doc.UI;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 #H[用途][

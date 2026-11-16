@@ -1,6 +1,5 @@
 using Ngan.Ime.Core.Keys;
 using Rime.Api;
-using Tsinswreng.CsCore;
 using KS = Ngan.Ime.Core.Keys.KeyChars;
 
 namespace Ngan.Ime.Rime;

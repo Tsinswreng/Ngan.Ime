@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 把「引擎未處理的按鍵」轉發給作業系統／宿主應用的處理器。

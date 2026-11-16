@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Core.Keys;
 
-using Tsinswreng.CsCore;
 
 using IK = Ngan.Ime.Core.Keys.IKeyChar;
 

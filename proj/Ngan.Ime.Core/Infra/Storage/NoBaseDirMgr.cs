@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Infra.Storage;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 沒有檔案系統的宿主（Browser／WASM）用的 {{nameof(I_GetBaseDir)}} 實現。

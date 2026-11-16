@@ -5,7 +5,6 @@ using Avalonia.Threading;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.Core.Keys;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法根 ViewModel：把引擎狀態與共享界面狀態投影成各區域的可見性。

@@ -3,7 +3,6 @@ namespace Ngan.Ime.Windows.Infra;
 using System;
 using System.Threading;
 using Ngan.Ime.Tsf.Ipc;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 常駐服務端的單實例互斥。

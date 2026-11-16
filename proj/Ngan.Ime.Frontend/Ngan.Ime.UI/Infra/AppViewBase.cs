@@ -2,7 +2,6 @@ namespace Ngan.Ime.UI.Infra;
 
 using Avalonia.Markup.Declarative;
 using Ngan.Ime.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 所有視圖的基類：`Avalonia.Markup.Declarative` 的 ViewBase<TVm> 加上本專案的取用慣例。

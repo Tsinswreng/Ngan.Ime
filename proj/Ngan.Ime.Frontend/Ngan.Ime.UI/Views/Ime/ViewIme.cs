@@ -9,7 +9,6 @@ using Ngan.Ime.UI.Views.Preedit;
 using Ngan.Ime.UI.Views.RimeLog;
 using Ngan.Ime.UI.Views.ToolBar;
 using Ngan.Ime.UI.Views.VoiceInput;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 輸入法主視圖：上「預編輯列」、中「頂欄（工具欄／候選欄）」、下「body 區（四頁互斥）」。

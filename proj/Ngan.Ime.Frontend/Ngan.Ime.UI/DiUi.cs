@@ -12,7 +12,6 @@ using Ngan.Ime.UI.Views.KeyBoard;
 using Ngan.Ime.UI.Views.RimeLog;
 using Ngan.Ime.UI.Views.ToolBar;
 using Ngan.Ime.UI.Views.VoiceInput;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 界面程序集的依賴注入裝配。

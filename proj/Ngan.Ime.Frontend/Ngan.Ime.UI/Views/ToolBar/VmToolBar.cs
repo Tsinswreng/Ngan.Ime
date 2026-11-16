@@ -3,7 +3,6 @@ namespace Ngan.Ime.UI.Views.ToolBar;
 using Avalonia.Media;
 using Ngan.Ime.Core.Ime;
 using Ngan.Ime.UI.Infra;
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 工具欄 ViewModel：七個入口的顯示狀態與點擊命令。

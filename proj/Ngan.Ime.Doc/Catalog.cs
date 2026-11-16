@@ -1,6 +1,5 @@
 namespace Ngan.Ime.Doc;
 
-using Tsinswreng.CsCore;
 
 [Doc($$"""
 #H[{{nameof(Ngan.Ime.Doc.Core)}}][

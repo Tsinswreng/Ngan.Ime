@@ -31,8 +31,27 @@ internal static unsafe partial class NativeTsf {
 	/// <summary>連線建立的逾時（毫秒）；正常情況下服務端已在監聽，這個值只是保底。</summary>
 	private const int ConnectTimeoutMs = 150;
 
-	/// <summary>讀取回應的逾時（毫秒）；太長會讓應用明顯卡頓。</summary>
-	private const int ReadTimeoutMs = 300;
+	/// <summary>
+	/// 讀取回應的逾時（毫秒）。
+	/// </summary>
+	/// <remarks>
+	/// *為何是 25 而不是 300*：2026-11-15 深夜的實測——服務端處理一顆鍵 0.05～0.37ms，
+	/// 但外殼這一側有幾顆鍵卡了 310ms。310 不是服務端慢，是這個預算被用完：
+	/// 等滿 300ms、判定逾時、丟連線、重連、把同一顆鍵**再送一次**。
+	/// 等於每一顆異常的鍵都讓應用的 UI 執行緒白等 0.3 秒，還讓引擎把同一顆鍵處理兩次
+	/// （服務端日誌看得到多出來的那一顆）。
+	/// 預算收到 25ms：正常往返 0.1～1ms，留二十倍餘裕；異常時最壞只卡 25ms。
+	/// </remarks>
+	private const int ReadTimeoutMs = 25;
+
+	/// <summary>逾時之後的短冷卻（毫秒）：服務端還活著，只是這一顆沒等到，先讓它喘一口氣。</summary>
+	private const int TimeoutBackoffMs = 200;
+
+	/// <summary>剛連上的第一顆鍵用這個預算（毫秒）：服務端可能正在暖機。</summary>
+	private const int ConnectGraceMs = 250;
+
+	/// <summary>超過這個耗時就記一行「這一顆問得慢」，用來抓偶發的管道異常。</summary>
+	private const double SlowQueryMs = 5;
 
 	/// <summary>
 	/// 服務端失聯後的冷卻期（毫秒）：這段時間內直接放棄查詢，不再嘗試連線。
@@ -65,6 +84,16 @@ internal static unsafe partial class NativeTsf {
 	private static StreamReader? PipeReader;
 	private static StreamWriter? PipeWriter;
 
+	/// <summary>
+	/// 這一次呼叫是不是剛建立連線。
+	/// </summary>
+	/// <remarks>
+	/// 剛連上的第一顆鍵可能撞上服務端正在暖機（載入 Rime、建視窗），
+	/// 給它一個較寬的預算；之後每一顆都用 <see cref="ReadTimeoutMs"/>。
+	/// 否則冷啟動的第一顆鍵會被 25ms 的預算誤殺。
+	/// </remarks>
+	private static bool ConnectedJustNow;
+
 	/// <summary>丟掉目前的連線與讀寫器；之後的呼叫會重連。</summary>
 	private static void ResetPipe() {
 		try { PipeWriter?.Dispose(); } catch { }
@@ -77,6 +106,7 @@ internal static unsafe partial class NativeTsf {
 
 	/// <summary>確保連線可用；連不上回 false，不拋。</summary>
 	private static bool EnsureConnected() {
+		ConnectedJustNow = false;
 		if (Pipe is not null && Pipe.IsConnected) {
 			return true;
 		}
@@ -89,6 +119,7 @@ internal static unsafe partial class NativeTsf {
 			Pipe = Client;
 			PipeWriter = new StreamWriter(Client, new UTF8Encoding(false)) { AutoFlush = true };
 			PipeReader = new StreamReader(Client, Encoding.UTF8);
+			ConnectedJustNow = true;
 			return true;
 		}
 		catch (Exception Exception) {
@@ -106,49 +137,75 @@ internal static unsafe partial class NativeTsf {
 	/// <param name="X">插入點螢幕 X，供候選窗定位。</param>
 	/// <param name="Y">插入點螢幕 Y。</param>
 	/// <param name="IsUp">true 表示擡起。</param>
-	/// <returns>服務端的回應；連不上、逾時或回應壞掉時為 null。</returns>
+	/// <param name="Scan">掃描碼；分左右 Shift 用。</param>
+	/// <param name="Ext">擴展鍵位。</param>
+	/// <returns>服務端的回應；連不上、逾時或回應壞掉時為 null（呼叫端放行這顆鍵）。</returns>
+	/// <remarks>
+	/// *逾時之後絕對不重送*：請求一旦寫進管道，服務端就可能已經處理過它。
+	/// 先前這支在逾時後會重連並**再送一次同一顆鍵**，服務端日誌裏就看得到多出來的那一顆
+	/// （四顆按下卻有五顆擡起）。重送的上屏鍵會讓引擎上屏兩次，修飾鍵則會讓應用收到
+	/// 一組重複的按下／擡起。現在：寫失敗 → 這顆鍵沒送出去，重連是安全的；
+	/// 讀逾時 → 這顆鍵送出去了，直接放行、丟連線、下一顆再重連。
+	///
+	/// *為什麼要記三個時戳*：寫出、寫完、讀完。服務端只記它自己處理的那 0.1～0.4ms，
+	/// 先前出現 310ms 時分不出是「我們寫出去到它讀到」還是「它寫回到我們讀到」。
+	/// 三段分開記，下次一眼就知道延遲在誰身上。
+	/// </remarks>
 	private static TsfReply? QueryKey(int VirtualKey, int Mods, int X, int Y, bool IsUp, int Scan, int Ext) {
 		lock (PipeLock) {
 			// 服務端剛失敗過就先不試：這段路徑在 UI 執行緒上，等不起。
 			if (Environment.TickCount64 < RetryAfterTick) {
 				return null;
 			}
-			for (var Attempt = 0; Attempt < 2; Attempt++) {
-				if (!EnsureConnected()) {
-					MarkFailed();
-					return null;
-				}
-				try {
-					var Req = new TsfKeyRequest {
-						VirtualKey = VirtualKey,
-						Mods = Mods,
-						X = X,
-						Y = Y,
-						IsUp = IsUp,
-						Scan = Scan,
-						Ext = Ext,
-					};
-					PipeWriter!.WriteLine(Req.Format());
-					var Line = ReadLineWithTimeout();
-					if (Line is null) {
-						ResetPipe();
-						continue;
-					}
-					RetryAfterTick = 0;
-					return TsfReply.Parse(Line);
-				}
-				catch (Exception Exception) {
-					LogWarn("query attempt " + Attempt + " failed " + Exception.GetType().Name);
-					ResetPipe();
-				}
+			if (!EnsureConnected()) {
+				MarkUnreachable();
+				return null;
 			}
-			MarkFailed();
-			return null;
+			var Req = new TsfKeyRequest {
+				VirtualKey = VirtualKey,
+				Mods = Mods,
+				X = X,
+				Y = Y,
+				IsUp = IsUp,
+				Scan = Scan,
+				Ext = Ext,
+			};
+			var WriteStartTs = System.Diagnostics.Stopwatch.GetTimestamp();
+			try {
+				PipeWriter!.WriteLine(Req.Format());
+			}
+			catch (Exception Exception) {
+				// 沒寫出去：這顆鍵沒有被服務端看到，重連之後再問一次不會重複處理。
+				LogWarn("query write failed vk=0x" + VirtualKey.ToString("X2") + " " + Exception.GetType().Name);
+				ResetPipe();
+				MarkUnreachable();
+				return null;
+			}
+			var WriteDoneTs = System.Diagnostics.Stopwatch.GetTimestamp();
+			var Budget = ConnectedJustNow ? ConnectGraceMs : ReadTimeoutMs;
+			var Line = ReadLineWithTimeout(Budget);
+			var ReadDoneTs = System.Diagnostics.Stopwatch.GetTimestamp();
+			var WriteMs = System.Diagnostics.Stopwatch.GetElapsedTime(WriteStartTs, WriteDoneTs).TotalMilliseconds;
+			var ReadMs = System.Diagnostics.Stopwatch.GetElapsedTime(WriteDoneTs, ReadDoneTs).TotalMilliseconds;
+			if (Line is null) {
+				// 送出去了但沒等到回應：不重送，直接放行。
+				LogWarn("query timeout vk=0x" + VirtualKey.ToString("X2") + (IsUp ? " up" : " dn")
+					+ " write=" + WriteMs.ToString("0.00") + "ms read=" + ReadMs.ToString("0.00") + "ms（已送出，不重送）");
+				ResetPipe();
+				RetryAfterTick = Environment.TickCount64 + TimeoutBackoffMs;
+				return null;
+			}
+			if (WriteMs + ReadMs > SlowQueryMs) {
+				LogWarn("query slow vk=0x" + VirtualKey.ToString("X2") + (IsUp ? " up" : " dn")
+					+ " write=" + WriteMs.ToString("0.00") + "ms read=" + ReadMs.ToString("0.00") + "ms");
+			}
+			RetryAfterTick = 0;
+			return TsfReply.Parse(Line);
 		}
 	}
 
-	/// <summary>記下這次失敗，接下來 <see cref="FailureBackoffMs"/> 內不再嘗試連線。</summary>
-	private static void MarkFailed() {
+	/// <summary>連不上服務端：冷卻一段時間，並嘗試把它拉起來。</summary>
+	private static void MarkUnreachable() {
 		RetryAfterTick = Environment.TickCount64 + FailureBackoffMs;
 		LogWarn("server unreachable; backoff " + FailureBackoffMs + "ms");
 		TryStartServer();
@@ -266,21 +323,31 @@ internal static unsafe partial class NativeTsf {
 	private static extern uint GetModuleFileName(IntPtr Module, StringBuilder FileName, uint Size);
 
 	/// <summary>
-	/// 在逾時內讀一行；逾時回 null 並放棄連線。
+	/// 在逾時內讀一行；逾時回 null，由呼叫端丟掉連線。
 	/// </summary>
 	/// <remarks>
 	/// StreamReader 沒有可用的讀取逾時（NamedPipeClientStream 的 ReadTimeout 不支援），
-	/// 故以「非同步讀 ＋ 有界等待」實現。逾時後必須做兩件事：
-	/// ①取消底層讀取，否則那個工作會留在背景，等我們把連線 Dispose 之後才在別人的行程裏拋例外；
-	/// ②丟掉連線，否則下一次讀會接著等同一條死連線。
+	/// 故以「非同步讀 ＋ 有界等待」實現。
+	///
+	/// *逾時之後為什麼不再等它*：先前會在逾時後再等 200ms 讓那個讀取任務收尾——
+	/// 等於把 300ms 的預算變成 500ms。現在只是掛一個續接把例外吃掉，然後立刻返回：
+	/// 這條連線接下來就會被 Dispose，讀取任務自然以例外收場，不需要我們在這裏等。
+	///
+	/// *注意*：`StreamReader.ReadLineAsync(ct)` 的取消不一定能真正中止底層讀取，
+	/// 所以絕對不能在同一條連線上繼續讀下一行——這也是呼叫端逾時後一定要重連的原因。
 	/// </remarks>
-	private static string? ReadLineWithTimeout() {
-		using var Cts = new System.Threading.CancellationTokenSource(ReadTimeoutMs);
+	private static string? ReadLineWithTimeout(int BudgetMs) {
+		using var Cts = new System.Threading.CancellationTokenSource(BudgetMs);
 		try {
 			var ReadTask = PipeReader!.ReadLineAsync(Cts.Token).AsTask();
-			if (!ReadTask.Wait(ReadTimeoutMs)) {
+			if (!ReadTask.Wait(BudgetMs)) {
 				Cts.Cancel();
-				ObserveQuietly(ReadTask);
+				// 不等它，只把未觀察的例外收掉；連線馬上會被丟掉。
+				_ = ReadTask.ContinueWith(
+					static Done => { _ = Done.Exception; },
+					System.Threading.CancellationToken.None,
+					System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted | System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously,
+					System.Threading.Tasks.TaskScheduler.Default);
 				return null;
 			}
 			return ReadTask.GetAwaiter().GetResult();
@@ -291,16 +358,6 @@ internal static unsafe partial class NativeTsf {
 		}
 		catch (AggregateException Exception) when (Exception.InnerException is OperationCanceledException) {
 			return null;
-		}
-	}
-
-	/// <summary>等一個已放棄的工作結束並吃掉它的例外，避免留下未被觀察的例外。</summary>
-	private static void ObserveQuietly(System.Threading.Tasks.Task Task) {
-		try {
-			Task.Wait(200);
-		}
-		catch {
-			// 目的就是把它收乾淨，不再往上拋。
 		}
 	}
 
@@ -318,7 +375,12 @@ internal static unsafe partial class NativeTsf {
 			}
 			try {
 				PipeWriter!.WriteLine(Req.Format());
-				ReadLineWithTimeout();
+				if (ReadLineWithTimeout(ReadTimeoutMs) is null) {
+					// 沒讀到回應：這條連線上還掛著一個沒收的回應，留著會讓下一顆鍵
+					// 讀到上一個請求的答案（請求與回應錯位）。直接丟掉。
+					LogWarn("command timeout; dropping connection");
+					ResetPipe();
+				}
 			}
 			catch (Exception Exception) {
 				Log("command failed " + Exception.GetType().Name);

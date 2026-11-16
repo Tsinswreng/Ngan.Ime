@@ -98,17 +98,26 @@ public partial class UiCfg{
 	[Doc("候選之間的分隔線顏色。")]
 	public IBrush CandidateGapBrush{get;set;} = SolidColorBrush.Parse("#FFFFFF");
 
-	[Doc("浮窗候選詞字級（= BaseFontSize × 0.5，基準 32 時為 16）。")]
-	public f64 PopupCandidateFontSize => BaseFontSize * 0.5;
+	[Doc($$"""
+	浮窗字級（px）；配置 `Keyboard/Font/PopupFontSize` 給了就用它，否則沿用 `BaseFontSize × 0.5`。
+	其餘浮窗字級都由它按比例推出，改一個數值就整體縮放。
+	""")]
+	public f64 PopupFontSize => PopupFontSizeConf > 0 ? PopupFontSizeConf : BaseFontSize * 0.5;
 
-	[Doc("浮窗候選註釋字級（= BaseFontSize × 0.375，基準 32 時為 12）。")]
-	public f64 PopupCommentFontSize => BaseFontSize * 0.375;
+	[Doc("浮窗字級的配置值；0 表示未配置。")]
+	f64 PopupFontSizeConf;
 
-	[Doc("浮窗候選序號字級（= BaseFontSize × 0.4375，基準 32 時為 14）。")]
-	public f64 PopupIndexFontSize => BaseFontSize * 0.4375;
+	[Doc("浮窗候選詞字級（= PopupFontSize）。")]
+	public f64 PopupCandidateFontSize => PopupFontSize;
 
-	[Doc("浮窗組字列字級（= BaseFontSize × 0.5）。")]
-	public f64 PopupPreeditFontSize => BaseFontSize * 0.5;
+	[Doc("浮窗候選註釋字級（= PopupFontSize × 0.75）。")]
+	public f64 PopupCommentFontSize => PopupFontSize * 0.75;
+
+	[Doc("浮窗候選序號字級（= PopupFontSize × 0.875）。")]
+	public f64 PopupIndexFontSize => PopupFontSize * 0.875;
+
+	[Doc("浮窗組字列字級（= PopupFontSize）。")]
+	public f64 PopupPreeditFontSize => PopupFontSize;
 
 	[Doc("浮窗候選行與行之間的間距；行與行緊貼，故為 0。")]
 	public f64 PopupRowSpacing => 0;
@@ -151,10 +160,28 @@ public partial class UiCfg{
 			EnsureCfgLoaded();
 			var FontPath = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Path);
 			if(string.IsNullOrWhiteSpace(FontPath) || !File.Exists(FontPath)){
+				// 沒有字體檔時，Family 當成系統字體家族名（支援中日韓）；留空就用系統默認。
+				var SystemName = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Family);
 				CachedFontPath = FontPath;
-				CachedFontFamilyName = null;
-				CachedFontFamily = null;
-				return null;
+				if(string.IsNullOrWhiteSpace(SystemName)){
+					CachedFontFamilyName = null;
+					CachedFontFamily = null;
+					return null;
+				}
+				if(string.Equals(CachedFontFamilyName, SystemName, StringComparison.Ordinal) && CachedFontFamily is not null){
+					return CachedFontFamily;
+				}
+				try{
+					var Family = new FontFamily(SystemName);
+					CachedFontFamilyName = SystemName;
+					CachedFontFamily = Family;
+					return Family;
+				}catch(Exception Ex){
+					AppLog.Error(Ex, "[Font] 系統字體家族不可用：" + SystemName);
+					CachedFontFamilyName = null;
+					CachedFontFamily = null;
+					return null;
+				}
 			}
 			try{
 				var ConfiguredFamily = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.Family);
@@ -197,6 +224,7 @@ public partial class UiCfg{
 				return;
 			}
 			BaseFontSizeField = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.BaseFontSize);
+			PopupFontSizeConf = AppCfg.Inst.Get(KeysAppCfg.Keyboard.Font.PopupFontSize);
 			CfgLoaded = true;
 		}
 	}

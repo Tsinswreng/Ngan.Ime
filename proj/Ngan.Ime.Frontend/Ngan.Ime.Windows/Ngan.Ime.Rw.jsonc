@@ -13,7 +13,8 @@
 		"Font": {
 			"Path": "",
 			"Family": "孤鹜 筑紫明朝",
-			"BaseFontSize": 32.0
+			"BaseFontSize": 32.0,
+			"PopupFontSize": 0.0
 		}
 	},
 	"VoiceInput": {

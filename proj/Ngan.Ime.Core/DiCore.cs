@@ -33,6 +33,9 @@ public static class DiCore {
 		// 不會出現「同一段 JSON 兩條路徑寫出不同結果」。
 		z.AddSingleton<IJsonSerializer>(_ => AppJson.Inst);
 
+		// 最近一次量到的插入點；外殼推、界面層讀（候選浮窗與狀態提示都靠它貼光標）。
+		z.AddSingleton<Core.Ime.CaretAnchor>();
+
 		// 配置門面不在這裏註冊：它由宿主在 Setup 之後呼叫 DiCfg.SetupCfg 決定，
 		// 見 Ngan.Ime.Infra.Cfg.DiCfg 的說明。
 		return z;

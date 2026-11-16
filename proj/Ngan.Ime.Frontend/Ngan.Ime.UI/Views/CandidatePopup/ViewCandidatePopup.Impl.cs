@@ -39,6 +39,7 @@ public partial class ViewCandidatePopup{
 			Spacing = UiCfg.Inst.PopupRowSpacing,
 		};
 		_Preedit = new TextBlock{
+			FontFamily = UiCfg.Inst.FontFamily,
 			FontSize = UiCfg.Inst.PopupPreeditFontSize,
 			Foreground = UiCfg.Inst.PopupForeColor,
 			IsVisible = false,
@@ -103,14 +104,17 @@ public partial class ViewCandidatePopup{
 		// 序號不設固定寬度：文字多寬就佔多寬，序號與候選詞之間只留一個小間距。
 		// 固定寬度會在「1.」後面留出一段空白（先前 18px 寬、實際字寬約 11px）。
 		var Index = new TextBlock{
+			FontFamily = UiCfg.Inst.FontFamily,
 			FontSize = UiCfg.Inst.PopupIndexFontSize,
 			Foreground = UiCfg.Inst.PopupForeColor,
 		};
 		var Text = new TextBlock{
+			FontFamily = UiCfg.Inst.FontFamily,
 			FontSize = UiCfg.Inst.PopupCandidateFontSize,
 			Foreground = UiCfg.Inst.PopupForeColor,
 		};
 		var Comment = new TextBlock{
+			FontFamily = UiCfg.Inst.FontFamily,
 			FontSize = UiCfg.Inst.PopupCommentFontSize,
 			Foreground = UiCfg.Inst.PopupForeColor,
 			VerticalAlignment = VAlign.Bottom,
@@ -134,30 +138,40 @@ public partial class ViewCandidatePopup{
 		};
 	}
 
-	[Doc("把視窗移到插入點左下角；碰到螢幕邊界就往內收。")]
+	[Doc($$"""
+	照 Weasel `WeaselPanel::MoveTo` ＋ `_RepositionWindow`（`WeaselUI/WeaselPanel.cpp:1121-1223`）：
+	+ 先把插入點下緣往下讓 6px（`OffsetRect(0, 6)`），候選窗從那裡開始，所以不會蓋住光標；
+	+ 取插入點所在螢幕的工作區，x 夾在左右邊界內；
+	+ 下方放不下（`y > 工作區下緣 - 高度`）就翻到插入點上方（`y = 插入點下緣 - 高度`），
+		翻過一次就固定在上方（`m_sticky`），避免高度變動時來回跳；
+	+ 最後 y 不得高於工作區上緣。
+	""")]
 	public partial void MoveTo(PixelPoint Anchor){
-		var X = Anchor.X;
-		var Y = Anchor.Y;
-		// 依插入點所在的螢幕收邊界：多螢幕時用 Primary 會把副螢幕上的浮窗拉回主螢幕。
-		// `Screens` 在視窗還沒有 platform impl 時可以是 null，那時直接照原座標放，不要拋
-		// （拋了會被 CandidatePopup.Show 的 catch 接住，使用者看到的是「浮窗閃一下就不見」）。
-		var Screens = this.Screens;
-		var Screen = Screens?.ScreenFromPoint(Anchor) ?? Screens?.Primary;
-		if(Screen is not null){
-			var Area = Screen.WorkingArea;
-			// 先量一次自身尺寸，才知道收進來多少；未顯示時 Bounds 可能為 0，故有下限保護。
-			var W = (i32)Math.Ceiling(Bounds.Width);
-			var H = (i32)Math.Ceiling(Bounds.Height);
-			if(X + W > Area.Right){
-				X = Area.Right - W;
-			}
-			if(Y + H > Area.Bottom){
-				// 下方放不下就翻到插入點上方：再減一個字級當作間隔。
-				Y = Anchor.Y - H - (i32)Math.Ceiling(UiCfg.Inst.PopupCandidateFontSize);
-			}
-			X = Math.Max(X, Area.X);
-			Y = Math.Max(Y, Area.Y);
+		// 首次顯示時 Bounds 可能還是 0，用 DesiredSize 才不會把位置算錯。
+		var size = Bounds.Width > 0 ? Bounds.Size : DesiredSize;
+		var width = (i32)Math.Ceiling(size.Width);
+		var height = (i32)Math.Ceiling(size.Height);
+		var screens = Screens;
+		var screen = screens?.ScreenFromPoint(Anchor) ?? screens?.Primary;
+		var work = screen?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
+		var x = Anchor.X;
+		var y = Anchor.Y + AnchorGapPx;
+		var maxX = work.Right - width;
+		var maxY = work.Bottom - height;
+		if(x > maxX){
+			x = maxX;
 		}
-		Position = new PixelPoint(X, Y);
+		if(x < work.X){
+			x = work.X;
+		}
+		if(y > maxY || Sticky){
+			Sticky = true;
+			// Weasel：y = inputPos.top - height - 6，而 inputPos.top 是「插入點下緣 + 6」。
+			y = Anchor.Y - height;
+		}
+		if(y < work.Y){
+			y = work.Y;
+		}
+		Position = new PixelPoint(x, y);
 	}
 }

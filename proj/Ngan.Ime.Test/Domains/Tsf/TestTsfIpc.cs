@@ -24,6 +24,7 @@ public class TestTsfIpc : Tester{
 		this.AddTestCase(nameof(Reply_Should_RejectMalformed), Reply_Should_RejectMalformed!);
 		this.AddTestCase(nameof(KeyRequest_Should_RejectMalformed), KeyRequest_Should_RejectMalformed!);
 		this.AddTestCase(nameof(PipeName_Should_BeStablePerIdentity), PipeName_Should_BeStablePerIdentity!);
+		this.AddTestCase(nameof(Position_Should_RoundTrip), Position_Should_RoundTrip!);
 		this.AddTestCase(nameof(Echo_Should_RoundTrip), Echo_Should_RoundTrip!);
 		this.AddTestCase(nameof(KeyRequest_Should_CarryScanCode), KeyRequest_Should_CarryScanCode!);
 	}
@@ -180,6 +181,20 @@ public class TestTsfIpc : Tester{
 		T(A.StartsWith(TsfIpc.PipeNamePrefix, StringComparison.Ordinal), $"名稱應帶前綴：{A}");
 		T(A.Length <= 256, "管道名不可超過 Windows 的上限");
 		T(FromShell.Length <= 256, "帶雜湊的名稱也不可超過 Windows 的上限");
+		return NIL;
+	}
+
+	[Doc("""
+	插入點位置更新要能往返：外殼每次量到插入點就推一條，浮窗靠它即時跟隨。
+	""")]
+	public async Task<nil> Position_Should_RoundTrip(obj? O){
+		var T = Assert.IsTrue;
+		var Req = new TsfKeyRequest{ Kind = ETsfReqKind.Position, X = 321, Y = 654 };
+		T(Req.Format() == "P|" + TsfIpc.Version + "|321|654", $"格式應為 P|ver|x|y，實際 {Req.Format()}");
+		var Back = TsfKeyRequest.Parse(Req.Format());
+		T(Back is not null, "位置更新應可解析");
+		T(Back!.Kind == ETsfReqKind.Position, "種類應為位置更新");
+		T(Back.X == 321 && Back.Y == 654, $"座標應保留，實際 ({Back.X},{Back.Y})");
 		return NIL;
 	}
 

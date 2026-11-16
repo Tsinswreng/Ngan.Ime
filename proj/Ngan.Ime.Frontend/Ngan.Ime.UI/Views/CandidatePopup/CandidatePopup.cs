@@ -57,12 +57,36 @@ public sealed class CandidatePopup : ICandidatePopup{
 		});
 	}
 
+	[Doc($$"""
+	把浮窗移到插入點；還沒建立過浮窗就什麼都不做（沒有東西可移）。
+	#Prm[{{nameof(X)}}][插入點左邊（螢幕座標）。]
+	#Prm[{{nameof(Y)}}][插入點下緣（螢幕座標）。]
+	""")]
+	public void MoveTo(i32 X, i32 Y){
+		Dispatcher.UIThread.Post(() => {
+			try{
+				if(Window is null){
+					return;
+				}
+				Window.MoveTo(new PixelPoint(X, Y));
+			}catch(Exception Ex){
+				// 移動失敗只影響位置，不該把候選內容一起收掉。
+				AppLog.Error(Ex, "[CandidatePopup] 移動失敗");
+			}
+		});
+	}
+
 	[Doc("收起浮窗；尚未建立過就只清 VM。")]
 	public void Hide(){
 		Dispatcher.UIThread.Post(() => {
 			try{
 				Vm?.Clear();
 				Window?.Hide();
+				// 照 Weasel：sticky 只活到視窗收起為止（Weasel 是銷毀視窗時歸零，
+				// 我們重用同一個視窗，所以在收起時歸零），否則一旦翻到上方就永遠在上方。
+				if(Window is not null){
+					Window.Sticky = false;
+				}
 			}catch(Exception Ex){
 				AppLog.Error(Ex, "[CandidatePopup] 收起失敗");
 			}

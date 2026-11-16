@@ -80,6 +80,8 @@ sealed class Program{
 				// TSF 服務端：接受系統輸入法轉來的按鍵，交給 Rime 並顯示候選窗。
 				// 從容器解析而不是直接呼叫靜態類，啟動與否因此可替換、可測試。
 				Svc.GetRequiredService<Tsf.ISvcTsfPipeServer>().Start();
+				// 模式切換提示：訂閱引擎狀態，切中／英、簡／繁時在光標旁閃一下。
+				Svc.GetRequiredService<Tsf.SvcModeTip>().Start();
 			},
 		});
 		BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);

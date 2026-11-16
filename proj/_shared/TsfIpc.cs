@@ -155,6 +155,17 @@ public static class TsfIpc{
 	""")]
 	public const str EchoTag = "E";
 
+	[Doc($$"""
+	請求首欄：插入點位置更新（只移動候選窗，不送按鍵）。
+
+	*為何需要*：Weasel 的候選窗與 TSF 在同一個行程裡，`_SetCompositionPosition`
+	量到插入點就立刻 `_cand->UpdateInputPosition(rc)`（`WeaselTSF/Composition.cpp:228-243`），
+	所以視窗緊貼光標。我們的浮窗在服務端行程，位置只能靠管道送過去；
+	若只在按鍵請求裡附座標，視窗就會慢一顆鍵、而且用的是上一輪量到的值——那就是「漂」。
+	於是以量測會話為單位推一條位置更新，讓浮窗與 Weasel 一樣即時跟隨。
+	""")]
+	public const str PosTag = "P";
+
 	[Doc("回應首欄。")]
 	public const str ReplyTag = "R";
 
@@ -220,6 +231,9 @@ public enum ETsfReqKind{
 
 	[Doc("連線探測（Weasel 的 ECHO）。")]
 	Echo = 2,
+
+	[Doc("插入點位置更新：只移動候選窗，不送按鍵。")]
+	Position = 3,
 }
 
 [Doc($$"""
@@ -300,6 +314,9 @@ public sealed class TsfKeyRequest{
 		if(Kind == ETsfReqKind.Echo){
 			return TsfIpc.EchoTag + "|" + Ver;
 		}
+		if(Kind == ETsfReqKind.Position){
+			return TsfIpc.PosTag + "|" + Ver + "|" + X + "|" + Y;
+		}
 		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0")
 			+ "|" + Scan + "|" + Ext;
 	}
@@ -326,6 +343,14 @@ public sealed class TsfKeyRequest{
 		}
 		if(Parts[0] == TsfIpc.EchoTag){
 			return new TsfKeyRequest{ Ver = Ver.Value, Kind = ETsfReqKind.Echo };
+		}
+		if(Parts[0] == TsfIpc.PosTag){
+			return new TsfKeyRequest{
+				Ver = Ver.Value,
+				Kind = ETsfReqKind.Position,
+				X = Parts.Length > 2 ? (TsfIpc.ParseInt(Parts[2]) ?? 0) : 0,
+				Y = Parts.Length > 3 ? (TsfIpc.ParseInt(Parts[3]) ?? 0) : 0,
+			};
 		}
 		if(Parts[0] != TsfIpc.KeyTag || Parts.Length < 6){
 			return null;

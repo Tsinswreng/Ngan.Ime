@@ -36,6 +36,13 @@ public interface ICandidatePopup{
 	""")]
 	public void Show(str Preedit, CandidatePage Page, PixelPoint? Anchor);
 
+	[Doc($$"""
+	把浮窗移到插入點：插入點下緣為基準，浮窗往下 6px 開始；下方放不下就翻到插入點上方。
+	#Prm[{{nameof(X)}}][插入點左邊（螢幕座標）。]
+	#Prm[{{nameof(Y)}}][插入點下緣（螢幕座標）。]
+	""")]
+	public void MoveTo(i32 X, i32 Y);
+
 	[Doc("收起浮窗；已收起時無副作用。")]
 	public void Hide();
 }

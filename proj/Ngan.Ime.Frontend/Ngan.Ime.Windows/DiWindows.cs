@@ -38,6 +38,8 @@ public static class DiWindows{
 		}
 		// TSF 管道服務端：按鍵經具名管道進來，交給引擎，再把結果回給外殼。
 		z.AddSingleton<ISvcTsfPipeServer, SvcTsfPipeServer>();
+		// 模式切換提示（中／英、簡／繁）：訂閱 IImeState，切換時在光標旁閃一下。
+		z.AddSingleton<SvcModeTip>();
 		return z;
 	}
 }

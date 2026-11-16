@@ -65,11 +65,15 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("啟動／停止的互斥；避免兩個執行緒同時進出生命週期。")]
 	readonly object LifecycleGate = new();
 
+	[Doc("最近一次量到的插入點；狀態提示貼着它顯示。")]
+	readonly CaretAnchor Anchor;
+
 	[Doc("建立服務端；依賴全部由容器給。")]
-	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup){
+	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup, CaretAnchor Anchor){
 		this.Input = Input;
 		this.State = State;
 		this.Popup = Popup;
+		this.Anchor = Anchor;
 	}
 
 	[Doc($$"""
@@ -112,7 +116,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 					if(!Started){
 						return;
 					}
-					Listener.Start(HandleWithEngineLockAsync);
+					Listener.Start(HandleAsync);
 				}
 			});
 		}
@@ -134,21 +138,6 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			Listener.Stop();
 		}
 		Popup.Hide();
-	}
-
-	[Doc($$"""
-	把「引擎鎖 ＋ 一行進一行出」包成監聽端的處理器。
-
-	引擎只有一個會話（照 Weasel 的 `g_api_mutex`），多條連線必須在這裡排隊；
-	鎖放在這一層而不是監聽端，是因為「要不要串行化」是協議／引擎的事，不是傳輸的事。
-	""")]
-	async Task<str> HandleWithEngineLockAsync(str Line, CT Ct){
-		await EngineLock.WaitAsync(Ct);
-		try{
-			return await HandleAsync(Line, Ct);
-		}finally{
-			EngineLock.Release();
-		}
 	}
 
 	[Doc("最後一個記過日誌的不符版本號；同一個版本只記一次，避免每顆鍵刷一則。")]
@@ -191,6 +180,13 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			// 能在這裡回答就代表「管道通、服務端活著」，不必等引擎鎖。
 			return TsfReply.Empty().Format();
 		}
+		if(Req.Kind == ETsfReqKind.Position){
+			// 只移動浮窗，不碰引擎（Weasel 的 UpdateInputPosition 也只碰 UI）。
+			// 外殼在每次量到插入點時就推一條過來，浮窗因此即時跟隨光標。
+			Anchor.Set(Req.X, Req.Y);
+			Popup.MoveTo(Req.X, Req.Y);
+			return TsfReply.Empty().Format();
+		}
 		return await HandleKeyAsync(Req, Ct);
 	}
 
@@ -208,13 +204,24 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		}
 		var Watch = TimingEnabled ? System.Diagnostics.Stopwatch.StartNew() : null;
 		IRespOnKeyEvent Resp;
+		TsfReply Reply;
+		// 引擎只有一個會話（照 Weasel 的 `g_api_mutex`）：送鍵與「取狀態快照」必須在同一把鎖內，
+		// 否則兩個應用的鍵交錯時，A 的回應會讀到 B 之後的候選與組字。
+		// 探測、收起、位置更新不碰引擎，所以不進這把鎖——否則浮窗跟隨會被別人的按鍵拖住。
+		await EngineLock.WaitAsync(Ct);
 		try{
 			Resp = await Input.Input([MkEvent(Key, Req)], Ct);
+			Reply = MkReply(Resp);
 		}catch(Exception Ex){
 			AppLog.Error(Ex, "[TsfPipe] 送鍵失敗");
 			return TsfReply.Fail(ETsfErr.EngineFailed).Format();
+		}finally{
+			EngineLock.Release();
 		}
-		var Reply = MkReply(Resp);
+		if(Req.X != 0 || Req.Y != 0){
+			// 按鍵請求順帶的座標也是量測結果，記下來給狀態提示用（(0,0) 代表未知）。
+			Anchor.Set(Req.X, Req.Y);
+		}
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。
 		if(!Req.IsUp){
 			ShowPopup(Reply, Req);

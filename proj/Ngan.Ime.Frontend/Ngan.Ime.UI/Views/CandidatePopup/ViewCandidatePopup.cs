@@ -44,7 +44,18 @@ public partial class ViewCandidatePopup : Window{
 	[Doc("按 VM 內容刷新組字列與候選行；沒有內容時自行收起。")]
 	public partial void Refresh();
 
-	[Doc("移到指定螢幕座標；超出工作區時往內收，避免浮窗出界。")]
+	[Doc($$"""
+	與 Weasel 相同的 6px 間距：`WeaselPanel::MoveTo` 先做 `m_inputPos.OffsetRect(0, 6)`
+	（`WeaselUI/WeaselPanel.cpp:1129`），候選窗因此不會貼着、蓋着光標。
+	""")]
+	public const i32 AnchorGapPx = 6;
+
+	[Doc($$"""
+	一旦翻到插入點上方就固定在上方，避免視窗高度變動時來回跳（照 Weasel 的 `m_sticky`）。
+	""")]
+	public bool Sticky;
+
+	[Doc("移到插入點：先放下方（間距 6px），下方不夠就翻到上方；一律夾在工作區內。")]
 	public partial void MoveTo(PixelPoint Anchor);
 }
 

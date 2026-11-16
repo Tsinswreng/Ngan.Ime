@@ -111,11 +111,25 @@ public class KeysAppCfg : KeysDeclBase<KeysAppCfg>, IStaticKeysDecl {
 			[Doc("字體檔路徑；空／null 表示用系統默認字體。")]
 			public static KeyNode<str?> Path = Mk(_R, [nameof(Path)], (str?)null);
 
-			[Doc("字體家族名；留空則由字體檔的 name 表推斷。")]
+			[Doc($$"""
+			字體家族名。
+
+			*有 {{nameof(Path)}} 時*：是那個字體檔裡的家族名；留空則由檔案的 name 表推斷。
+			*沒有 {{nameof(Path)}}（或路徑不存在）時*：當成**系統字體家族名**（例如
+			`Microsoft YaHei`、`孤鹜 筑紫明朝`）；留空則用系統默認字體。這條路不限拉丁字體，
+			中日韓字體直接寫家族名即可。
+			""")]
 			public static KeyNode<str?> Family = Mk(_R, [nameof(Family)], (str?)null);
 
 			[Doc("鍵帽基準字級（px）；其餘字級由它按比例推出，見 UiCfg。")]
 			public static KeyNode<f64> BaseFontSize = Mk(_R, [nameof(BaseFontSize)], 32.0);
+
+			[Doc($$"""
+			候選浮窗與狀態提示的字級（px）；0 表示沿用 `BaseFontSize × 0.5`（基準 32 時為 16）。
+
+			浮窗是獨立視窗，字級與鍵盤分開調比較實際：鍵盤要大字，浮窗不一定。
+			""")]
+			public static KeyNode<f64> PopupFontSize = Mk(_R, [nameof(PopupFontSize)], 0.0);
 		}
 	}
 

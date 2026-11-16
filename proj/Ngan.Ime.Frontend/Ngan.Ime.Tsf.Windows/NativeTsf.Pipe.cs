@@ -344,4 +344,15 @@ internal static unsafe partial class NativeTsf {
 	private static void SendHide() {
 		SendCommand(new TsfKeyRequest { Kind = ETsfReqKind.Hide });
 	}
+
+	[Doc($$"""
+	把量到的插入點推給服務端，只為了移動候選窗。
+
+	*時機照 Weasel*：`_SetCompositionPosition` 量到就呼叫 `_cand->UpdateInputPosition(rc)`
+	（`WeaselTSF/Composition.cpp:228-243`）。我們的浮窗在另一支行程，只能靠這條請求即時推過去；
+	不推就只會在下一顆按鍵時才動，看起來就是「大致跟隨、還常常蓋住光標」。
+	""")]
+	private static void SendCaretPosition(i32 X, i32 Y) {
+		SendCommand(new TsfKeyRequest { Kind = ETsfReqKind.Position, X = X, Y = Y });
+	}
 }

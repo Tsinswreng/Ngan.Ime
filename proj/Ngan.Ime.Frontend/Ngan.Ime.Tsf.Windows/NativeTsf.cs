@@ -1139,10 +1139,6 @@ internal static unsafe partial class NativeTsf {
 		addRef(ComObject);
 	}
 
-	[Doc($$"""
-	兩次插入點量測的最小間隔（毫秒）；一顆鍵會經過四個回調，沒必要量四次。
-	""")]
-	private const i32 CaretMeasureIntervalMs = 40;
 
 	[Doc($$"""
 	一次量測最多允許在途多久（毫秒）；超過視為卡住，收掉重排。
@@ -1194,10 +1190,6 @@ internal static unsafe partial class NativeTsf {
 			if (Interlocked.CompareExchange(ref State.CaretPending, 1, 0) != 0) {
 				return;
 			}
-		}
-		if (now - State.CaretMeasureTick < CaretMeasureIntervalMs) {
-			Interlocked.Exchange(ref State.CaretPending, 0);
-			return;
 		}
 		State.CaretMeasureTick = now;
 		try {
@@ -1310,29 +1302,54 @@ internal static unsafe partial class NativeTsf {
 			// 源生成式 COM：vtable 由生成器排，這裡不再手寫槽位索引（見 ITfContextViewGen）。
 			// ConvertToManaged 會替這個介面指標建立托管包裝，包裝自帶一份參考；
 			// 這一份由 GC 在包裝不可達時釋放，我們自己那份仍照舊在 finally 裏放。
-			var clippedFlag = 0;
-			Hr = View.GetTextExt(EditCookie, selection.Range, out var measured, out clippedFlag);
-			Rect = measured;
-			Clipped = clippedFlag;
-			if (Hr < 0) {
-				return false;
+			// 照 Weasel（`Composition.cpp:161-171`）：有組字就量「組字範圍 collapse 到 START」，
+			// 沒有組字才量選取範圍；選取範圍可能非空，量整個選取會偏。
+			var compositionRange = IntPtr.Zero;
+			var range = selection.Range;
+			var composition = Volatile.Read(ref State.Composition);
+			if (composition != IntPtr.Zero) {
+				var compositionGen = ComInterfaceMarshaller<ITfCompositionGen>.ConvertToManaged((void*)composition);
+				if (compositionGen is not null && compositionGen.GetRange(out compositionRange) >= 0 && compositionRange != IntPtr.Zero) {
+					var rangeGen = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)compositionRange);
+					if (rangeGen is not null) {
+						rangeGen.Collapse(EditCookie, TfAnchorStart);
+					}
+					range = compositionRange;
+				}
 			}
-			return TryAdoptCaretRect(State, measured);
+			try {
+				var clippedFlag = 0;
+				Hr = View.GetTextExt(EditCookie, range, out var measured, out clippedFlag);
+				Rect = measured;
+				Clipped = clippedFlag;
+				if (Hr < 0) {
+					return false;
+				}
+				return TryAdoptCaretRect(State, measured);
+			} finally {
+				if (compositionRange != IntPtr.Zero) {
+					ReleaseCom(compositionRange);
+				}
+			}
 		} finally {
 			ReleaseCom(selection.Range);
 		}
 	}
 
 	[Doc($$"""
-	判斷量到的矩形能不能當插入點用，能用就寫進狀態。
-	三個條件缺一不可：
-	+ 矩形不是全零（有些控件在沒有版面時回 0,0,0,0）；
-	+ 錨點落在前景視窗附近（有些控件回的是相對於視窗的座標，直接用會跑到螢幕外）；
-	+ 錨點在虛擬螢幕範圍內。
-	錨點取「左下角」＝插入點下方，候選窗從那裏往下排。
+	把量到的矩形換成螢幕座標錨點；能用就寫進狀態並立刻推給服務端。
+
+	判斷本身在 {{nameof(TsfCaretPolicy)}}（純函數）；這裡只負責取前景視窗與 caret：
+	+ 矩形全零 → 不用（控件沒有版面）；
+	+ 矩形落在前景視窗外 → 當成客戶區座標，用「前景視窗原點 − 矩形原點 ＋ caret」平移
+		（照 Weasel `Composition.cpp:186-206` 的 enhanced_position，不再像先前那樣直接丟掉）；
+	+ 錨點取左下角（左邊、下緣）。
+	採用後照 Weasel 的時機立刻送出位置：`_SetCompositionPosition` 一量到就
+	`_cand->UpdateInputPosition(rc)`，候選窗因此緊貼光標而不是慢一顆鍵。
 	""")]
 	private static bool TryAdoptCaretRect(TsfState State, NativeRect Rect) {
-		// 判斷本身是純函數（`TsfCaretPolicy`）；這裡只負責取前景視窗矩形。
+		// 判斷本身是純函數（`TsfCaretPolicy`）；這裡只負責取前景視窗與 caret，
+		// 並照 Weasel 的時機（`_SetCompositionPosition` → `UpdateInputPosition`）把位置推出去。
 		var hasForeground = false;
 		i32 fgLeft = 0, fgTop = 0, fgRight = 0, fgBottom = 0;
 		var hwnd = GetForegroundWindow();
@@ -1343,13 +1360,18 @@ internal static unsafe partial class NativeTsf {
 			fgRight = fg.Right;
 			fgBottom = fg.Bottom;
 		}
+		var caret = default(NativePoint);
+		var hasCaret = GetCaretPos(ref caret);
 		if (!TsfCaretPolicy.TryAdopt(Rect.Left, Rect.Top, Rect.Right, Rect.Bottom,
-			fgLeft, fgTop, fgRight, fgBottom, hasForeground, out var x, out var y)) {
+			fgLeft, fgTop, fgRight, fgBottom, hasForeground,
+			hasCaret, caret.X, caret.Y, out var x, out var y)) {
 			return false;
 		}
 		State.CaretPointX = x;
 		State.CaretPointY = y;
 		State.CaretValid = true;
+		// 量到就推：候選窗與 Weasel 一樣即時跟隨，而不是等下一顆鍵。
+		SendCaretPosition(x, y);
 		return true;
 	}
 
@@ -1364,7 +1386,9 @@ internal static unsafe partial class NativeTsf {
 		if (!GetWindowRect(hwnd, out var rect)) {
 			return true;
 		}
-		return TsfCaretPolicy.IsNear(rect.Left, rect.Top, rect.Right, rect.Bottom, X, Y);
+		const i32 slack = 64;
+		return X >= rect.Left - slack && X <= rect.Right + slack
+			&& Y >= rect.Top - slack && Y <= rect.Bottom + slack;
 	}
 
 	[Doc($$"""
@@ -1407,6 +1431,8 @@ internal static unsafe partial class NativeTsf {
 			State.CaretPointY = asScreen.Y;
 			State.CaretValid = true;
 			LogWarn("Caret GUITHREADINFO adopted x=" + State.CaretPointX + " y=" + State.CaretPointY);
+			// 兜底路徑也推一次位置，浮窗才不會等到下一顆鍵才動。
+			SendCaretPosition(State.CaretPointX, State.CaretPointY);
 		} catch (Exception Exception) {
 			LogError("TryTakeCaretFromGui EX " + Exception);
 		}
@@ -1433,6 +1459,10 @@ internal static unsafe partial class NativeTsf {
 
 	[DllImport("user32.dll", SetLastError = true)]
 	private static extern bool GetWindowRect(IntPtr Hwnd, out NativeRect Rect);
+
+	[Doc("取呼叫端執行緒目前 caret 的客戶區座標；Weasel 的 enhanced_position 用它修正座標系。")]
+	[DllImport("user32.dll", SetLastError = true)]
+	private static extern bool GetCaretPos(ref NativePoint Point);
 
 	[Doc($$"""
 	把 context 指標換成托管介面；失敗時把原因寫進日誌並回 null。

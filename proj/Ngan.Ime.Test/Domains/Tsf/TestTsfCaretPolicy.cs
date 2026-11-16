@@ -4,10 +4,10 @@ using Tsinswreng.CsTreeTest;
 namespace Ngan.Ime.Test.Domains.Tsf;
 
 [Doc($$"""
-被測對象：{{nameof(TsfCaretPolicy)}}，即「量到的矩形能不能用」「錨點取哪裡」。
+被測對象：{{nameof(TsfCaretPolicy)}}，即「量到的矩形能不能用」「怎麼換成螢幕座標錨點」。
 
-這些判斷是 2026-11-15「候選窗黏在螢幕左上角」那件事的第二層與第三層根因：
-矩形可信度、以及量不到時的兜底。抽成純函數之後不必開視窗、不必有前景視窗就能驗。
+這些判斷對應 2026-11-15「候選窗黏在螢幕左上角」與 2026-11-16「只大致跟隨光標」兩件事：
+矩形的有效性、客戶區座標的平移修正、量不到時的兜底。純函數，不必開視窗就能驗。
 """)]
 public class TestTsfCaretPolicy : Tester{
 
@@ -16,41 +16,29 @@ public class TestTsfCaretPolicy : Tester{
 	""")]
 	public override void Init(){
 		this.AddTestCase(nameof(Adopt_Should_RejectAllZeroRect), Adopt_Should_RejectAllZeroRect!);
-		this.AddTestCase(nameof(Adopt_Should_RejectFarAwayRect), Adopt_Should_RejectFarAwayRect!);
 		this.AddTestCase(nameof(Adopt_Should_TakeBottomLeft), Adopt_Should_TakeBottomLeft!);
-		this.AddTestCase(nameof(Adopt_Should_SkipForegroundCheckWhenUnknown), Adopt_Should_SkipForegroundCheckWhenUnknown!);
-		this.AddTestCase(nameof(IsNear_Should_AllowSlack), IsNear_Should_AllowSlack!);
+		this.AddTestCase(nameof(Adopt_Should_ShiftClientRectIntoForeground), Adopt_Should_ShiftClientRectIntoForeground!);
+		this.AddTestCase(nameof(Adopt_Should_KeepRectWhenForegroundUnknown), Adopt_Should_KeepRectWhenForegroundUnknown!);
 		this.AddTestCase(nameof(Anchor_Should_PreferMeasuredCaret), Anchor_Should_PreferMeasuredCaret!);
 		this.AddTestCase(nameof(Anchor_Should_FallbackToForeground), Anchor_Should_FallbackToForeground!);
 		this.AddTestCase(nameof(Anchor_Should_BeZeroWhenUnknown), Anchor_Should_BeZeroWhenUnknown!);
 	}
 
 	[Doc("""
-	四邊全零代表「這個控件不回報插入點」，不能當座標用。
+	四邊全零（`left == 0 && top == 0`）代表控件沒有版面，不能用（照 Weasel 的有效性判斷）。
 	""")]
 	public async Task<nil> Adopt_Should_RejectAllZeroRect(obj? O){
 		var T = Assert.IsTrue;
-		T(!TsfCaretPolicy.TryAdopt(0, 0, 0, 0, 0, 0, 1000, 1000, true, out _, out _), "全零矩形不可採用");
+		T(!TsfCaretPolicy.TryAdopt(0, 0, 0, 0, 0, 0, 1000, 1000, true, false, 0, 0, out _, out _), "全零矩形不可採用");
 		return NIL;
 	}
 
 	[Doc("""
-	矩形落在前景視窗很遠的地方：那不是螢幕座標系，採用會讓浮窗跑到螢幕外。
-	""")]
-	public async Task<nil> Adopt_Should_RejectFarAwayRect(obj? O){
-		var T = Assert.IsTrue;
-		// 前景視窗在 (100,100)-(900,700)，矩形卻在 (5000,5000)。
-		T(!TsfCaretPolicy.TryAdopt(5000, 5000, 5010, 5020, 100, 100, 900, 700, true, out _, out _),
-			"遠離前景視窗的矩形不可採用");
-		return NIL;
-	}
-
-	[Doc("""
-	可用的矩形取左下角當錨點：插入點下方，候選窗從那裡往下排。
+	落在前景視窗內的矩形直接用；錨點取左下角（左邊、下緣）。
 	""")]
 	public async Task<nil> Adopt_Should_TakeBottomLeft(obj? O){
 		var T = Assert.IsTrue;
-		var Ok = TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 100, 100, 900, 700, true, out var X, out var Y);
+		var Ok = TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 100, 100, 900, 700, true, false, 0, 0, out var X, out var Y);
 		T(Ok, "視窗內的矩形應被採用");
 		T(X == 200, $"錨點 X 應取左邊 200，實際 {X}");
 		T(Y == 320, $"錨點 Y 應取下面 320，實際 {Y}");
@@ -58,26 +46,31 @@ public class TestTsfCaretPolicy : Tester{
 	}
 
 	[Doc("""
-	沒有前景視窗（例如取不到）時跳過範圍檢查，只驗「不是全零」。
+	落在前景視窗外的矩形不是丟掉，而是當成客戶區座標平移回螢幕座標
+	（照 Weasel `CGetTextExtentEditSession` 的 `enhanced_position`）。
 	""")]
-	public async Task<nil> Adopt_Should_SkipForegroundCheckWhenUnknown(obj? O){
+	public async Task<nil> Adopt_Should_ShiftClientRectIntoForeground(obj? O){
 		var T = Assert.IsTrue;
-		T(TsfCaretPolicy.TryAdopt(200, 300, 210, 320, 0, 0, 0, 0, false, out var X, out var Y),
-			"前景未知時仍可採用");
-		T(X == 200 && Y == 320, $"錨點應為 (200,320)，實際 ({X},{Y})");
+		// 客戶區 (10,20)-(30,40)，前景視窗原點 (100,100)，caret 客戶區 (5,6)。
+		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, true, 5, 6, out var X, out var Y);
+		T(Ok, "客戶區座標應被平移而不是丟棄");
+		T(X == 105, $"平移後左邊應為 105（100-10+5），實際 {X}");
+		T(Y == 126, $"平移後下緣應為 126（100-20+6+40），實際 {Y}");
+		// caret 未知時只補前景視窗原點。
+		TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 100, 100, 900, 700, true, false, 0, 0, out var X2, out var Y2);
+		T(X2 == 100, $"caret 未知時左邊應為 100，實際 {X2}");
+		T(Y2 == 120, $"caret 未知時下緣應為 120，實際 {Y2}");
 		return NIL;
 	}
 
 	[Doc("""
-	範圍判斷允許 ±SlackPx 的餘量：插入點貼在邊界上不該被丟掉。
+	沒有前景視窗資訊時不做平移（無從判斷座標系），仍照原值採用。
 	""")]
-	public async Task<nil> IsNear_Should_AllowSlack(obj? O){
+	public async Task<nil> Adopt_Should_KeepRectWhenForegroundUnknown(obj? O){
 		var T = Assert.IsTrue;
-		var S = TsfCaretPolicy.SlackPx;
-		T(TsfCaretPolicy.IsNear(0, 0, 800, 600, 0, 0), "左上角上應在範圍內");
-		T(TsfCaretPolicy.IsNear(0, 0, 800, 600, 800 + S, 600 + S), "右下角加餘量仍應在範圍內");
-		T(!TsfCaretPolicy.IsNear(0, 0, 800, 600, 800 + S + 1, 0), "超出餘量就不在範圍內");
-		T(!TsfCaretPolicy.IsNear(0, 0, 800, 600, 0, -S - 1), "上緣超出餘量也不在範圍內");
+		var Ok = TsfCaretPolicy.TryAdopt(10, 20, 30, 40, 0, 0, 0, 0, false, true, 5, 6, out var X, out var Y);
+		T(Ok, "前景未知時仍可採用");
+		T(X == 10 && Y == 40, $"應保持原值 (10,40)，實際 ({X},{Y})");
 		return NIL;
 	}
 

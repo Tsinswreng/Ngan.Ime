@@ -10,6 +10,7 @@ using Ngan.Ime.UI.Views.Ime;
 using Ngan.Ime.UI.Views.Input;
 using Ngan.Ime.UI.Views.KeyBoard;
 using Ngan.Ime.UI.Views.RimeLog;
+using Ngan.Ime.UI.Views.StatusTip;
 using Ngan.Ime.UI.Views.ToolBar;
 using Ngan.Ime.UI.Views.VoiceInput;
 
@@ -61,6 +62,8 @@ public static class DiUi{
 		z.AddTransient<VmKeyBoard>();
 		// 桌面候選浮窗：只有 TSF 服務端會解析它，其他宿主不碰就不會建視窗。
 		z.AddSingleton<ICandidatePopup, CandidatePopup>();
+		// 光標旁的狀態提示（中／英、簡／繁）；同樣只有 TSF 服務端會用到。
+		z.AddSingleton<IStatusTip, StatusTip>();
 		return z;
 	}
 

@@ -1,4 +1,4 @@
-using Rime.Api;
+﻿using Rime.Api;
 using Rime.Api.Types;
 using Tsinswreng.CsInterop;
 using Tsinswreng.CsErr;
@@ -183,6 +183,12 @@ unsafe public class RimeSetup : IDisposable {
 	void SetupRimeSession(){
 		LogInfo("rime setup");
 		apiFn.setup(traits);
+		// *通知回調一定要註冊*：`OnOptionChanged`（中英／簡繁切換）就是從這裡進來的。
+		// 少了這一行，`RimeSetup.OnOptionChanged` 永遠不會被觸發——模式提示會完全沒有反應，
+		// 而且不會有任何錯誤訊息（先前就是這樣：事件掛在一條從未接通的線上）。
+		// 托管委託由本實例持有（`ManagedRimeNotificationHandler`），實例是單例，故不會被回收。
+		apiFn.set_notification_handlerManaged(ManagedRimeNotificationHandler, null);
+		LogInfo("rime 通知回調已註冊");
 		LogInfo("rime initialize");
 		apiFn.initialize(null);
 		LogInfo("rime start_maintenance");

@@ -99,10 +99,15 @@ internal static unsafe partial class NativeTsf {
 
 	[Doc($$"""
 	編輯會話旗標；數值一律照 `msctf.h:2278-2286`，不憑記憶（先前把 ASYNCDONTCARE 寫成 0x8，那其實是 ASYNC）。
-	`TF_ES_ASYNCDONTCARE` 就是 0，Weasel 每一次 `RequestEditSession` 用的都是它配 READ 或 READWRITE。
-	我們所有會話也都用非同步：這段程式跑在應用行程的 UI 執行緒上，
-	同步會話（`TF_ES_SYNC`）在應用正持有文件鎖時只能等，而等的那個人就是被呼叫的自己。
+
+	*哪幾段用同步*：照 Weasel 0.15.0——
+	`_StartComposition`／`_EndComposition` 用 `TF_ES_SYNC | TF_ES_READWRITE`，
+	`_InsertText`／`_UpdateComposition` 用 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`。
+	先前我們一律用非同步，於是按鍵回來時組字範圍與那個佔位空格**還沒寫進文件**，
+	同一顆鍵裡排的量測會話讀不到 `State.Composition`，只能退回去量選取範圍——
+	候選窗因此先出現在上一個字的位置，下一顆鍵才搬過去（使用者看到的就是跳一下）。
 	""")]
+	private const u32 TfEsSync = 0x1;
 	private const u32 TfEsRead = 0x2;
 	private const u32 TfEsReadWrite = 0x6;
 	[Doc($$"""
@@ -117,8 +122,14 @@ internal static unsafe partial class NativeTsf {
 	`TF_ANCHOR_START`（msctf.h）：把組字範圍收成起點。
 	""")]
 	private const u32 TfAnchorStart = 0;
+
 	[Doc($$"""
 	`TF_ANCHOR_END`：把範圍收成終點，游標留在文字之後。
+
+	*組字起點也要用它*：Weasel 0.15.0 `CStartCompositionEditSession::DoEditSession` 是
+	先 `SetText(..., L" ", 1)`，再**無條件** `Collapse(TF_ANCHOR_END)`，最後 `SetSelection`——
+	所以佔位空格在遊標左邊、遊標在空格之後。master（0.16）才改成依 `inline_preedit` 分支；
+	先前照那個分支抄成 START，空格才會跑到遊標右邊。
 	""")]
 	private const u32 TfAnchorEnd = 1;
 	[Doc($$"""
@@ -1049,7 +1060,9 @@ internal static unsafe partial class NativeTsf {
 		if (contextGen is null) {
 			return EFail;
 		}
-		var flags = TfEsAsyncDontCare | TfEsReadWrite;
+		// 旗標照 Weasel 0.15.0 分流：Start／End 同步、Insert 非同步（見 TfEsSync 的註釋）。
+		var Sync = Step is ETsfCompositionStep.Start or ETsfCompositionStep.End;
+		var flags = (Sync ? TfEsSync : TfEsAsyncDontCare) | TfEsReadWrite;
 		var sessionResult = 0;
 		var hr = contextGen.RequestEditSession(State.ClientId, State.EditSessionView, flags, out sessionResult);
 		LogWarn("RequestEditSession step=" + Step
@@ -1569,7 +1582,8 @@ internal static unsafe partial class NativeTsf {
 	`ITfInsertAtSelection::InsertTextAtSelection(TF_IAS_QUERYONLY)` 取插入點範圍 →
 	`ITfContextComposition::StartComposition(ec, 範圍, sink, &組字)` →
 	在範圍裏寫一個**真空格**（`SetText(TF_ST_CORRECTION)`）→
-	`Collapse(TF_ANCHOR_START)` → `SetSelection(ec, 1, &選取)`。
+	無條件 `Collapse(TF_ANCHOR_END)` → `SetSelection(ec, 1, &選取)`。（0.15.0 就是收在結尾，
+	所以遊標落在空格之後；依 `inline_preedit` 分支的寫法是 0.16 之後才有的。）
 	sink 是我們自己實作的 `ITfCompositionSink`（Weasel 傳的是 WeaselTSF 自己）。
 	
 	*為何一定要塞那個空格*：2026-11-15 23:20 的實測——只建空組字、立刻寫字、立刻結束，
@@ -1631,7 +1645,7 @@ internal static unsafe partial class NativeTsf {
 						Marshal.Release(old);
 					}
 					LogWarn("組字 已建立 comp=" + compositionPtr.ToString("X"));
-					// 照 Weasel 0.15.0 `Composition.cpp:52`：先塞真空格讓範圍非空，再把選取收在起點。
+					// 照 Weasel 0.15.0：先塞真空格讓範圍非空，再把選取收在結尾（遊標在空格之後）。
 					var range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)insertRange);
 					if (range is not null) {
 						i32 PlaceholderHr;
@@ -1639,8 +1653,10 @@ internal static unsafe partial class NativeTsf {
 							PlaceholderHr = range.SetText(EditCookie, TfStCorrection, (IntPtr)Placeholder, CompositionPlaceholder.Length);
 						}
 						LogWarn("組字 塞佔位空格 hr=0x" + PlaceholderHr.ToString("X8"));
-						var collapseHr = range.Collapse(EditCookie, TfAnchorStart);
-						LogWarn("組字 Collapse(START) hr=0x" + collapseHr.ToString("X8"));
+						// 照 Weasel 0.15.0 `CStartCompositionEditSession::DoEditSession`：收在**結尾**，
+						// 遊標因此在空格之後（空格在遊標左邊）。
+						var collapseHr = range.Collapse(EditCookie, TfAnchorEnd);
+						LogWarn("組字 Collapse(END) hr=0x" + collapseHr.ToString("X8"));
 						var selection = new TfSelection { Range = insertRange, ActiveEnd = 0, Interim = 0 };
 						var contextGen = ToContextGen(context, "組字 SetSelection");
 						if (contextGen is not null) {

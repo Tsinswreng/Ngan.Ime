@@ -279,11 +279,17 @@ internal static unsafe partial class NativeTsf {
 		public IntPtr Context;
 		[Doc($$"""
 		排這一步時那顆鍵的按鍵序號。
-		只有 {{nameof(ETsfCompositionStep.Measure)}} 用得到：位置訊息要帶著它送給服務端，
-		服務端才分得出「這條位置屬於哪一顆鍵」。排隊時就記下來，因為會話回來時
-		可能已經有下一顆鍵送出了（`LastKeySeq` 會變）。
+		位置訊息要帶著它送給服務端，服務端才分得出「這條位置屬於哪一顆鍵」。
+		排隊時就記下來，因為會話回來時可能已經有下一顆鍵送出了（`LastKeySeq` 會變）。
 		""")]
 		public i32 Seq;
+		[Doc($$"""
+		這一步執行完要不要在**同一個編輯會話**裏量插入點。
+		*只有一顆鍵的最後一個寫入步驟會是 true*：照 Weasel `EditSession.cpp:38` 的時序，
+		`DoEditSession` 尾端才量，量完立刻送位置，內容因此可以和寫入同時出現。
+		先前量測是另一條非同步會話，應用什麼時候跑它不受我們控制（實測 p50 90ms）。
+		""")]
+		public bool Measure;
 	}
 
 	[Doc($$"""
@@ -954,22 +960,34 @@ internal static unsafe partial class NativeTsf {
 		}
 		// 步驟的決定是純函數（`TsfCompositionPlanner`），這裡只負責排隊與日誌。
 		var steps = TsfCompositionPlanner.Plan(hasComposition, hasCommit, hasPreedit);
-		// 這顆鍵的按鍵序號：佇列裏的每一步（含量測那一步）都帶著它，
+		// 這顆鍵的按鍵序號：佇列裏的每一步都帶著它，
 		// 服務端靠它分辨「這條位置屬於哪一顆鍵」。排隊時就定下來，不等會話回來再讀。
 		var Seq = LastKeySeq;
-		foreach (var one in steps) {
+		for (var index = 0; index < steps.Length; index++) {
+			var one = steps[index];
 			// insert 是唯一需要文字的一步；其餘傳空串。
 			var text = one.Step == ETsfCompositionStep.Insert ? commitText : "";
 			if (one.Step == ETsfCompositionStep.Start && !hasCommit) {
 				LogWarn("組字 開始（引擎組字中） ctx=" + context.ToString("X"));
 			}
-			EnqueueCompositionJob(State, one.Step, text, one.Clear, Seq);
+			// 量測掛在這一顆鍵的**最後**一個寫入步驟上，由那一步在同一個編輯會話、
+			// 同一個 cookie 裏量完（照 Weasel `EditSession.cpp:38`：`DoEditSession` 尾端才量）。
+			// 先前是另排一條 `ETsfCompositionStep.Measure` 的非同步會話：TSF 什麼時候執行它
+			// 由應用決定，實測 p50 90ms、p90 639ms——使用者看到的就是「空格先出現、
+			// 候選框過一會才彈出來」。
+			var measureHere = Measure && index == steps.Length - 1;
+			EnqueueCompositionJob(State, one.Step, text, one.Clear, Seq, measureHere);
 		}
-		// 位置量測排在最後一步之後：同一個 context 上的編輯會話依序執行，
-		// 所以量到的是「這一顆鍵的寫入都做完之後」的插入點（照 Weasel `EditSession.cpp:38`）：
-		// 它在 `DoEditSession` 尾端才量，而不是另開一條與寫入無序的會話。
-		if (Measure) {
-			EnqueueCompositionJob(State, ETsfCompositionStep.Measure, "", false, Seq);
+		if (Measure && steps.Length == 0) {
+			// 這一顆鍵沒有動到文件（組字中只更新 preedit 與候選），插入點不可能變。
+			// 直接把上一次量到的錨點再送一次，服務端立刻放上內容；
+			// 另開一條會話去量只會多等幾十毫秒，而且量到的還是同一個值。
+			if (State.CaretValid) {
+				SendCaretPosition(State.CaretPointX, State.CaretPointY, State.CaretPointTop, Seq);
+			} else {
+				// 從來沒量到過：只能排一條非同步會話去量。
+				EnqueueCompositionJob(State, ETsfCompositionStep.Measure, "", false, Seq, false);
+			}
 		}
 	}
 
@@ -988,10 +1006,11 @@ internal static unsafe partial class NativeTsf {
 	#Prm[{{nameof(Step)}}][要做哪一步。]
 	#Prm[{{nameof(Text)}}][insert 用的上屏文字。]
 	#Prm[{{nameof(Clear)}}][End 用：結束前是否清空組字範圍。]
-	#Prm[{{nameof(Seq)}}][這一步屬於哪一顆鍵（按鍵序號）；只有量測那一步用得到。]
+	#Prm[{{nameof(Seq)}}][這一步屬於哪一顆鍵（按鍵序號）。]
+	#Prm[{{nameof(Measure)}}][這一步做完要不要在同一個會話裏量插入點。]
 	""")]
-	private static void EnqueueCompositionJob(TsfState State, ETsfCompositionStep Step, str Text, bool Clear, i32 Seq) {
-		var job = new CompositionJob { Step = Step, Text = Text, Clear = Clear, Context = State.Context, Seq = Seq };
+	private static void EnqueueCompositionJob(TsfState State, ETsfCompositionStep Step, str Text, bool Clear, i32 Seq, bool Measure) {
+		var job = new CompositionJob { Step = Step, Text = Text, Clear = Clear, Context = State.Context, Seq = Seq, Measure = Measure };
 		if (job.Context != IntPtr.Zero) {
 			AddRefCom(job.Context);
 		}
@@ -1070,7 +1089,7 @@ internal static unsafe partial class NativeTsf {
 		}
 		LogWarn("離開焦點／停用：排入結束組字（清空） comp=" + State.Composition.ToString("X"));
 		// 這一步不是任何按鍵引起的：序號沿用最後一顆鍵，只為了讓服務端看得懂來源。
-		EnqueueCompositionJob(State, ETsfCompositionStep.End, "", true, LastKeySeq);
+		EnqueueCompositionJob(State, ETsfCompositionStep.End, "", true, LastKeySeq, false);
 	}
 
 	[Doc($$"""
@@ -1240,17 +1259,19 @@ internal static unsafe partial class NativeTsf {
 	#Prm[{{nameof(Context)}}][這一步所屬的 context（工作項持有一份參考）。]
 	#Prm[{{nameof(EditCookie)}}][這個編輯會話的 cookie。]
 	#Prm[{{nameof(Seq)}}][觸發這次量測的按鍵序號；服務端靠它分辨遲到的位置屬於哪顆鍵。]
+	#Prm[{{nameof(Mode)}}][`inline` 表示在寫入的同一個會話裏量；`queued` 表示退回排隊的非同步會話。]
+	#Rtn[true 表示這一刻量到了可用的插入點（不論最終有沒有送出去）。]
 	""")]
-	private static void MeasureAndSendCaret(TsfState State, IntPtr Context, u32 EditCookie, i32 Seq) {
+	private static bool MeasureAndSendCaret(TsfState State, IntPtr Context, u32 EditCookie, i32 Seq, str Mode) {
 		var contextGen = ToContextGen(Context, "量測插入點");
 		if (contextGen is null) {
-			return;
+			return false;
 		}
 		// 1: 取這個 context 的 active view；沒有 view 就沒有版面，也就沒有插入點。
 		var viewHr = contextGen.GetActiveView(out var viewGen);
 		if (viewHr < 0 || viewGen is null) {
 			LogWarn("Caret GetActiveView hr=0x" + viewHr.ToString("X8") + " ctx=" + Context.ToString("X"));
-			return;
+			return false;
 		}
 		// 2: 量一次並採用；呼叫失敗與「四邊全零」都算這一刻沒有版面，處置相同。
 		var adopted = MeasureCaret(State, contextGen, viewGen, EditCookie, out var rect, out var hr, out var clipped);
@@ -1277,7 +1298,7 @@ internal static unsafe partial class NativeTsf {
 			send = true;
 			action = "send-stale";
 		}
-		LogWarn("Caret src=sel seq=" + Seq + " hr=0x" + hr.ToString("X8")
+		LogWarn("Caret src=sel mode=" + Mode + " seq=" + Seq + " hr=0x" + hr.ToString("X8")
 			+ " rect=" + rect.Left + "," + rect.Top + "," + rect.Right + "," + rect.Bottom
 			+ " clipped=" + clipped + " adopted=" + (adopted ? 1 : 0)
 			+ " action=" + action + " streak=" + streak);
@@ -1285,6 +1306,7 @@ internal static unsafe partial class NativeTsf {
 		if (send && State.CaretValid) {
 			SendCaretPosition(State.CaretPointX, State.CaretPointY, State.CaretPointTop, Seq);
 		}
+		return adopted;
 	}
 
 	[Doc($$"""
@@ -1487,8 +1509,25 @@ internal static unsafe partial class NativeTsf {
 				// 量測在本會話內做完（照 Weasel `EditSession.cpp:38` 在 DoEditSession 尾端量）：
 				// 同一個 cookie、同一個已存在的編輯會話，量到的必然是上面幾步寫入之後的插入點；
 				// 另開一條會話量就會與寫入失去先後（2026-11-17 日誌：同一顆鍵 716 與 751）。
-				if (Job.Step == ETsfCompositionStep.Measure) {
-					MeasureAndSendCaret(state, Job.Context, EditCookie, Job.Seq);
+				// `Job.Measure` 是「這顆鍵的最後一個寫入步驟」，量完立刻送位置，
+				// 服務端因此可以在寫入的同一個瞬間放上候選內容，而不是等一條排隊的非同步會話。
+				if (Job.Step == ETsfCompositionStep.Measure || Job.Measure) {
+					var Mode = Job.Step == ETsfCompositionStep.Measure ? "queued" : "inline";
+					// 寫入步驟（開始組字塞空格、上屏寫字）之後插入點必然移動；
+					// 量到的矩形卻與上一次完全相同，就是「版面還在用舊的」——當成沒量到。
+					var ExpectMove = Job.Step is ETsfCompositionStep.Start or ETsfCompositionStep.Insert;
+					var beforeX = state.CaretPointX;
+					var beforeY = state.CaretPointY;
+					var beforeTop = state.CaretPointTop;
+					var Measured = MeasureAndSendCaret(state, Job.Context, EditCookie, Job.Seq, Mode);
+					var MovedAnchor = state.CaretPointX != beforeX
+						|| state.CaretPointY != beforeY
+						|| state.CaretPointTop != beforeTop;
+					if (Job.Step != ETsfCompositionStep.Measure && (!Measured || (ExpectMove && !MovedAnchor))) {
+						// 版面還沒就緒（或回的是上一次的矩形）：退回佇列裏的非同步量測，
+						// 等應用重建版面之後再量一次。這是兜底，不是主路徑。
+						EnqueueCompositionJob(state, ETsfCompositionStep.Measure, "", false, Job.Seq, false);
+					}
 				}
 			} finally {
 				ReleaseComIfAny(Job.Context);

@@ -39,4 +39,15 @@ public interface IImeState : INotifyPropertyChanged{
 
 	[Doc("當前候選頁快照；沒有候選時是一個空頁（不為 null）。")]
 	public CandidatePage Candidates{get;}
+
+	[Doc($$"""
+	引擎發來「模式選項通知」；參數是選項名與新值（`ascii_mode`、`simplification`）。
+
+	*為何不能只用 {{nameof(INotifyPropertyChanged)}}*：那是「值變了」的通知，
+	而 Weasel 的模式提示是「引擎發出 option 通知」就顯示——`set_option` 即使值沒變
+	也會發通知（例如已經是英文模式、又按下切換鍵時）。照 Weasel 0.15.0
+	`RimeWithWeasel.cpp` 的 `_ShowMessage`：`option` 通知進來就 `ShowWithTimeout`，
+	與值有沒有變無關；而它**不會**每顆鍵都彈（每顆鍵都彈是我們自己加的，已刪）。
+	""")]
+	public event Action<str, bool>? OptionNotified;
 }

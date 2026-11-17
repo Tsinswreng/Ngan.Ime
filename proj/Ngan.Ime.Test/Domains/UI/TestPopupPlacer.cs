@@ -21,18 +21,17 @@ public class TestPopupPlacer : Tester{
 		this.AddTestCase(nameof(Flip_Should_SitOnTextLineTop), Flip_Should_SitOnTextLineTop!);
 		this.AddTestCase(nameof(Flip_Should_TriggerExactlyWhenNoRoom), Flip_Should_TriggerExactlyWhenNoRoom!);
 		this.AddTestCase(nameof(Flip_Should_ReverseRows), Flip_Should_ReverseRows!);
-		this.AddTestCase(nameof(Sticky_Should_KeepAbove), Sticky_Should_KeepAbove!);
 		this.AddTestCase(nameof(X_Should_ClampIntoWorkArea), X_Should_ClampIntoWorkArea!);
 		this.AddTestCase(nameof(Y_Should_NotGoAboveWorkArea), Y_Should_NotGoAboveWorkArea!);
 	}
 
 	[Doc("""
-	下方放得下時：上緣 = 插入點下緣 + 6，左邊 = 插入點左邊，不倒排。
+	下方放得下時：上緣 = 插入點下緣（Weasel 0.15.0 不加間距），左邊 = 插入點左邊，不倒排。
 	""")]
 	public async Task<nil> Below_Should_SitUnderCaret(obj? O){
 		var T = Assert.IsTrue;
-		var R = PopupPlacer.Compute(Pt(x: 100, y: 500, top: 470), WidthPx: 120, HeightPx: 200, Work: Work(), Sticky: false);
-		T(R.Y == 506, $"下緣 500 + 6 = 506，實際 {R.Y}");
+		var R = PopupPlacer.Compute(Pt(x: 100, y: 500, top: 470), WidthPx: 120, HeightPx: 200, Work: Work());
+		T(R.Y == 500, $"上緣應等於插入點下緣 500，實際 {R.Y}");
 		T(R.X == 100, $"左邊應為 100，實際 {R.X}");
 		T(!R.Flip, "下方放得下時不該翻");
 		T(!R.Reversed, "不翻時不倒排");
@@ -46,7 +45,7 @@ public class TestPopupPlacer : Tester{
 	public async Task<nil> Flip_Should_SitOnTextLineTop(obj? O){
 		var T = Assert.IsTrue;
 		// 文字行 (470..500)，面板高 200，下方只剩 42px，放不下。
-		var R = PopupPlacer.Compute(Pt(x: 100, y: 1000, top: 970), WidthPx: 120, HeightPx: 200, Work: Work(), Sticky: false);
+		var R = PopupPlacer.Compute(Pt(x: 100, y: 1000, top: 970), WidthPx: 120, HeightPx: 200, Work: Work());
 		T(R.Flip, "下方放不下時應翻上去");
 		T(R.Y + 200 == 970, $"面板下緣應等於文字行上緣 970，實際 {R.Y + 200}");
 		T(R.Y == 770, $"上緣應為 770，實際 {R.Y}");
@@ -58,11 +57,11 @@ public class TestPopupPlacer : Tester{
 	""")]
 	public async Task<nil> Flip_Should_TriggerExactlyWhenNoRoom(obj? O){
 		var T = Assert.IsTrue;
-		// 工作區下緣 1000，插入點下緣 y，面板高 200：需要 y + 6 + 200 <= 1000。
-		var Fits = PopupPlacer.Compute(Pt(x: 0, y: 794, top: 760), WidthPx: 100, HeightPx: 200, Work: Work(), Sticky: false);
-		T(!Fits.Flip, $"794 + 6 + 200 = 1000，剛好放得下，不該翻（實際 y={Fits.Y}）");
-		var Tight = PopupPlacer.Compute(Pt(x: 0, y: 795, top: 760), WidthPx: 100, HeightPx: 200, Work: Work(), Sticky: false);
-		T(Tight.Flip, "795 + 6 + 200 = 1001，超出 1px 就該翻");
+		// 工作區下緣 1000，插入點下緣 y，面板高 200（0.15.0 不加間距）：需要 y + 200 <= 1000。
+		var Fits = PopupPlacer.Compute(Pt(x: 0, y: 800, top: 760), WidthPx: 100, HeightPx: 200, Work: Work());
+		T(!Fits.Flip, $"800 + 200 = 1000，剛好放得下，不該翻（實際 y={Fits.Y}）");
+		var Tight = PopupPlacer.Compute(Pt(x: 0, y: 801, top: 760), WidthPx: 100, HeightPx: 200, Work: Work());
+		T(Tight.Flip, "801 + 200 = 1001，超出 1px 就該翻");
 		return NIL;
 	}
 
@@ -71,20 +70,8 @@ public class TestPopupPlacer : Tester{
 	""")]
 	public async Task<nil> Flip_Should_ReverseRows(obj? O){
 		var T = Assert.IsTrue;
-		var R = PopupPlacer.Compute(Pt(x: 0, y: 990, top: 960), WidthPx: 100, HeightPx: 200, Work: Work(), Sticky: false);
+		var R = PopupPlacer.Compute(Pt(x: 0, y: 990, top: 960), WidthPx: 100, HeightPx: 200, Work: Work());
 		T(R.Flip && R.Reversed, "翻上去必須同時倒排");
-		return NIL;
-	}
-
-	[Doc("""
-	翻過一次就固定在上方（Weasel 的 `m_sticky`），即使這次下方放得下也不回去。
-	這是「來回跳」的來源之一，故寫成明例。
-	""")]
-	public async Task<nil> Sticky_Should_KeepAbove(obj? O){
-		var T = Assert.IsTrue;
-		var R = PopupPlacer.Compute(Pt(x: 100, y: 300, top: 270), WidthPx: 100, HeightPx: 200, Work: Work(), Sticky: true);
-		T(R.Flip, "sticky 時一律在上方");
-		T(R.Y + 200 == 270, $"面板下緣應貼着文字行上緣 270，實際 {R.Y + 200}");
 		return NIL;
 	}
 
@@ -93,9 +80,9 @@ public class TestPopupPlacer : Tester{
 	""")]
 	public async Task<nil> X_Should_ClampIntoWorkArea(obj? O){
 		var T = Assert.IsTrue;
-		var Right = PopupPlacer.Compute(Pt(x: 1900, y: 100, top: 80), WidthPx: 120, HeightPx: 100, Work: Work(), Sticky: false);
+		var Right = PopupPlacer.Compute(Pt(x: 1900, y: 100, top: 80), WidthPx: 120, HeightPx: 100, Work: Work());
 		T(Right.X == 880, $"右邊界應為 1000 - 120 = 880，實際 {Right.X}");
-		var Left = PopupPlacer.Compute(Pt(x: -50, y: 100, top: 80), WidthPx: 120, HeightPx: 100, Work: Work(), Sticky: false);
+		var Left = PopupPlacer.Compute(Pt(x: -50, y: 100, top: 80), WidthPx: 120, HeightPx: 100, Work: Work());
 		T(Left.X == 0, $"左邊界應為 0，實際 {Left.X}");
 		return NIL;
 	}
@@ -105,8 +92,9 @@ public class TestPopupPlacer : Tester{
 	""")]
 	public async Task<nil> Y_Should_NotGoAboveWorkArea(obj? O){
 		var T = Assert.IsTrue;
-		// 文字行貼著工作區上緣，面板高 200，翻上去會變成負值。
-		var R = PopupPlacer.Compute(Pt(x: 10, y: 40, top: 10), WidthPx: 100, HeightPx: 200, Work: Work(), Sticky: true);
+		// 文字行很靠近工作區底部、上緣又低：只能翻上去，而 top − height 會是負值。
+		var R = PopupPlacer.Compute(Pt(x: 10, y: 990, top: 50), WidthPx: 100, HeightPx: 200, Work: Work());
+		T(R.Flip, "下方放不下，應翻上去");
 		T(R.Y == 0, $"y 應夾到工作區上緣 0，實際 {R.Y}");
 		return NIL;
 	}

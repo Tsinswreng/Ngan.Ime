@@ -1,4 +1,4 @@
-namespace Ngan.Ime.UI.Views.CandidatePopup;
+﻿namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using System;
 using Avalonia;
@@ -85,11 +85,6 @@ public sealed class CandidatePopup : ICandidatePopup{
 			try{
 				Vm?.Clear();
 				Window?.Hide();
-				// 照 Weasel：sticky 只活到視窗收起為止（Weasel 是銷毀視窗時歸零，
-				// 我們重用同一個視窗，所以在收起時歸零），否則一旦翻到上方就永遠在上方。
-				if(Window is not null){
-					Window.Sticky = false;
-				}
 			}catch(Exception Ex){
 				AppLog.Error(Ex, "[CandidatePopup] 收起失敗");
 			}

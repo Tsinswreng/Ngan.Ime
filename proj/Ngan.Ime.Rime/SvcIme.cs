@@ -172,17 +172,25 @@ public class SvcIme : SvcImeBase {
 		System.Text.Encoding.UTF8.GetBytes(OptionName, Buffer);
 	}
 
-	[Doc("librime 通知的托管端：只認兩個 option，其餘忽略（狀態每次輸入後都會重抓）。")]
+	[Doc($$"""
+	librime 通知的托管端：只認兩個 option，其餘忽略（狀態每次輸入後都會重抓）。
+
+	*一定要轉發 {{nameof(RaiseOptionNotified)}}*：模式提示只認這個通知，不看值有沒有變。
+	librime 的 `set_option` 即使值沒變也會發通知（例如已經是英文模式、又按一次切換鍵），
+	Weasel 0.15.0 的 `_ShowMessage` 就是據此顯示提示；只看 `PropertyChanged` 會漏掉那一種。
+	""")]
 	void OnOptionChanged(str OptionName, bool IsEnabled){
 		try{
 			switch(OptionName){
-				case "ascii_mode":
+				case OptionNames.AsciiMode:
 					IsAsciiMode = IsEnabled;
 					break;
-				case "simplification":
+				case OptionNames.Simplification:
 					IsSimplification = IsEnabled;
 					break;
 			}
+			// 值沒變也要發：這裡是「引擎通知」的轉發點，不是狀態變更點。
+			RaiseOptionNotified(OptionName, IsEnabled);
 		}catch(Exception Ex){
 			AppLog.Error(Ex, "[Rime] option 狀態回寫失敗");
 		}

@@ -1,4 +1,4 @@
-namespace Ngan.Ime.Tsf.Windows;
+﻿namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.Collections.Generic;
@@ -48,7 +48,7 @@ Weasel 整份原始碼一次都沒用 `TF_ES_SYNC`，而我們的會話是從按
 
 *與 Weasel 的唯一差別*：Weasel 的組字從第一個鍵活到整段輸入結束（inline preedit 要它），
 我們沒有 inline preedit，所以每次上屏都「建 → 寫 → 結束」，組字只活三個會話。
-因為活得這麼短，Weasel 那個「先塞零寬空格給 CUAS 量 GetTextExt」的手術（`Composition.cpp:45-56`）
+因為活得這麼短，Weasel 那個「先塞一個空格給 CUAS 量 GetTextExt」的手術（`Composition.cpp:52`）
 我們不做——那段時間裏我們一次 GetTextExt 都不會叫。
 
 *組字被應用結束*：`ITfCompositionSink::OnCompositionTerminated` 一定接（Weasel 也接）。
@@ -130,7 +130,7 @@ internal static unsafe partial class NativeTsf {
 	""")]
 	private const u32 TfIasQueryOnly = 0x2;
 	[Doc($$"""
-	TF_ST_CORRECTION：把這次寫入標成「修正」（msctf.h:5817）；Weasel 塞零寬空格時用它。
+	TF_ST_CORRECTION：把這次寫入標成「修正」（msctf.h:5817）；Weasel 塞佔位空格時用它。
 	""")]
 	private const u32 TfStCorrection = 1;
 	[Doc($$"""
@@ -146,13 +146,17 @@ internal static unsafe partial class NativeTsf {
 	private const u32 OneSelection = 1;
 
 	[Doc($$"""
-	零寬空格（U+200B）；組字範圍在組字期間用它佔位，讓範圍非空。
-	照 Weasel `Composition.cpp:45-56`：沒有 inline preedit 時，組字範圍裏先放一個零寬空格，
-	再把選取收在起點。2026-11-15 23:20 的實測說明了為何非這樣不可——
-	我們的「空組字 + 立刻寫字 + 立刻結束」在記事本上正常，在 VSCode（Chromium 的 EditContext）
-	上卻照樣重複上屏，代表那個空的、只活一毫秒的組字並沒有被當成一次組字。
+	組字範圍的佔位字元：**真空格 U+0020**。
+	照 Weasel 0.15.0 `WeaselTSF/Composition.cpp:52`：
+	`pRangeComposition->SetText(ec, TF_ST_CORRECTION, L" ", 1);` —— 那是真空格，
+	它上面的註釋寫「zero width space」是註釋過時，程式碼才是準的。
+	*為何不能用零寬空格*：這個佔位字元在某些應用／輸入情境下會漏進正文；
+	真空格漏出來看得見、當場就能發現，零寬空格漏出來完全感知不到。
+	2026-11-15 23:20 的實測說明了為何非放不可——「空組字 + 立刻寫字 + 立刻結束」
+	在記事本上正常，在 VSCode（Chromium 的 EditContext）上卻重複上屏，
+	代表那個空的、只活一毫秒的組字並沒有被當成一次組字。
 	""")]
-	private const str ZeroWidthSpace = "\u200B";
+	private const str CompositionPlaceholder = " ";
 
 	[Doc($$"""
 	螢幕矩形；手寫 vtable 與生成式宣告共用這一個結構。
@@ -376,6 +380,12 @@ internal static unsafe partial class NativeTsf {
 		插入點矩形的上邊界（像素）；浮窗翻到文字行上方時用它定位。
 		""")]
 		public i32 CaretPointTop;
+		[Doc($$"""
+		這次量測是為哪一顆鍵做的（外殼的按鍵序號）。
+		位置更新帶著它送給服務端，服務端才分得出「這條位置屬於哪一顆鍵」；
+		沒有它，遲到的位置會被套到下一顆鍵的內容上，面板就會先出現在舊位置再跳一次。
+		""")]
+		public i32 CaretMeasureSeq;
 		[Doc($$"""
 		是否量到過插入點。false 時 x/y 的 0 代表「未知」，不是螢幕左上角。
 		""")]
@@ -1196,6 +1206,9 @@ internal static unsafe partial class NativeTsf {
 			}
 		}
 		State.CaretMeasureTick = now;
+		// 記下這顆鍵的序號：量測是非同步的，回來時可能已經有下一顆鍵；
+		// 位置更新要帶「觸發量測的這顆鍵」的序號，不是回來時的序號。
+		State.CaretMeasureSeq = LastKeySeq;
 		try {
 			// 生成式宣告：GetActiveView 由生成器排在 9，不會再指到 8 的 GetEnd。
 			// 2026-11-15 那次 notepad 崩潰就是手寫成 8（實際是 GetEnd）造成的。
@@ -1277,7 +1290,7 @@ internal static unsafe partial class NativeTsf {
 			// 量到就用新值，量不到就沿用最後已知值。浮窗因此只由這條訊息驅動，
 			// 不會出現「先用舊座標顯示、再被新座標搬走」的兩次定位。
 			if (state.CaretValid) {
-				SendCaretPosition(state.CaretPointX, state.CaretPointY, state.CaretPointTop);
+				SendCaretPosition(state.CaretPointX, state.CaretPointY, state.CaretPointTop, state.CaretMeasureSeq);
 			}
 			return SOk;
 		} catch (Exception Exception) {
@@ -1555,13 +1568,13 @@ internal static unsafe partial class NativeTsf {
 	步驟與 Weasel 一字不差：
 	`ITfInsertAtSelection::InsertTextAtSelection(TF_IAS_QUERYONLY)` 取插入點範圍 →
 	`ITfContextComposition::StartComposition(ec, 範圍, sink, &組字)` →
-	在範圍裏寫一個**零寬空格**（`SetText(TF_ST_CORRECTION)`）→
+	在範圍裏寫一個**真空格**（`SetText(TF_ST_CORRECTION)`）→
 	`Collapse(TF_ANCHOR_START)` → `SetSelection(ec, 1, &選取)`。
 	sink 是我們自己實作的 `ITfCompositionSink`（Weasel 傳的是 WeaselTSF 自己）。
 	
-	*為何一定要塞那個零寬空格*：2026-11-15 23:20 的實測——只建空組字、立刻寫字、立刻結束，
+	*為何一定要塞那個空格*：2026-11-15 23:20 的實測——只建空組字、立刻寫字、立刻結束，
 	記事本正常、VSCode 照樣重複上屏。空的組字範圍在 Chromium 眼裏等於不存在；
-	這也是 Weasel 在沒有 inline preedit 時仍然塞零寬空格的原因。
+	這也是 Weasel 在沒有 inline preedit 時仍然塞一個空格的原因。
 	#Prm[{{nameof(State)}}][文字服務狀態。]
 	#Prm[{{nameof(EditCookie)}}][這次編輯會話的 cookie。]
 	#Prm[{{nameof(context)}}][排這一步時所屬的 context（工作項持有一份參考）。]
@@ -1618,14 +1631,14 @@ internal static unsafe partial class NativeTsf {
 						Marshal.Release(old);
 					}
 					LogWarn("組字 已建立 comp=" + compositionPtr.ToString("X"));
-					// 照 Weasel `Composition.cpp:45-66`：先塞零寬空格讓範圍非空，再把選取收在起點。
+					// 照 Weasel 0.15.0 `Composition.cpp:52`：先塞真空格讓範圍非空，再把選取收在起點。
 					var range = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)insertRange);
 					if (range is not null) {
-						i32 ZwspHr;
-						fixed (char* Zwsp = ZeroWidthSpace) {
-							ZwspHr = range.SetText(EditCookie, TfStCorrection, (IntPtr)Zwsp, ZeroWidthSpace.Length);
+						i32 PlaceholderHr;
+						fixed (char* Placeholder = CompositionPlaceholder) {
+							PlaceholderHr = range.SetText(EditCookie, TfStCorrection, (IntPtr)Placeholder, CompositionPlaceholder.Length);
 						}
-						LogWarn("組字 塞零寬空格 hr=0x" + ZwspHr.ToString("X8"));
+						LogWarn("組字 塞佔位空格 hr=0x" + PlaceholderHr.ToString("X8"));
 						var collapseHr = range.Collapse(EditCookie, TfAnchorStart);
 						LogWarn("組字 Collapse(START) hr=0x" + collapseHr.ToString("X8"));
 						var selection = new TfSelection { Range = insertRange, ActiveEnd = 0, Interim = 0 };
@@ -1635,7 +1648,7 @@ internal static unsafe partial class NativeTsf {
 							LogWarn("組字 SetSelection hr=0x" + selectHr.ToString("X8"));
 						}
 					} else {
-						LogError("組字: ITfRange 轉換失敗，零寬空格沒塞（應用可能不認這次組字）");
+						LogError("組字: ITfRange 轉換失敗，佔位空格沒塞（應用可能不認這次組字）");
 					}
 					return SOk;
 				} finally {

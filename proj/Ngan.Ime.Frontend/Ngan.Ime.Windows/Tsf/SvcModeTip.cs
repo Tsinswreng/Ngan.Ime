@@ -1,4 +1,4 @@
-namespace Ngan.Ime.Windows.Tsf;
+﻿namespace Ngan.Ime.Windows.Tsf;
 
 using System.ComponentModel;
 using Ngan.Ime.Core.Ime;
@@ -8,20 +8,18 @@ using Tsinswreng.CsCore;
 [Doc($$"""
 模式提示：中／英、簡／繁的狀態圖示。
 
-*照 Weasel 的條件*：`ShouldDisplayStatusIcon()`（`WeaselUI/StandardLayout.cpp:391`）是
+*照 Weasel 0.15.0 的觸發點*：提示不是每顆鍵都彈，而是**引擎發出 option 通知**時才彈。
+Weasel 的 `RimeWithWeasel.cpp` 的 `_ShowMessage` 收到 `m_message_type == "option"`、
+值為 `ascii_mode`／`!ascii_mode` 就顯示圖示，其餘模式（簡繁、全半角）顯示文字，
+最後 `m_ui->Update(...)` ＋ `ShowWithTimeout(1200 + 200 * tips.length())` 自動收起。
+`set_option` 即使值沒變也會發通知，所以「已經是英文模式、又按一次切換鍵」照樣會彈。
 
-```
-(_status.ascii_mode && !inline_preedit) || !_status.composing || !_context.aux.empty()
-```
+*先前錯在哪*：一是訂閱 `PropertyChanged`（值變才發），吃掉「值沒變但引擎通知了」那一種；
+二是為了補救而寫成「英文模式下每顆鍵都彈」，於是打英文時每個字母都冒一個 `A`。
+現在只認 {{nameof(IImeState.OptionNotified)}}。
 
-本專案沒有行內組字、也沒有 aux，所以化簡成「英文模式 → 顯示」。Weasel 是**每次更新面板時
-依當下狀態算一次**，不是「狀態值變了才顯示」；所以已經是英文模式再按一次轉英文，
-它照樣會顯示。先前我們訂閱 `PropertyChanged`（值有變才發），於是「再按一次」不彈。
-
-*中文模式*：只有切換真的發生（`IsSimplification` 變更）時顯示，切完顯示 `漢`／`汉`。
-
-*不抑制組字中*：Weasel 的圖示畫在候選面板裡，組字中照樣顯示；先前那條
-「組字中不打擾」是自創規則，會把簡繁切換的反饋吃掉。
+*文字*：英文 `A`；中文繁體 `漢`、簡體 `汉`（使用者指定的字，Weasel 0.15.0 是用
+「漢字／汉字」兩個字的 aux 文字，這裡照使用者的要求用單字圖示）。
 """)]
 public sealed class SvcModeTip{
 
@@ -50,7 +48,8 @@ public sealed class SvcModeTip{
 			return;
 		}
 		Started = true;
-		State.PropertyChanged += OnStateChanged;
+		// 只認引擎的 option 通知；PropertyChanged 會在每顆鍵的狀態同步裡亂發。
+		State.OptionNotified += OnOptionNotified;
 	}
 
 	[Doc("停止監聽；未啟動時無副作用。")]
@@ -59,31 +58,21 @@ public sealed class SvcModeTip{
 			return;
 		}
 		Started = false;
-		State.PropertyChanged -= OnStateChanged;
+		State.OptionNotified -= OnOptionNotified;
 		Tip.Hide();
 	}
 
 	[Doc($$"""
-	每顆按鍵（按下）之後呼叫：英文模式就顯示 `A`。
-
-	照 Weasel：只要處於英文模式，面板／圖示就帶着 `A`，與「有沒有切換」無關。
+	引擎發來模式通知：顯示切換後的狀態。
+	*不看值有沒有變*：`set_option` 即使值不變也會通知，Weasel 那時照樣顯示。
+	#Prm[{{nameof(OptionName)}}][`ascii_mode` 或 `simplification`。]
+	#Prm[{{nameof(IsEnabled)}}][新值。]
 	""")]
-	public void OnKeyDown(){
-		// 照 Weasel 的第一條條件：英文模式時圖示常駐（每顆鍵都帶 `A`）。
-		// 中文模式只在切換時顯示，否則每打一個字都閃一次 `漢`，不是 Weasel 的行為。
-		if(!State.IsAsciiMode){
+	void OnOptionNotified(str OptionName, bool IsEnabled){
+		if(OptionName != OptionNames.AsciiMode && OptionName != OptionNames.Simplification){
 			return;
 		}
-		Show("A", "key");
-	}
-
-	[Doc("狀態變更：中／英、簡／繁切換時顯示切換後的狀態。")]
-	void OnStateChanged(object? Sender, PropertyChangedEventArgs Args){
-		if(Args.PropertyName != nameof(IImeState.IsAsciiMode)
-			&& Args.PropertyName != nameof(IImeState.IsSimplification)){
-			return;
-		}
-		Show(MkText(), "change:" + Args.PropertyName);
+		Show(MkText(), "option:" + OptionName);
 	}
 
 	[Doc("依目前狀態顯示提示；還沒有插入點時不顯示（不讓它出現在螢幕角落）。")]

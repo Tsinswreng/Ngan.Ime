@@ -1,4 +1,4 @@
-namespace Ngan.Ime.UI.Views.CandidatePopup;
+﻿namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using System;
 using Avalonia;
@@ -174,7 +174,8 @@ public partial class ViewCandidatePopup{
 	[Doc($$"""
 	算位置、定尺寸、寫進 {{nameof(Position)}}；不負責顯示。
 
-	*三段順序照 Weasel*（`WeaselPanel::Refresh` 的 `DoLayout → _ResizeWindow → _RepositionWindow`）：
+	*以 Weasel 0.15.0 為準*，三段順序照它的 `Refresh`
+	（`DoLayout → _ResizeWindow → _RepositionWindow`，`WeaselPanel.cpp:139-141`）：
 
 	1. 依內容排版，量出內容尺寸（Avalonia 給的是版面單位 DIP）；
 	2. 換成物理像素（乘螢幕縮放），用**這個**高度決定翻不翻、要不要倒排；
@@ -204,7 +205,7 @@ public partial class ViewCandidatePopup{
 		// 3: 用真實像素高度決定翻不翻（翻上去時面板下緣貼着文字行上緣）。
 		var Placement = PopupPlacer.Compute(
 			new PopupAnchor{ X = Anchor.X, Y = Anchor.Y, Top = Top },
-			WidthPx, HeightPx, Work, Sticky);
+			WidthPx, HeightPx, Work);
 		// 4: 翻轉會把候選行倒過來；行序一換就重排，再重量一次尺寸（行數不變，尺寸理應相同，
 		//    但版面若因字寬不同而變，這裡拿到的才是這次真的要用的高度）。
 		if(Placement.Reversed != Reversed){
@@ -217,10 +218,7 @@ public partial class ViewCandidatePopup{
 			HeightPx = Px(ContentHeight, Scale);
 			Placement = PopupPlacer.Compute(
 				new PopupAnchor{ X = Anchor.X, Y = Anchor.Y, Top = Top },
-				WidthPx, HeightPx, Work, Sticky);
-		}
-		if(Placement.Flip){
-			Sticky = true;
+				WidthPx, HeightPx, Work);
 		}
 		// 5: 先把視窗大小定案（Weasel 的 `_ResizeWindow`），再定位（`_RepositionWindow`）。
 		//    次序反過來的話，位置是拿「我以為的高度」算的，不是視窗真正的高度。

@@ -249,6 +249,10 @@ internal static unsafe partial class NativeTsf {
 			if (!EnsureServerConnected()) {
 				return null;
 			}
+			// 每顆鍵一個序號：位置更新帶的是「觸發量測的那顆鍵」的序號，
+			// 服務端因此分得出遲到的位置是屬於哪一顆鍵（見 TsfIpc.Version 的說明）。
+			var Seq = Interlocked.Increment(ref KeySeqCounter);
+			LastKeySeq = Seq;
 			return Transact(new TsfKeyRequest {
 				Kind = ETsfReqKind.Key,
 				VirtualKey = VirtualKey,
@@ -258,9 +262,20 @@ internal static unsafe partial class NativeTsf {
 				IsUp = IsUp,
 				Scan = Scan,
 				Ext = Ext,
+				Seq = Seq,
 			});
 		}
 	}
+
+	[Doc("按鍵序號的計數器；只增不減，跨執行緒用原子遞增。")]
+	private static i32 KeySeqCounter;
+
+	[Doc($$"""
+	最後一顆送出的按鍵序號。
+	*為何是靜態欄位而不是狀態物件*：量測會話是非同步的，它要帶的序號就是「剛剛送出的那顆鍵」；
+	TSF 的回調與它排出的編輯會話在同一條 UI 執行緒上依序執行，故讀到的必定是同一顆鍵。
+	""")]
+	private static i32 LastKeySeq;
 
 	[Doc($$"""
 	本安裝專屬的管道名稱；第一次使用時算出並記住。
@@ -355,7 +370,7 @@ internal static unsafe partial class NativeTsf {
 	（`WeaselTSF/Composition.cpp:228-243`）。我們的浮窗在另一支行程，只能靠這條請求即時推過去；
 	不推就只會在下一顆按鍵時才動，看起來就是「大致跟隨、還常常蓋住光標」。
 	""")]
-	private static void SendCaretPosition(i32 X, i32 Y, i32 Top) {
+	private static void SendCaretPosition(i32 X, i32 Y, i32 Top, i32 Seq) {
 		// 單向：寫出去就結束，不讀回覆。
 		// *為何不讀*：這條請求跑在 TSF 的 edit session 裡、應用的 UI 執行緒上，
 		// 多一次阻塞往返就是多一次卡頓；而位置更新丟掉也無妨——下一顆鍵會再送一次。
@@ -364,13 +379,13 @@ internal static unsafe partial class NativeTsf {
 				return;
 			}
 			try {
-				PipeWriter!.WriteLine(new TsfKeyRequest { Kind = ETsfReqKind.Position, X = X, Y = Y, Top = Top }.Format());
+				PipeWriter!.WriteLine(new TsfKeyRequest { Kind = ETsfReqKind.Position, X = X, Y = Y, Top = Top, Seq = Seq }.Format());
 			} catch (Exception) {
 				Disconnect();
 			}
 		}
 		if (DiagEnabled) {
-			LogWarn("[Pos] sent x=" + X + " y=" + Y + " top=" + Top);
+			LogWarn("[Pos] sent x=" + X + " y=" + Y + " top=" + Top + " seq=" + Seq);
 		}
 	}
 }

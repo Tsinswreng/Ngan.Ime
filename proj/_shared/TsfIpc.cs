@@ -37,6 +37,13 @@ public static class TsfIpc{
 	而左右 Shift 各自綁不同行為（例如左 Shift 切英文、右 Shift 切中文）是很常見的用法。
 	舊版請求沒有這兩個欄位，解析時補 0。
 
+	4：按鍵與位置更新都多了一個**序號**欄位。位置是另一條訊息、跑在非同步的編輯會話裡，
+	可能比下一顆鍵的請求更晚到；沒有序號就分不出「這條位置是哪一顆鍵量到的」，
+	面板會先被擺在上一次的舊位置、再被搬一次（使用者看到的就是跳一下）。
+	序號由外殼遞增；位置更新帶的是「觸發這次量測的那顆鍵」的序號。
+	服務端只接受不早於待顯示內容的序號，舊的整條丟棄。
+	舊版請求沒有這個欄位，解析時補 0（等於最早，只會被丟棄）。
+
 	*版本必須相等*：服務端對 `Ver != Version` 一律回 `ETsfErr.UnsupportedVersion`（`eaten = false`），
 	並記一次 Warn（含雙方版本）。這不是保守，而是版本化安裝的前提：
 	每個安裝目錄有自己的 `identity.txt`、管道名與服務端，外殼與服務端永遠是同一次發布的產物，
@@ -44,7 +51,7 @@ public static class TsfIpc{
 	解析端仍然容忍欄位短缺（見 `Parse`），那是為了讓同一版內的舊格式字串還能讀，不是跨版本相容。
 
 	""")]
-	public const i32 Version = 3;
+	public const i32 Version = 4;
 
 	[Doc($$"""
 	管道名稱的前綴。
@@ -307,8 +314,15 @@ public sealed class TsfKeyRequest{
 	public i32 Ext{get;set;}
 
 	[Doc($$"""
+	序號：外殼每次送出按鍵遞增，位置更新帶「觸發這次量測的那顆鍵」的序號。
+	服務端據此判斷兩條訊息是不是同一顆鍵（見 {{nameof(TsfIpc.Version)}} 的說明）。
+	""")]
+	public i32 Seq{get;set;}
+
+	[Doc($$"""
 	序列化成一行。
-	#Rtn[請求行；按鍵為 `K|<ver>|<vk>|<mods>|<x>|<y>|<0或1>|<scan>|<ext>`，收起為 `H|<ver>`。]
+	#Rtn[請求行；按鍵為 `K|<ver>|<vk>|<mods>|<x>|<y>|<0或1>|<scan>|<ext>|<seq>`，
+	位置為 `P|<ver>|<x>|<y>|<top>|<seq>`，收起為 `H|<ver>`。]
 	""")]
 	public str Format(){
 		if(Kind == ETsfReqKind.Hide){
@@ -321,10 +335,10 @@ public sealed class TsfKeyRequest{
 			// 完整插入點矩形：左、下緣、上緣。Weasel 的浮窗靠上緣翻到文字行上方
 			// （`WeaselPanel.cpp:1196` 的 `y = inputPos.top - height - 6`），
 			// 只有下緣的話翻上去會蓋住整個文字行。
-			return TsfIpc.PosTag + "|" + Ver + "|" + X + "|" + Y + "|" + Top;
+			return TsfIpc.PosTag + "|" + Ver + "|" + X + "|" + Y + "|" + Top + "|" + Seq;
 		}
 		return TsfIpc.KeyTag + "|" + Ver + "|" + VirtualKey + "|" + Mods + "|" + X + "|" + Y + "|" + (IsUp ? "1" : "0")
-			+ "|" + Scan + "|" + Ext;
+			+ "|" + Scan + "|" + Ext + "|" + Seq;
 	}
 
 	[Doc($$"""
@@ -358,6 +372,8 @@ public sealed class TsfKeyRequest{
 				Y = Parts.Length > 3 ? (TsfIpc.ParseInt(Parts[3]) ?? 0) : 0,
 				// 上緣是版本 3 才有的欄位；舊外殼沒有它，補 0（由接收端用下緣推算）。
 				Top = Parts.Length > 4 ? (TsfIpc.ParseInt(Parts[4]) ?? 0) : 0,
+				// 序號是版本 4 才有的欄位；缺了就是 0，服務端一律當成「過期」丟棄。
+				Seq = Parts.Length > 5 ? (TsfIpc.ParseInt(Parts[5]) ?? 0) : 0,
 			};
 		}
 		if(Parts[0] != TsfIpc.KeyTag || Parts.Length < 6){
@@ -382,6 +398,8 @@ public sealed class TsfKeyRequest{
 		// 掃描碼與擴展鍵位是版本 2 才有的欄位；舊版外殼沒有它們，補 0 即可。
 		var Scan = Parts.Length > 7 ? (TsfIpc.ParseInt(Parts[7]) ?? 0) : 0;
 		var Ext = Parts.Length > 8 ? (TsfIpc.ParseInt(Parts[8]) ?? 0) : 0;
+		// 序號是版本 4 才有的欄位；缺了就是 0。
+		var Seq = Parts.Length > 9 ? (TsfIpc.ParseInt(Parts[9]) ?? 0) : 0;
 		return new TsfKeyRequest{
 			Ver = Ver.Value,
 			Kind = ETsfReqKind.Key,
@@ -392,6 +410,7 @@ public sealed class TsfKeyRequest{
 			IsUp = IsUp,
 			Scan = Scan,
 			Ext = Ext,
+			Seq = Seq,
 		};
 	}
 }

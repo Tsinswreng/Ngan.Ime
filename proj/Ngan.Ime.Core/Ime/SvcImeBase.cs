@@ -189,6 +189,8 @@ public abstract class SvcImeBase
 	[Doc("切換英文模式；默認只翻狀態位，具體引擎覆寫它去驅動引擎。")]
 	public virtual async Task<nil> ToggleAsciiModeAsy(CT Ct = default){
 		IsAsciiMode = !IsAsciiMode;
+		// 由界面主動切換時也要發通知：提示層只認這個事件，不看值有沒有變。
+		RaiseOptionNotified(OptionNames.AsciiMode, IsAsciiMode);
 		await Task.CompletedTask;
 		return NIL;
 	}
@@ -196,8 +198,24 @@ public abstract class SvcImeBase
 	[Doc("切換簡繁；默認只翻狀態位。")]
 	public virtual async Task<nil> ToggleSimplificationAsy(CT Ct = default){
 		IsSimplification = !IsSimplification;
+		RaiseOptionNotified(OptionNames.Simplification, IsSimplification);
 		await Task.CompletedTask;
 		return NIL;
+	}
+
+	[Doc("模式選項通知；見 {{nameof(IImeState.OptionNotified)}}。")]
+	public event Action<str, bool>? OptionNotified;
+
+	[Doc($$"""
+	發出模式選項通知。
+	*誰該呼叫*：引擎的通知回調（`RimeSetup.OnOptionChanged`）與界面上的切換命令。
+	*誰不該呼叫*：每次按鍵後的狀態同步（`SyncStateFromRime`）——那會變成每顆鍵都彈提示，
+	正是 Weasel 沒有的行為。
+	#Prm[{{nameof(OptionName)}}][選項名；用 {{nameof(OptionNames)}} 的常量。]
+	#Prm[{{nameof(IsEnabled)}}][新值。]
+	""")]
+	protected void RaiseOptionNotified(str OptionName, bool IsEnabled){
+		OptionNotified?.Invoke(OptionName, IsEnabled);
 	}
 
 	#endregion

@@ -1,4 +1,4 @@
-namespace Ngan.Ime.UI.Views.CandidatePopup;
+﻿namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using System.Collections.Generic;
 using Avalonia;
@@ -43,11 +43,6 @@ public partial class ViewCandidatePopup : Window{
 
 	[Doc("按 VM 內容刷新組字列與候選行；沒有內容時自行收起。")]
 	public partial void Refresh();
-
-	[Doc($$"""
-	一旦翻到插入點上方就固定在上方，避免視窗高度變動時來回跳（照 Weasel 的 `m_sticky`）。
-	""")]
-	public bool Sticky;
 
 	[Doc($$"""
 	翻到插入點上方時候選行倒排；照 Weasel 的 `m_istorepos`

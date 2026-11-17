@@ -1,4 +1,4 @@
-namespace Ngan.Ime.Windows.Tsf;
+﻿namespace Ngan.Ime.Windows.Tsf;
 
 using System.Collections.Generic;
 using System.Threading;
@@ -62,6 +62,12 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("待顯示的引擎回應：等外殼推來插入點位置才放上浮窗。")]
 	TsfReply? PendingReply;
 
+	[Doc("待顯示內容所屬的按鍵序號；位置更新的序號早於它就代表「這是上一顆鍵的位置」。")]
+	i32 PendingSeq;
+
+	[Doc("已經套用過的最新位置序號；更早的位置一律丟棄，避免把浮窗搬回舊位置。")]
+	i32 LastPosSeq;
+
 	[Doc("待顯示內容的互斥；按鍵執行緒與位置更新執行緒都會碰它。")]
 	readonly object PopupGate = new();
 
@@ -74,16 +80,12 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc("最近一次量到的插入點；狀態提示貼着它顯示。")]
 	readonly CaretAnchor Anchor;
 
-	[Doc("模式提示：英文模式每顆鍵都顯示 `A`（照 Weasel 的狀態圖示條件）。")]
-	readonly SvcModeTip ModeTip;
-
 	[Doc("建立服務端；依賴全部由容器給。")]
-	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup, CaretAnchor Anchor, SvcModeTip ModeTip){
+	public SvcTsfPipeServer(IImeInput Input, IImeState State, ICandidatePopup Popup, CaretAnchor Anchor){
 		this.Input = Input;
 		this.State = State;
 		this.Popup = Popup;
 		this.Anchor = Anchor;
-		this.ModeTip = ModeTip;
 	}
 
 	[Doc($$"""
@@ -195,12 +197,27 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			// 外殼在每次量到插入點時就推一條過來，浮窗因此即時跟隨光標。
 			// 與上次完全相同的位置不重複套用：Weasel 的 `MoveTo` 也有一條抖動抑制
 			// （`WeaselPanel.cpp:1135-1137`），免得同一顆鍵的第二條位置再搬一次。
+			// *過期位置直接丟棄*：位置跑在非同步的編輯會話裡，可能比下一顆鍵的請求更晚到。
+			// 若把它套到「已經換成下一顆鍵的內容」上，面板就會先出現在上一顆鍵的位置、
+			// 等下一條位置到了再搬一次——那正是使用者看到的「跳一下」。
+			// Weasel 靠同步 IPC 天然有序；我們靠這個序號達到同樣的效果。
+			if(Req.Seq < LastPosSeq){
+				AppLog.Info($"[Pos] stale seq={Req.Seq} last={LastPosSeq} x={Req.X} y={Req.Y} top={Req.Top}");
+				return null;
+			}
+			// 內容比這條位置新：這是上一顆鍵的位置，連錨點都不該覆寫，
+			// 否則等真正的位置到來之前，面板會先被擺在這個舊座標上。
+			if(HasPendingShow(out var WaitingSeq) && Req.Seq < WaitingSeq){
+				AppLog.Info($"[Pos] wait seq={Req.Seq} pending={WaitingSeq} x={Req.X} y={Req.Y} top={Req.Top}");
+				return null;
+			}
+			LastPosSeq = Req.Seq;
 			var Moved = !Anchor.Has
 				|| Anchor.X != Req.X || Anchor.Y != Req.Y || Anchor.Top != Req.Top;
 			Anchor.Set(Req.X, Req.Y, Req.Top);
 			// 有待顯示的內容就一次做完「套內容 ＋ 定尺寸 ＋ 定位 ＋ 顯示」；沒有就只換位置。
 			// 拆成兩步會先畫在舊位置再搬，使用者就會看到跳一下。
-			var Showed = ApplyPendingShow();
+			var Showed = ApplyPendingShow(Req.Seq);
 			if(!Showed && Moved){
 				Popup.MoveTo(Req.X, Req.Y, Req.Top);
 			}
@@ -248,9 +265,9 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		}
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。
 		if(!Req.IsUp){
-			// 狀態圖示照 Weasel 的條件：英文模式每顆鍵都帶着 `A`
-			//（`ShouldDisplayStatusIcon` 的第一條，不看成員狀態有沒有變）。
-			ModeTip.OnKeyDown();
+			// 模式提示不在这里触发：Weasel 是「引擎發出 option 通知時才顯示」
+			//（`RimeWithWeasel.cpp` 的 `_ShowMessage`），不是每顆鍵都彈。
+			// 觸發點在 SvcModeTip 訂閱的 IImeState.OptionNotified。
 			ShowPopup(Reply, Req);
 		}
 		if(Watch is not null){
@@ -320,17 +337,24 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		// 上一顆鍵的位置、然後跳一下。
 		lock(PopupGate){
 			PendingReply = Reply;
+			PendingSeq = Req.Seq;
 		}
-		AppLog.Info($"[Pos] pending cand={Reply.Candidates.Count} preedit={Reply.Preedit.Length}");
+		AppLog.Info($"[Pos] pending seq={Req.Seq} cand={Reply.Candidates.Count} preedit={Reply.Preedit.Length}");
 	}
 
 	[Doc($$"""
 	把「等位置」的內容放上浮窗，並用目前已知的位置一次顯示完。
+	只有序號不早於內容的位置才算「這一顆鍵的位置」；更早的留著內容、等真正的那一條。
+	#Prm[{{nameof(Seq)}}][這條位置更新的序號。]
 	#Rtn[true 表示確實有內容被放上去。]
 	""")]
-	bool ApplyPendingShow(){
+	bool ApplyPendingShow(i32 Seq){
 		TsfReply? Reply;
 		lock(PopupGate){
+			if(PendingReply is not null && Seq < PendingSeq){
+				// 內容比這條位置新：這條位置是上一顆鍵的，內容留給它自己的位置。
+				return false;
+			}
 			Reply = PendingReply;
 			PendingReply = null;
 		}
@@ -346,10 +370,23 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		return true;
 	}
 
+	[Doc($$"""
+	是否還有內容在等位置；有待顯示時回傳它的序號。
+	#Prm[{{nameof(Seq)}}][待顯示內容的序號；沒有內容時為 0。]
+	#Rtn[true 表示有內容在等。]
+	""")]
+	bool HasPendingShow(out i32 Seq){
+		lock(PopupGate){
+			Seq = PendingSeq;
+			return PendingReply is not null;
+		}
+	}
+
 	[Doc("丟掉待顯示的內容；沒有時無副作用。")]
 	void ClearPendingShow(){
 		lock(PopupGate){
 			PendingReply = null;
+			PendingSeq = 0;
 		}
 	}
 

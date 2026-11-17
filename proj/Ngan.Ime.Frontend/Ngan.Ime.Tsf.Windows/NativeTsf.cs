@@ -1,4 +1,4 @@
-﻿namespace Ngan.Ime.Tsf.Windows;
+namespace Ngan.Ime.Tsf.Windows;
 
 using System;
 using System.Collections.Generic;
@@ -195,10 +195,6 @@ internal static unsafe partial class NativeTsf {
 	private static readonly IntPtr* FactoryVtbl;
 	private static readonly IntPtr* EditSessionVtbl;
 	[Doc($$"""
-	量插入點專用的 ITfEditSession vtable（與上屏用的那一個完全分開）。
-	""")]
-	private static readonly IntPtr* CaretSessionVtbl;
-	[Doc($$"""
 	ITfCompositionSink 的 vtable；組字被應用結束時 TSF 從這裡叫回來。
 	""")]
 	private static readonly IntPtr* CompositionSinkVtbl;
@@ -238,14 +234,6 @@ internal static unsafe partial class NativeTsf {
 		EditSessionVtbl[1] = (IntPtr)(delegate* unmanaged<IntPtr, i32>)&AddRefEntry;
 		EditSessionVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, i32>)&ReleaseEntry;
 		EditSessionVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, u32, i32>)&DoEditSessionEntry;
-
-		// 量插入點用另一個 edit session 物件：兩個請求若共用同一個 view 與同一個
-		// 「待辦操作」欄位，先到的 callback 會吃掉後到的操作（上屏憑空消失）。
-		CaretSessionVtbl = (IntPtr*)NativeMemory.Alloc(4, (nuint)sizeof(IntPtr));
-		CaretSessionVtbl[0] = (IntPtr)(delegate* unmanaged<IntPtr, Guid*, IntPtr*, i32>)&CaretSessionQueryEntry;
-		CaretSessionVtbl[1] = (IntPtr)(delegate* unmanaged<IntPtr, i32>)&AddRefEntry;
-		CaretSessionVtbl[2] = (IntPtr)(delegate* unmanaged<IntPtr, i32>)&ReleaseEntry;
-		CaretSessionVtbl[3] = (IntPtr)(delegate* unmanaged<IntPtr, u32, i32>)&DoCaretSessionEntry;
 
 		// ITfCompositionSink：IUnknown 三個 + OnCompositionTerminated（msctf.h:7071-7093）。
 		// 交給 ITfContextComposition::StartComposition 當第三個參數——
@@ -289,6 +277,13 @@ internal static unsafe partial class NativeTsf {
 		由 `DoEditSessionCore` 在執行完之後釋放。
 		""")]
 		public IntPtr Context;
+		[Doc($$"""
+		排這一步時那顆鍵的按鍵序號。
+		只有 {{nameof(ETsfCompositionStep.Measure)}} 用得到：位置訊息要帶著它送給服務端，
+		服務端才分得出「這條位置屬於哪一顆鍵」。排隊時就記下來，因為會話回來時
+		可能已經有下一顆鍵送出了（`LastKeySeq` 會變）。
+		""")]
+		public i32 Seq;
 	}
 
 	[Doc($$"""
@@ -331,14 +326,6 @@ internal static unsafe partial class NativeTsf {
 		ITfEditSession 的 GCHandle。
 		""")]
 		public IntPtr EditSessionHandle;
-		[Doc($$"""
-		量插入點專用的 ITfEditSession 介面指標；與上屏用的那一個分開。
-		""")]
-		public IntPtr CaretSessionView;
-		[Doc($$"""
-		量插入點專用 edit session 的 GCHandle。
-		""")]
-		public IntPtr CaretSessionHandle;
 		[Doc($$"""
 		目前按鍵所屬的 ITfContext（只在 edit session 內有效）。
 		""")]
@@ -392,31 +379,9 @@ internal static unsafe partial class NativeTsf {
 		""")]
 		public i32 CaretPointTop;
 		[Doc($$"""
-		這次量測是為哪一顆鍵做的（外殼的按鍵序號）。
-		位置更新帶著它送給服務端，服務端才分得出「這條位置屬於哪一顆鍵」；
-		沒有它，遲到的位置會被套到下一顆鍵的內容上，面板就會先出現在舊位置再跳一次。
-		""")]
-		public i32 CaretMeasureSeq;
-		[Doc($$"""
 		是否量到過插入點。false 時 x/y 的 0 代表「未知」，不是螢幕左上角。
 		""")]
 		public bool CaretValid;
-		[Doc($$"""
-		量測用的檢視（托管參考，自帶一份 COM 參考）；null 表示沒有進行中的量測。
-		""")]
-		public ITfContextViewGen? CaretViewGen;
-		[Doc($$"""
-		量測用的 context（托管參考）；null 表示沒有進行中的量測。
-		""")]
-		public ITfContextGen? CaretContextGen;
-		[Doc($$"""
-		是否已排入一次插入點量測（1 表示進行中）；用 i32 以便 Interlocked。
-		""")]
-		public i32 CaretPending;
-		[Doc($$"""
-		上一次排入量測的時間（TickCount64），用來節流：一顆鍵不必量四次。
-		""")]
-		public i64 CaretMeasureTick;
 	}
 
 	[UnmanagedCallersOnly(EntryPoint = "DllGetClassObject")]
@@ -497,7 +462,6 @@ internal static unsafe partial class NativeTsf {
 		FreeView(State.TipView, State.TipHandle);
 		FreeView(State.SinkView, State.SinkHandle);
 		FreeView(State.EditSessionView, State.EditSessionHandle);
-		FreeView(State.CaretSessionView, State.CaretSessionHandle);
 		FreeView(State.CompositionSinkView, State.CompositionSinkHandle);
 	}
 
@@ -569,8 +533,6 @@ internal static unsafe partial class NativeTsf {
 			state.SinkHandle = sinkHandle;
 			state.EditSessionView = MakeView(EditSessionVtbl, state, out var editSessionHandle);
 			state.EditSessionHandle = editSessionHandle;
-			state.CaretSessionView = MakeView(CaretSessionVtbl, state, out var caretSessionHandle);
-			state.CaretSessionHandle = caretSessionHandle;
 			state.CompositionSinkView = MakeView(CompositionSinkVtbl, state, out var compositionSinkHandle);
 			state.CompositionSinkHandle = compositionSinkHandle;
 
@@ -658,7 +620,8 @@ internal static unsafe partial class NativeTsf {
 				state.KeystrokeMgr = IntPtr.Zero;
 			}
 			state.Policy.Reset();
-			CancelCaretMeasure(state);
+			// 插入點快取作廢：下一個控件的位置與這個控件無關。
+			state.CaretValid = false;
 			AbandonComposition(state);
 			SendHide();
 			LogWarn("Deactivate done clientId=" + state.ClientId);
@@ -679,7 +642,6 @@ internal static unsafe partial class NativeTsf {
 			if (IsForeground == 0) {
 				// 失去焦點：按鍵記錄與插入點都不再有意義，留著只會被下一個控件繼承。
 				state.Policy.Reset();
-				CancelCaretMeasure(state);
 				state.CaretValid = false;
 				AbandonComposition(state);
 				SendHide();
@@ -779,8 +741,8 @@ internal static unsafe partial class NativeTsf {
 				if (cached is not null) {
 					// 上屏只在「執行」這條路徑做一次。
 					// 先前徵詢那條也上屏，同一份回應因此被插進文件兩次（同字重複上屏）。
-					ScheduleCompositionWork(State, context, cached);
-					MaybeMeasureCaret(State, context, cached);
+					// 量測排在組字步驟之後（佇列有序），且只有這一輪真的有東西要顯示時才排。
+					ScheduleCompositionWork(State, context, cached, Measure: !IsUp && NeedPosition(cached));
 					ClearReply(State, IsUp);
 				}
 				return;
@@ -799,8 +761,9 @@ internal static unsafe partial class NativeTsf {
 				// 兩條上屏路徑只留這一條：
 				// + 應用送「徵詢 → 執行」時，上屏發生在執行那條（上面 TryTakeKey 的分支）；
 				// + 應用只送「執行」時，上屏發生在這裏。
-				ScheduleCompositionWork(State, context, Reply);
-				MaybeMeasureCaret(State, context, Reply);
+				// 擡起不量：這一輪沒有寫入，量到的必然與按下那次相同；
+				// 少一條位置訊息，服務端就不必再擋一次重複。
+				ScheduleCompositionWork(State, context, Reply, Measure: !IsUp && NeedPosition(Reply));
 			}
 			if (IsTest && eat) {
 				// 照 Weasel：pending 只在引擎說吃掉時才設（`KeyEventSink.cpp:101-104`）。
@@ -817,20 +780,18 @@ internal static unsafe partial class NativeTsf {
 	}
 
 	[Doc($$"""
-	只有在「有東西要顯示」時才量插入點。
-	*為何不再每顆鍵都量*：`ITfContextView::GetTextExt` 在 Chromium 是同步問 renderer 的，
+	這一輪的回答需不需要一條位置訊息：有候選或組字串時才要。
+	*為何不每顆鍵都量*：`ITfContextView::GetTextExt` 在 Chromium 是同步問 renderer 的，
 	而我們是在應用的 UI 執行緒上叫它。退格、方向鍵、修飾鍵這些根本不會顯示候選窗的鍵，
-	先前也各量一次，等於把 UI 執行緒借給應用去等 renderer。現在只在這顆鍵的回應
-	真的帶了候選或 preedit 時才量；位置仍然是一顆鍵的延遲（本來就是），但風險面積小得多。
-	#Prm[{{nameof(State)}}][文字服務狀態。]
-	#Prm[{{nameof(context)}}][按鍵所屬的 context。]
-	#Prm[{{nameof(Reply)}}][引擎這次的回答。]
+	量了只是把 UI 執行緒借給應用去等 renderer。
+	*與服務端的一致性*：服務端只在 `preedit` 或候選非空時才留下「待顯示內容」
+	（`SvcTsfPipeServer.ShowPopup`），所以這裡的條件就是它的補集——
+	凡是會顯示內容的鍵都一定有一條位置，凡是不會顯示的都不必量。
+	#Prm[{{nameof(Reply)}}][引擎這一輪的回答。]
+	#Rtn[true 表示這一輪要排一步量測。]
 	""")]
-	private static void MaybeMeasureCaret(TsfState State, IntPtr context, TsfReply Reply) {
-		if (Reply.Candidates.Count == 0 && str.IsNullOrEmpty(Reply.Preedit)) {
-			return;
-		}
-		BeginCaretMeasure(State, context);
+	private static bool NeedPosition(TsfReply Reply) {
+		return Reply.Candidates.Count > 0 || !str.IsNullOrEmpty(Reply.Preedit);
 	}
 
 	[Doc($$"""
@@ -972,9 +933,9 @@ internal static unsafe partial class NativeTsf {
 	#Prm[{{nameof(State)}}][文字服務狀態。]
 	#Prm[{{nameof(context)}}][按鍵所屬的 context。]
 	#Prm[{{nameof(Reply)}}][引擎的回答。]
+	#Prm[{{nameof(Measure)}}][排完組字步驟之後，要不要再排一步「量插入點並送位置」。]
 	""")]
-
-	private static void ScheduleCompositionWork(TsfState State, IntPtr context, TsfReply Reply) {
+	private static void ScheduleCompositionWork(TsfState State, IntPtr context, TsfReply Reply, bool Measure) {
 		var hasCommit = Reply.Commits.Count > 0;
 		var hasPreedit = !str.IsNullOrEmpty(Reply.Preedit);
 		var hasComposition = Volatile.Read(ref State.Composition) != IntPtr.Zero;
@@ -986,13 +947,22 @@ internal static unsafe partial class NativeTsf {
 		}
 		// 步驟的決定是純函數（`TsfCompositionPlanner`），這裡只負責排隊與日誌。
 		var steps = TsfCompositionPlanner.Plan(hasComposition, hasCommit, hasPreedit);
+		// 這顆鍵的按鍵序號：佇列裏的每一步（含量測那一步）都帶著它，
+		// 服務端靠它分辨「這條位置屬於哪一顆鍵」。排隊時就定下來，不等會話回來再讀。
+		var Seq = LastKeySeq;
 		foreach (var one in steps) {
 			// insert 是唯一需要文字的一步；其餘傳空串。
 			var text = one.Step == ETsfCompositionStep.Insert ? commitText : "";
 			if (one.Step == ETsfCompositionStep.Start && !hasCommit) {
 				LogWarn("組字 開始（引擎組字中） ctx=" + context.ToString("X"));
 			}
-			EnqueueCompositionJob(State, one.Step, text, one.Clear);
+			EnqueueCompositionJob(State, one.Step, text, one.Clear, Seq);
+		}
+		// 位置量測排在最後一步之後：同一個 context 上的編輯會話依序執行，
+		// 所以量到的是「這一顆鍵的寫入都做完之後」的插入點（照 Weasel `EditSession.cpp:38`）：
+		// 它在 `DoEditSession` 尾端才量，而不是另開一條與寫入無序的會話。
+		if (Measure) {
+			EnqueueCompositionJob(State, ETsfCompositionStep.Measure, "", false, Seq);
 		}
 	}
 
@@ -1011,9 +981,10 @@ internal static unsafe partial class NativeTsf {
 	#Prm[{{nameof(Step)}}][要做哪一步。]
 	#Prm[{{nameof(Text)}}][insert 用的上屏文字。]
 	#Prm[{{nameof(Clear)}}][End 用：結束前是否清空組字範圍。]
+	#Prm[{{nameof(Seq)}}][這一步屬於哪一顆鍵（按鍵序號）；只有量測那一步用得到。]
 	""")]
-	private static void EnqueueCompositionJob(TsfState State, ETsfCompositionStep Step, str Text, bool Clear) {
-		var job = new CompositionJob { Step = Step, Text = Text, Clear = Clear, Context = State.Context };
+	private static void EnqueueCompositionJob(TsfState State, ETsfCompositionStep Step, str Text, bool Clear, i32 Seq) {
+		var job = new CompositionJob { Step = Step, Text = Text, Clear = Clear, Context = State.Context, Seq = Seq };
 		if (job.Context != IntPtr.Zero) {
 			AddRefCom(job.Context);
 		}
@@ -1062,7 +1033,9 @@ internal static unsafe partial class NativeTsf {
 		}
 		// 旗標照 Weasel 0.15.0 分流：Start／End 同步、Insert 非同步（見 TfEsSync 的註釋）。
 		var Sync = Step is ETsfCompositionStep.Start or ETsfCompositionStep.End;
-		var flags = (Sync ? TfEsSync : TfEsAsyncDontCare) | TfEsReadWrite;
+		// 量測那一步只讀：它不寫文件，要寫入權限只會讓 TSF 更難排進來。
+		var Access = Step is ETsfCompositionStep.Measure ? TfEsRead : TfEsReadWrite;
+		var flags = (Sync ? TfEsSync : TfEsAsyncDontCare) | Access;
 		var sessionResult = 0;
 		var hr = contextGen.RequestEditSession(State.ClientId, State.EditSessionView, flags, out sessionResult);
 		LogWarn("RequestEditSession step=" + Step
@@ -1089,7 +1062,8 @@ internal static unsafe partial class NativeTsf {
 			return;
 		}
 		LogWarn("離開焦點／停用：排入結束組字（清空） comp=" + State.Composition.ToString("X"));
-		EnqueueCompositionJob(State, ETsfCompositionStep.End, "", true);
+		// 這一步不是任何按鍵引起的：序號沿用最後一顆鍵，只為了讓服務端看得懂來源。
+		EnqueueCompositionJob(State, ETsfCompositionStep.End, "", true, LastKeySeq);
 	}
 
 	[Doc($$"""
@@ -1168,11 +1142,6 @@ internal static unsafe partial class NativeTsf {
 
 
 	[Doc($$"""
-	一次量測最多允許在途多久（毫秒）；超過視為卡住，收掉重排。
-	""")]
-	private const i32 CaretStaleMs = 2000;
-
-	[Doc($$"""
 	兜底位置離前景視窗左上角的位移（像素）；只是「別黏在螢幕角落」的意思。
 	""")]
 	private const i32 FallbackAnchorOffsetX = 24;
@@ -1182,140 +1151,18 @@ internal static unsafe partial class NativeTsf {
 	""")]
 	private const i32 FallbackAnchorOffsetY = 96;
 
-	[Doc($$"""
-	排一次「插入點量測」：非同步、唯讀的 edit session，量到的座標留給下一次顯示候選窗。
-	*為何非同步*：Weasel 用的是 `TF_ES_ASYNCDONTCARE | TF_ES_READ`（WeaselTSF/Composition.cpp:211）。
-	同步 session 在應用已經持有 session 時會回 `TF_E_SYNCHRONOUS`，而這段跑在應用行程的
-	UI 執行緒上，每顆鍵多一次同步往返，連發按鍵（AltNav 一次四到十六顆）就明顯卡。
-	插入點在兩顆鍵之間幾乎不會移動，用上一次量到的值完全夠。
-	
-	*為何不用 Win32 的 caret 當主路徑*：Chromium 系（Edge、VS Code）沒有原生 caret，
-	`GetGUIThreadInfo` 回傳的矩形是空的。TSF 的 `ITfContextView::GetTextExt` 才拿得到，
-	小狼毫也是這樣做的；Win32 那條只留作兜底。
-	
-	*為何狀態只有一個 `CaretPending` 旗標而且一定要還原*：先前版本把「已排入」與
-	「待辦操作」混在同一個欄位，`RequestEditSession` 回 `S_OK` 但 session 沒跑時
-	旗標永遠停在 true，之後每一顆鍵都在第一行返回，插入點永遠是 (0,0)，
-	候選窗就黏在螢幕左上角。現在任何失敗路徑都會把槽位還原。
-	
-	*為何還需要一個「卡住」的看門狗*：非同步 session 由 TSF 決定何時執行，
-	應用在忙、context 正在失效、或它根本不理會請求時，callback 可能永遠不來。
-	超過 {{nameof(CaretStaleMs)}} 就把槽位收掉重排——寧可多量一次，也不要永遠不再量。
-	""")]
-	private static void BeginCaretMeasure(TsfState State, IntPtr context) {
-		if (context == IntPtr.Zero) {
-			return;
-		}
-		var now = Environment.TickCount64;
-		// 已有一次在途：正常會在幾毫秒內回來；超過門檻就是卡住了，收掉重排。
-		if (Interlocked.CompareExchange(ref State.CaretPending, 1, 0) != 0) {
-			if (now - State.CaretMeasureTick <= CaretStaleMs) {
-				return;
-			}
-			LogWarn("Caret measure stuck for " + (now - State.CaretMeasureTick) + "ms; resetting");
-			ReleaseCaretSlot(State);
-			if (Interlocked.CompareExchange(ref State.CaretPending, 1, 0) != 0) {
-				return;
-			}
-		}
-		State.CaretMeasureTick = now;
-		// 記下這顆鍵的序號：量測是非同步的，回來時可能已經有下一顆鍵；
-		// 位置更新要帶「觸發量測的這顆鍵」的序號，不是回來時的序號。
-		State.CaretMeasureSeq = LastKeySeq;
-		try {
-			// 生成式宣告：GetActiveView 由生成器排在 9，不會再指到 8 的 GetEnd。
-			// 2026-11-15 那次 notepad 崩潰就是手寫成 8（實際是 GetEnd）造成的。
-			var contextGen = ComInterfaceMarshaller<ITfContextGen>.ConvertToManaged((void*)context);
-			if (contextGen is null) {
-				LogWarn("Caret ConvertToManaged(context) 回空 ctx=" + context.ToString("X"));
-				ReleaseCaretSlot(State);
-				return;
-			}
-			var viewHr = contextGen.GetActiveView(out var viewGen);
-			if (viewHr < 0 || viewGen is null) {
-				LogWarn("Caret GetActiveView hr=0x" + viewHr.ToString("X8"));
-				ReleaseCaretSlot(State);
-				return;
-			}
-			// 量測期間要留住這兩個物件：session 是非同步的，回到我們這裏時按鍵已經處理完了。
-			// 托管介面自帶一份 COM 參考，舊的直接丟掉即可，釋放交給回收。
-			State.CaretViewGen = viewGen;
-			State.CaretContextGen = contextGen;
-			var sessionResult = 0;
-			var hr = contextGen.RequestEditSession(State.ClientId, State.CaretSessionView, TfEsAsyncDontCare | TfEsRead, out sessionResult);
-			if (hr < 0 || sessionResult < 0) {
-				LogWarn("Caret RequestEditSession hr=0x" + hr.ToString("X8") + " result=0x" + sessionResult.ToString("X8"));
-				ReleaseCaretSlot(State);
-			}
-		} catch (Exception Exception) {
-			LogError("BeginCaretMeasure EX " + Exception);
-			ReleaseCaretSlot(State);
-		}
-	}
-
-	[Doc($$"""
-	取消／結束一次量測：放掉持有的介面並把旗標歸零。任何失敗路徑都必須走到這裏。
-	""")]
-	private static void CancelCaretMeasure(TsfState State) {
-		ReleaseCaretSlot(State);
-	}
-
-	[Doc($$"""
-	釋放量測槽位（丟掉托管參考）並清掉 pending 旗標。
-	""")]
-	private static void ReleaseCaretSlot(TsfState State) {
-		State.CaretViewGen = null;
-		State.CaretContextGen = null;
-		Interlocked.Exchange(ref State.CaretPending, 0);
-	}
-
-	[Doc($$"""
-	在 edit session 內量插入點；成敗都會把槽位還原。
-	*為何「量不到就退回 Win32」只在從未量到過時做*：一旦有過有效座標，
-	寧可沿用舊值（差一顆鍵的距離）也不要換成 Win32 的粗略值，否則浮窗會在
-	「量到」與「退回」之間跳來跳去。從未量到過（例如 Chromium）時才需要兜底。
-	""")]
-	private static i32 DoCaretSessionCore(IntPtr ThisPtr, u32 EditCookie) {
-		var state = GetState(ThisPtr);
-		if (state is null) {
-			return EFail;
-		}
-		var context = state.CaretContextGen;
-		var view = state.CaretViewGen;
-		state.CaretContextGen = null;
-		state.CaretViewGen = null;
-		// 先歸零：session 裏任何提早返回都不會把「量測中」帶到下一個事件。
-		Interlocked.Exchange(ref state.CaretPending, 0);
-		try {
-			if (context is null || view is null) {
-				return EFail;
-			}
-			var adopted = MeasureCaret(state, context, view, EditCookie, out var rect, out var hr, out var clipped);
-			// 成敗都記：hr 為負是呼叫失敗，四邊全零是這個控件不回報插入點，兩者處置不同。
-			LogWarn("Caret GetTextExt hr=0x" + hr.ToString("X8")
-				+ " rect=" + rect.Left + "," + rect.Top + "," + rect.Right + "," + rect.Bottom
-				+ " clipped=" + clipped + " adopted=" + (adopted ? 1 : 0));
-			if (!adopted && !state.CaretValid) {
-				// 從未量到過：退回 Win32 的 caret，至少不要讓浮窗落在螢幕原點。
-				TryTakeCaretFromGui(state);
-			}
-			// 每顆「有內容要顯示」的鍵都送一次位置（單向、不等待）：
-			// 量到就用新值，量不到就沿用最後已知值。浮窗因此只由這條訊息驅動，
-			// 不會出現「先用舊座標顯示、再被新座標搬走」的兩次定位。
-			if (state.CaretValid) {
-				SendCaretPosition(state.CaretPointX, state.CaretPointY, state.CaretPointTop, state.CaretMeasureSeq);
-			}
-			return SOk;
-		} catch (Exception Exception) {
-			LogError("DoCaretSession EX " + Exception);
-			return EFail;
-		} finally {
-			// 托管介面參考由回收處理，這裡沒有要放掉的東西。
-		}
-	}
 
 	[Doc($$"""
 	用 `ITfContextView::GetTextExt` 量出插入點矩形，並判斷這個結果能不能用。
+
+	*量的是選取範圍，不是組字範圍*：照 Weasel 0.15.0 的 `CGetTextExtentEditSession`
+	（`WeaselTSF/Composition.cpp:158` 的 `GetSelection`、`:161` 的
+	`GetTextExt(ec, selection.range, ...)`）。組字期間的選取範圍是「佔位空格之後的插入點」
+	（`CStartCompositionEditSession` 收在 `Collapse(TF_ANCHOR_END)`，`:60-62`），
+	那才是候選窗該貼着的位置。
+	*先前量的是「組字範圍 collapse 到 START」*（組字左緣），註釋標着「照 Weasel」卻不是它的行為：
+	面板因此先出現在整段組字的左邊、等下一條位置再往右搬一次——那就是「每次往右跳一點」。
+	#Prm[{{nameof(State)}}][文字服務狀態（採用與否會寫回插入點快取）。]
 	#Prm[{{nameof(context)}}][按鍵所屬的 context（已 AddRef）。]
 	#Prm[{{nameof(View)}}][該 context 的 active view（已 AddRef）。]
 	#Prm[{{nameof(EditCookie)}}][session 的 cookie。]
@@ -1338,37 +1185,63 @@ internal static unsafe partial class NativeTsf {
 			// 源生成式 COM：vtable 由生成器排，這裡不再手寫槽位索引（見 ITfContextViewGen）。
 			// ConvertToManaged 會替這個介面指標建立托管包裝，包裝自帶一份參考；
 			// 這一份由 GC 在包裝不可達時釋放，我們自己那份仍照舊在 finally 裏放。
-			// 照 Weasel（`Composition.cpp:161-171`）：有組字就量「組字範圍 collapse 到 START」，
-			// 沒有組字才量選取範圍；選取範圍可能非空，量整個選取會偏。
-			var compositionRange = IntPtr.Zero;
-			var range = selection.Range;
-			var composition = Volatile.Read(ref State.Composition);
-			if (composition != IntPtr.Zero) {
-				var compositionGen = ComInterfaceMarshaller<ITfCompositionGen>.ConvertToManaged((void*)composition);
-				if (compositionGen is not null && compositionGen.GetRange(out compositionRange) >= 0 && compositionRange != IntPtr.Zero) {
-					var rangeGen = ComInterfaceMarshaller<ITfRangeGen>.ConvertToManaged((void*)compositionRange);
-					if (rangeGen is not null) {
-						rangeGen.Collapse(EditCookie, TfAnchorStart);
-					}
-					range = compositionRange;
-				}
+			// 直接量選取範圍——不再把組字範圍 collapse 到 START 再量（見方法 Doc 的說明）。
+			var clippedFlag = 0;
+			Hr = View.GetTextExt(EditCookie, selection.Range, out var measured, out clippedFlag);
+			Rect = measured;
+			Clipped = clippedFlag;
+			if (Hr < 0) {
+				return false;
 			}
-			try {
-				var clippedFlag = 0;
-				Hr = View.GetTextExt(EditCookie, range, out var measured, out clippedFlag);
-				Rect = measured;
-				Clipped = clippedFlag;
-				if (Hr < 0) {
-					return false;
-				}
-				return TryAdoptCaretRect(State, measured);
-			} finally {
-				if (compositionRange != IntPtr.Zero) {
-					ReleaseCom(compositionRange);
-				}
-			}
+			return TryAdoptCaretRect(State, measured);
 		} finally {
 			ReleaseCom(selection.Range);
+		}
+	}
+
+	[Doc($$"""
+	在組字編輯會話裏量一次插入點，並把位置送給服務端。
+
+	*為何在這裏量*：量測必須發生在「這顆鍵的組字寫入生效之後」。Weasel 就是在
+	`DoEditSession` 的尾端呼叫 `_UpdateCompositionWindow`（`EditSession.cpp:38`），
+	而那條量測會話是 `TF_ES_SYNC | TF_ES_READ`（`Composition.cpp:203`）——同一個 cookie、
+	嚴格有序。我們把量測當成佇列裏的一步（{{nameof(ETsfCompositionStep.Measure)}}），
+	排在這一顆鍵所有寫入之後，於是同樣得到「寫完再量」的順序，
+	而不必從按鍵路徑去要一條同步會話（那會在應用正持有會話時換來 `TF_E_SYNCHRONOUS`）。
+	*先前是另開一條非同步會話量*：它與寫入沒有先後保證，日誌上同一顆鍵出現兩個 rect
+	（`716` 與 `751`，差一個已上屏詞的寬度）就是這樣來的。
+
+	*為何量不到仍要送*：內容是另一條訊息送來的，服務端收到位置才顯示；
+	這一顆鍵若因為量不到而不送，就等於這一顆鍵沒有候選窗。
+	#Prm[{{nameof(State)}}][文字服務狀態。]
+	#Prm[{{nameof(Context)}}][這一步所屬的 context（工作項持有一份參考）。]
+	#Prm[{{nameof(EditCookie)}}][這個編輯會話的 cookie。]
+	#Prm[{{nameof(Seq)}}][觸發這次量測的按鍵序號；服務端靠它分辨遲到的位置屬於哪顆鍵。]
+	""")]
+	private static void MeasureAndSendCaret(TsfState State, IntPtr Context, u32 EditCookie, i32 Seq) {
+		var contextGen = ToContextGen(Context, "量測插入點");
+		if (contextGen is null) {
+			return;
+		}
+		// 1: 取這個 context 的 active view；沒有 view 就沒有版面，也就沒有插入點。
+		var viewHr = contextGen.GetActiveView(out var viewGen);
+		if (viewHr < 0 || viewGen is null) {
+			LogWarn("Caret GetActiveView hr=0x" + viewHr.ToString("X8") + " ctx=" + Context.ToString("X"));
+			return;
+		}
+		// 2: 量一次並採用；成敗都記——呼叫失敗與「四邊全零（控件不報版面）」處置不同。
+		var adopted = MeasureCaret(State, contextGen, viewGen, EditCookie, out var rect, out var hr, out var clipped);
+		LogWarn("Caret src=sel seq=" + Seq + " hr=0x" + hr.ToString("X8")
+			+ " rect=" + rect.Left + "," + rect.Top + "," + rect.Right + "," + rect.Bottom
+			+ " clipped=" + clipped + " adopted=" + (adopted ? 1 : 0));
+		// 3: 從未量到過才退回 Win32 的 caret；有過有效座標就寧可沿用舊值，
+		//    否則浮窗會在「量到」與「退回」兩種來源之間跳。
+		if (!adopted && !State.CaretValid) {
+			TryTakeCaretFromGui(State);
+		}
+		// 4: 單向送出（不等待）：服務端收到位置才知道把面板擺哪；丟掉也無妨，下一顆鍵會再送。
+		if (State.CaretValid) {
+			SendCaretPosition(State.CaretPointX, State.CaretPointY, State.CaretPointTop, Seq);
 		}
 	}
 
@@ -1561,9 +1434,19 @@ internal static unsafe partial class NativeTsf {
 					case ETsfCompositionStep.End:
 						Hr = EndCompositionCore(state, EditCookie, Job.Clear);
 						break;
+					case ETsfCompositionStep.Measure:
+						// 這一步不動文件：排在這一顆鍵的寫入之後，只為了「寫完再量」的順序。
+						Hr = SOk;
+						break;
 					default:
 						Hr = SOk;
 						break;
+				}
+				// 量測在本會話內做完（照 Weasel `EditSession.cpp:38` 在 DoEditSession 尾端量）：
+				// 同一個 cookie、同一個已存在的編輯會話，量到的必然是上面幾步寫入之後的插入點；
+				// 另開一條會話量就會與寫入失去先後（2026-11-17 日誌：同一顆鍵 716 與 751）。
+				if (Job.Step == ETsfCompositionStep.Measure) {
+					MeasureAndSendCaret(state, Job.Context, EditCookie, Job.Seq);
 				}
 			} finally {
 				ReleaseComIfAny(Job.Context);
@@ -1935,7 +1818,6 @@ internal static unsafe partial class NativeTsf {
 			CollectTargets(SinkVtbl, 9, targets);
 			CollectTargets(FactoryVtbl, 5, targets);
 			CollectTargets(EditSessionVtbl, 4, targets);
-			CollectTargets(CaretSessionVtbl, 4, targets);
 			CollectTargets(CompositionSinkVtbl, 4, targets);
 			foreach (var target in targets) {
 				var page = (IntPtr)(target.ToInt64() & ~0xFFFL);
@@ -1982,16 +1864,6 @@ internal static unsafe partial class NativeTsf {
 	[UnmanagedCallersOnly]
 	private static i32 DoEditSessionEntry(IntPtr ThisPtr, u32 EditCookie) {
 		return DoEditSessionCore(ThisPtr, EditCookie);
-	}
-
-	[UnmanagedCallersOnly]
-	private static i32 CaretSessionQueryEntry(IntPtr ThisPtr, Guid* Riid, IntPtr* Ppv) {
-		return EditSessionQueryCore(ThisPtr, Riid, Ppv);
-	}
-
-	[UnmanagedCallersOnly]
-	private static i32 DoCaretSessionEntry(IntPtr ThisPtr, u32 EditCookie) {
-		return DoCaretSessionCore(ThisPtr, EditCookie);
 	}
 
 	[UnmanagedCallersOnly]

@@ -11,6 +11,17 @@ public enum ETsfCompositionStep{
 
 	[Doc("結束組字。")]
 	End = 2,
+
+	[Doc($$"""
+	只量插入點並送位置；不動文件。
+	*為何要當成佇列裏的一步*：位置必須在「這顆鍵的組字寫入生效之後」才量得到正確的插入點。
+	佇列裏的每一步都是同一個 context 上的編輯會話，TSF 依序執行，所以排在上屏、
+	開始組字之後的那一步，量到的必然是寫入後的狀態；先前另開一條非同步會話量，
+	量到的常常是上一顆鍵的文件狀態（日誌上同一顆鍵兩個 rect 就是這樣來的）。
+	*{{nameof(TsfCompositionPlanner.Plan)}} 永遠不會產生這一步*：要不要量是殼的事，
+	它不屬於「依引擎回答決定組字動作」這件事。
+	""")]
+	Measure = 3,
 }
 
 [Doc($$"""
@@ -45,7 +56,7 @@ public static class TsfCompositionPlanner{
 	#Prm[{{nameof(HasComposition)}}][目前是否握着組字。]
 	#Prm[{{nameof(HasCommit)}}][引擎這一輪是否產生了上屏文字。]
 	#Prm[{{nameof(HasPreedit)}}][引擎這一輪是否還有組字串。]
-	#Rtn[要排的步驟；空陣列表示什麼都不做。]
+	#Rtn[要排的步驟；空陣列表示什麼都不做。結果**不含** {{nameof(ETsfCompositionStep.Measure)}}。]
 	""")]
 	public static TsfCompositionPlan[] Plan(bool HasComposition, bool HasCommit, bool HasPreedit){
 		if(!HasCommit && !HasPreedit){

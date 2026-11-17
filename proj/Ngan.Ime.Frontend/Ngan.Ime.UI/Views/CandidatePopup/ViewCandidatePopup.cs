@@ -1,4 +1,4 @@
-﻿namespace Ngan.Ime.UI.Views.CandidatePopup;
+namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using System.Collections.Generic;
 using Avalonia;
@@ -29,6 +29,9 @@ public partial class ViewCandidatePopup : Window{
 	[Doc("本視窗的 ViewModel。")]
 	public VmCandidatePopup Vm{get;}
 
+	[Doc("內容的根容器；組字列與候選行容器的先後由 {{nameof(Reversed)}} 決定。")]
+	public StackPanel? _Root;
+
 	[Doc("組字列控件；空串時隱藏。")]
 	public TextBlock? _Preedit;
 
@@ -45,10 +48,17 @@ public partial class ViewCandidatePopup : Window{
 	public partial void Refresh();
 
 	[Doc($$"""
-	翻到插入點上方時候選行倒排；照 Weasel 的 `m_istorepos`
-	（`WeaselPanel.cpp:276` 起多處依它反轉繪製順序）。由 {{nameof(MoveTo)}} 維護。
+	翻到插入點上方時整塊倒排（照 Weasel 的 `m_istorepos`：`WeaselPanel.cpp:909` 清旗標、
+	`:918` 設旗標、`:730-745` 把 preedit 移到候選之後、`:805-807` 連狀態圖示也一起搬）。
+	由 {{nameof(ShowAt)}}／{{nameof(MoveTo)}} 依定位結果維護。
 	""")]
 	public bool Reversed;
+
+	[Doc($$"""
+	依 {{nameof(Reversed)}} 排定「組字列」與「候選行容器」的先後：正排是
+	組字列在上、候選在下；倒排相反，讓第一候選緊接組字列、組字列緊接光標。
+	""")]
+	partial void ApplyOrder();
 
 	[Doc($$"""
 	套好內容後呼叫：排版、定尺寸、定位、顯示一次完成；順序照 Weasel

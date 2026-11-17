@@ -1,4 +1,4 @@
-﻿namespace Ngan.Ime.UI.Views.CandidatePopup;
+namespace Ngan.Ime.UI.Views.CandidatePopup;
 
 using System;
 using Avalonia;
@@ -36,11 +36,12 @@ public partial class ViewCandidatePopup{
 		Vm.Applied += Refresh;
 	}
 
-	[Doc("建立「組字列 ＋ 候選行容器」的控件樹。")]
+	[Doc("建立「組字列 ＋ 候選行容器」的控件樹；初始為正排（組字列在上）。")]
 	void MkContent(){
 		var Root = new StackPanel{
 			Spacing = UiCfg.Inst.PopupRowSpacing,
 		};
+		_Root = Root;
 		_Preedit = new TextBlock{
 			FontFamily = UiCfg.Inst.FontFamily,
 			FontSize = UiCfg.Inst.PopupPreeditFontSize,
@@ -57,6 +58,31 @@ public partial class ViewCandidatePopup{
 			Padding = UiCfg.Inst.PopupPadding,
 			Child = Root,
 		};
+	}
+
+	[Doc($$"""
+	依 {{nameof(Reversed)}} 排定容器子序。
+
+	*為何換容器子序而不是只倒排候選行*：照 Weasel 的 `m_istorepos`，翻到插入點上方時
+	整塊鏡射——preedit 貼着光標在最下面、第一候選緊接在它上面、第 n 個候選在最上面。
+	只倒排候選行會變成「preedit 仍在最上、候選倒序在下」，那正是使用者回報的錯誤形狀。
+	*為何要先比對現狀*：每次定位都重建子樹等於整塊重新排版，`DesiredSize` 會跟著失效；
+	順序沒變就直接返回。
+	""")]
+	partial void ApplyOrder(){
+		if(_Root is null || _Preedit is null || _CandList is null){
+			return;
+		}
+		// 倒排：[候選容器, 組字列]；正排：[組字列, 候選容器]。
+		var First = Reversed ? (Control)_CandList : _Preedit;
+		var Second = Reversed ? (Control)_Preedit : _CandList;
+		if(_Root.Children.Count == 2 && ReferenceEquals(_Root.Children[0], First)){
+			return;
+		}
+		_Root.Children.Clear();
+		_Root.Children.Add(First);
+		_Root.Children.Add(Second);
+		// 組字列可見與否仍由 Refresh 決定（空串時隱藏），這裡不碰 IsVisible。
 	}
 
 	[Doc("按 VM 的內容刷新；沒有內容時收起。")]
@@ -210,6 +236,9 @@ public partial class ViewCandidatePopup{
 		//    但版面若因字寬不同而變，這裡拿到的才是這次真的要用的高度）。
 		if(Placement.Reversed != Reversed){
 			Reversed = Placement.Reversed;
+			// 先把容器的子序換過來，再由 Refresh 依新的 Reversed 重排候選行序；
+			// 兩者必須一致，否則第一候選會跑到離光標最遠的那一端。
+			ApplyOrder();
 			Refresh();
 			MeasureContent();
 			ContentWidth = ContentSize.Width;

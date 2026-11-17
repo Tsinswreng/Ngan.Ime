@@ -382,6 +382,11 @@ internal static unsafe partial class NativeTsf {
 		是否量到過插入點。false 時 x/y 的 0 代表「未知」，不是螢幕左上角。
 		""")]
 		public bool CaretValid;
+		[Doc($$"""
+		插入點量測連續失敗的次數；用來決定什麼時候放棄「等下一次量測」而退回舊座標。
+		量到一次就歸零，見 {{nameof(MeasureAndSendCaret)}}。
+		""")]
+		public i32 CaretFailStreak;
 	}
 
 	[UnmanagedCallersOnly(EntryPoint = "DllGetClassObject")]
@@ -742,7 +747,7 @@ internal static unsafe partial class NativeTsf {
 					// 上屏只在「執行」這條路徑做一次。
 					// 先前徵詢那條也上屏，同一份回應因此被插進文件兩次（同字重複上屏）。
 					// 量測排在組字步驟之後（佇列有序），且只有這一輪真的有東西要顯示時才排。
-					ScheduleCompositionWork(State, context, cached, Measure: !IsUp && NeedPosition(cached));
+					ScheduleCompositionWork(State, context, cached, Measure: NeedPosition(cached));
 					ClearReply(State, IsUp);
 				}
 				return;
@@ -761,9 +766,11 @@ internal static unsafe partial class NativeTsf {
 				// 兩條上屏路徑只留這一條：
 				// + 應用送「徵詢 → 執行」時，上屏發生在執行那條（上面 TryTakeKey 的分支）；
 				// + 應用只送「執行」時，上屏發生在這裏。
-				// 擡起不量：這一輪沒有寫入，量到的必然與按下那次相同；
-				// 少一條位置訊息，服務端就不必再擋一次重複。
-				ScheduleCompositionWork(State, context, Reply, Measure: !IsUp && NeedPosition(Reply));
+				// *擡起也量*（照 Weasel 的 `OnKeyUp` 也走 `_UpdateComposition`）：
+				// 按下那一次常常落在「剛開始組字、應用還沒重建版面」，
+				// 擡起那一次距離寫入已幾十毫秒，是第一個版面就緒的量測時機。
+				// 兩次量到同一個值時服務端本來就會 `moved=0`，不會因此多搬一次。
+				ScheduleCompositionWork(State, context, Reply, Measure: NeedPosition(Reply));
 			}
 			if (IsTest && eat) {
 				// 照 Weasel：pending 只在引擎說吃掉時才設（`KeyEventSink.cpp:101-104`）。
@@ -1142,6 +1149,13 @@ internal static unsafe partial class NativeTsf {
 
 
 	[Doc($$"""
+	插入點量測連續失敗幾次之後才退回舊座標（見 {{nameof(MeasureAndSendCaret)}}）。
+	*為何是一*：按下鍵那一次常常量不到（剛開始組字、應用還沒重建版面），
+	擡起鍵那一次距離寫入已幾十毫秒、版面通常就緒；連續兩次都失敗才值得兜底。
+	""")]
+	private const i32 CaretMaxHoldStreak = 1;
+
+	[Doc($$"""
 	兜底位置離前景視窗左上角的位移（像素）；只是「別黏在螢幕角落」的意思。
 	""")]
 	private const i32 FallbackAnchorOffsetX = 24;
@@ -1211,8 +1225,17 @@ internal static unsafe partial class NativeTsf {
 	*先前是另開一條非同步會話量*：它與寫入沒有先後保證，日誌上同一顆鍵出現兩個 rect
 	（`716` 與 `751`，差一個已上屏詞的寬度）就是這樣來的。
 
-	*為何量不到仍要送*：內容是另一條訊息送來的，服務端收到位置才顯示；
-	這一顆鍵若因為量不到而不送，就等於這一顆鍵沒有候選窗。
+	*量不到時不要拿舊座標頂替*：`GetTextExt` 在「剛開始組字、應用還沒重建版面」時會失敗
+	（實測 `hr=0x80040206`、`rect=0,0,0,0`；2026-11-17 統計，緊接開始組字的 114 次量測有 108 次如此）。
+	先前這種情形會把上一次的座標送出去，面板因此出現在**上一個音節**的位置：
+	差得遠就是「飛來飛去」，連上緣也一起沿用就變成「遮擋」。
+	現在連續失敗未達 {{nameof(CaretMaxHoldStreak)}} 次就**不送**——
+	服務端本來就會把待顯示內容留到位置到達（`SvcTsfPipeServer` 的 `ShowPopup`／`ApplyPendingShow`），
+	面板只是晚一拍出現，不會先出現在錯的位置。
+	超過門檻（版面真的久未就緒）才退回舊座標：寧可位置不準，也不要面板不出來。
+	*為何門檻是一*：擡起鍵也會量一次（照 Weasel 的 `OnKeyUp` → `_UpdateComposition`），
+	那一次距離寫入已幾十毫秒，版面通常就緒；連續兩次失敗才需要兜底。
+
 	#Prm[{{nameof(State)}}][文字服務狀態。]
 	#Prm[{{nameof(Context)}}][這一步所屬的 context（工作項持有一份參考）。]
 	#Prm[{{nameof(EditCookie)}}][這個編輯會話的 cookie。]
@@ -1229,18 +1252,37 @@ internal static unsafe partial class NativeTsf {
 			LogWarn("Caret GetActiveView hr=0x" + viewHr.ToString("X8") + " ctx=" + Context.ToString("X"));
 			return;
 		}
-		// 2: 量一次並採用；成敗都記——呼叫失敗與「四邊全零（控件不報版面）」處置不同。
+		// 2: 量一次並採用；呼叫失敗與「四邊全零」都算這一刻沒有版面，處置相同。
 		var adopted = MeasureCaret(State, contextGen, viewGen, EditCookie, out var rect, out var hr, out var clipped);
+		// 3: 決定要不要送位置（三種情形見方法 Doc）。
+		var streak = State.CaretFailStreak;
+		var send = adopted;
+		str action;
+		if (adopted) {
+			State.CaretFailStreak = 0;
+			action = "send";
+		} else if (!State.CaretValid) {
+			// 4: 從未量到過：退回 Win32 的 caret；有結果才送，否則任何座標都是假的。
+			TryTakeCaretFromGui(State);
+			State.CaretFailStreak = 0;
+			send = State.CaretValid;
+			action = send ? "send-gui" : "hold-none";
+		} else if (streak < CaretMaxHoldStreak) {
+			// 5: 有過座標但這一刻沒有版面：不送，等擡起鍵或下一顆鍵那一次量測。
+			State.CaretFailStreak = streak + 1;
+			action = "hold";
+		} else {
+			// 6: 連續失敗到達門檻：退回舊座標，至少讓面板出得來。
+			State.CaretFailStreak = 0;
+			send = true;
+			action = "send-stale";
+		}
 		LogWarn("Caret src=sel seq=" + Seq + " hr=0x" + hr.ToString("X8")
 			+ " rect=" + rect.Left + "," + rect.Top + "," + rect.Right + "," + rect.Bottom
-			+ " clipped=" + clipped + " adopted=" + (adopted ? 1 : 0));
-		// 3: 從未量到過才退回 Win32 的 caret；有過有效座標就寧可沿用舊值，
-		//    否則浮窗會在「量到」與「退回」兩種來源之間跳。
-		if (!adopted && !State.CaretValid) {
-			TryTakeCaretFromGui(State);
-		}
-		// 4: 單向送出（不等待）：服務端收到位置才知道把面板擺哪；丟掉也無妨，下一顆鍵會再送。
-		if (State.CaretValid) {
+			+ " clipped=" + clipped + " adopted=" + (adopted ? 1 : 0)
+			+ " action=" + action + " streak=" + streak);
+		// 7: 單向送出（不等待）：服務端收到位置才知道把面板擺哪。
+		if (send && State.CaretValid) {
 			SendCaretPosition(State.CaretPointX, State.CaretPointY, State.CaretPointTop, Seq);
 		}
 	}

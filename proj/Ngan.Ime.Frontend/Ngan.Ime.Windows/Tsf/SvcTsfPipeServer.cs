@@ -1,4 +1,4 @@
-﻿namespace Ngan.Ime.Windows.Tsf;
+namespace Ngan.Ime.Windows.Tsf;
 
 using System.Collections.Generic;
 using System.Threading;
@@ -58,18 +58,6 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 
 	[Doc("診斷模式：環境變數 NGAN_TSF_TIMING=1 時，逐鍵記錄耗時與座標（平時不記，避免日誌爆量）。")]
 	static readonly bool TimingEnabled = System.Environment.GetEnvironmentVariable("NGAN_TSF_TIMING") == "1";
-
-	[Doc("待顯示的引擎回應：等外殼推來插入點位置才放上浮窗。")]
-	TsfReply? PendingReply;
-
-	[Doc("待顯示內容所屬的按鍵序號；位置更新的序號早於它就代表「這是上一顆鍵的位置」。")]
-	i32 PendingSeq;
-
-	[Doc("已經套用過的最新位置序號；更早的位置一律丟棄，避免把浮窗搬回舊位置。")]
-	i32 LastPosSeq;
-
-	[Doc("待顯示內容的互斥；按鍵執行緒與位置更新執行緒都會碰它。")]
-	readonly object PopupGate = new();
 
 	[Doc("是否已啟動；保證 Start 冪等。")]
 	bool Started;
@@ -168,7 +156,7 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	#Prm[{{nameof(Line)}}][請求行；格式見 {{nameof(TsfIpc)}}。]
 	#Rtn[回應行。]
 	""")]
-	async Task<str?> HandleAsync(str Line, CT Ct){
+	async Task<str?> HandleAsync(str Line, TsfClientSession Session, CT Ct){
 		if(Line.Length > TsfIpc.MaxLineLength){
 			return TsfReply.Fail(ETsfErr.LineTooLong).Format();
 		}
@@ -201,39 +189,42 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			// 若把它套到「已經換成下一顆鍵的內容」上，面板就會先出現在上一顆鍵的位置、
 			// 等下一條位置到了再搬一次——那正是使用者看到的「跳一下」。
 			// Weasel 靠同步 IPC 天然有序；我們靠這個序號達到同樣的效果。
-			if(Req.Seq < LastPosSeq){
-				AppLog.Info($"[Pos] stale seq={Req.Seq} last={LastPosSeq} x={Req.X} y={Req.Y} top={Req.Top}");
+			if(Req.Seq < Session.LastPosSeq){
+				AppLog.Info($"[Pos] stale pid={Session.ClientPid} seq={Req.Seq} last={Session.LastPosSeq} x={Req.X} y={Req.Y} top={Req.Top}");
 				return null;
 			}
 			// 內容比這條位置新：這是上一顆鍵的位置，連錨點都不該覆寫，
 			// 否則等真正的位置到來之前，面板會先被擺在這個舊座標上。
-			if(HasPendingShow(out var WaitingSeq) && Req.Seq < WaitingSeq){
-				AppLog.Info($"[Pos] wait seq={Req.Seq} pending={WaitingSeq} x={Req.X} y={Req.Y} top={Req.Top}");
+			if(HasPendingShow(Session, out var WaitingSeq) && Req.Seq < WaitingSeq){
+				AppLog.Info($"[Pos] wait pid={Session.ClientPid} seq={Req.Seq} pending={WaitingSeq} x={Req.X} y={Req.Y} top={Req.Top}");
 				return null;
 			}
-			LastPosSeq = Req.Seq;
-			var Moved = !Anchor.Has
-				|| Anchor.X != Req.X || Anchor.Y != Req.Y || Anchor.Top != Req.Top;
+			Session.LastPosSeq = Req.Seq;
+			var Moved = !Session.Anchor.Has
+				|| Session.Anchor.X != Req.X || Session.Anchor.Y != Req.Y || Session.Anchor.Top != Req.Top;
+			Session.Anchor.Set(Req.X, Req.Y, Req.Top);
+			// 模式提示貼的是「最後一個在打字的客戶端」，故共享的 Anchor 也跟着更新。
 			Anchor.Set(Req.X, Req.Y, Req.Top);
 			// 有待顯示的內容就一次做完「套內容 ＋ 定尺寸 ＋ 定位 ＋ 顯示」；沒有就只換位置。
 			// 拆成兩步會先畫在舊位置再搬，使用者就會看到跳一下。
-			var Showed = ApplyPendingShow(Req.Seq);
+			var Showed = ApplyPendingShow(Session, Req.Seq);
 			if(!Showed && Moved){
 				Popup.MoveTo(Req.X, Req.Y, Req.Top);
 			}
-			AppLog.Info($"[Pos] x={Req.X} y={Req.Y} top={Req.Top} show={(Showed ? 1 : 0)} moved={(Moved ? 1 : 0)}");
+			AppLog.Info($"[Pos] pid={Session.ClientPid} x={Req.X} y={Req.Y} top={Req.Top} show={(Showed ? 1 : 0)} moved={(Moved ? 1 : 0)}");
 			// 單向請求：不回一行，外殼也不必等。
 			return null;
 		}
-		return await HandleKeyAsync(Req, Ct);
+		return await HandleKeyAsync(Req, Session, Ct);
 	}
 
 	[Doc($$"""
 	處理一顆按鍵：還原按鍵、交給引擎、打包結果。
 	#Prm[{{nameof(Req)}}][按鍵請求。]
+	#Prm[{{nameof(Session)}}][這條連線的狀態；位置與待顯示內容各記各的。]
 	#Rtn[回應行。]
 	""")]
-	async Task<str> HandleKeyAsync(TsfKeyRequest Req, CT Ct){
+	async Task<str> HandleKeyAsync(TsfKeyRequest Req, TsfClientSession Session, CT Ct){
 		var Key = Resolve(Req.VirtualKey, Req.Scan, Req.Ext);
 		if(Key is null){
 			// 認不出來的鍵不算錯誤：回「沒吃掉」，由系統交給前景應用。
@@ -256,19 +247,19 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		}finally{
 			EngineLock.Release();
 		}
-		if(!Anchor.Has && (Req.X != 0 || Req.Y != 0)){
+		if(!Session.Anchor.Has && (Req.X != 0 || Req.Y != 0)){
 			// 按鍵請求順帶的座標也是量測結果，但它**沒有上緣欄**：只能把下緣當上緣（高度 0）。
 			// 這種退化值只當「從來沒收到位置更新」時的兜底；一旦有過真正的 `P`，
 			// 就不再用它覆寫——否則每顆鍵都會把上緣打成下緣，翻到上方時面板下緣
 			// 正好壓在文字行上（照 Weasel 的 CUAS 分支，零高矩形不用來定位）。
-			Anchor.Set(Req.X, Req.Y, Req.Y);
+			Session.Anchor.Set(Req.X, Req.Y, Req.Y);
 		}
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。
 		if(!Req.IsUp){
 			// 模式提示不在这里触发：Weasel 是「引擎發出 option 通知時才顯示」
 			//（`RimeWithWeasel.cpp` 的 `_ShowMessage`），不是每顆鍵都彈。
 			// 觸發點在 SvcModeTip 訂閱的 IImeState.OptionNotified。
-			ShowPopup(Reply, Req);
+			ShowPopup(Reply, Req, Session);
 		}
 		if(Watch is not null){
 			Watch.Stop();
@@ -324,39 +315,43 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 	[Doc($$"""
 	把回應內容交給浮窗；沒有內容時收起。
 	#Prm[{{nameof(Reply)}}][已打包的回應。]
-	#Prm[{{nameof(Req)}}][原始請求；取插入點座標。]
+	#Prm[{{nameof(Req)}}][原始請求；取插入點座標與序號。]
+	#Prm[{{nameof(Session)}}][這條連線的狀態；待顯示內容按連線分。]
 	""")]
-	void ShowPopup(TsfReply Reply, TsfKeyRequest Req){
+	void ShowPopup(TsfReply Reply, TsfKeyRequest Req, TsfClientSession Session){
 		if(Reply.Preedit.Length == 0 && Reply.Candidates.Count == 0){
-			ClearPendingShow();
+			ClearPendingShow(Session);
 			Popup.Hide();
 			return;
 		}
 		// 照 Weasel 的單一位置寫入者：內容先存着，等外殼量到插入點推來位置再顯示。
 		// 先前是「先用按鍵請求裡的舊座標顯示、收到位置再搬」，於是每顆鍵都先出現在
 		// 上一顆鍵的位置、然後跳一下。
-		lock(PopupGate){
-			PendingReply = Reply;
-			PendingSeq = Req.Seq;
+		lock(Session.Gate){
+			Session.PendingReply = Reply;
+			Session.PendingSeq = Req.Seq;
 		}
-		AppLog.Info($"[Pos] pending seq={Req.Seq} cand={Reply.Candidates.Count} preedit={Reply.Preedit.Length}");
+		AppLog.Info($"[Pos] pending pid={Session.ClientPid} seq={Req.Seq} cand={Reply.Candidates.Count} preedit={Reply.Preedit.Length}");
 	}
 
 	[Doc($$"""
 	把「等位置」的內容放上浮窗，並用目前已知的位置一次顯示完。
 	只有序號不早於內容的位置才算「這一顆鍵的位置」；更早的留著內容、等真正的那一條。
+	*用的是這條連線自己的錨點*：內容與位置都只屬於送它們的那個行程，
+	否則兩個應用輪流打字時，A 的候選會被 B 的插入點帶着跑。
+	#Prm[{{nameof(Session)}}][這條連線的狀態。]
 	#Prm[{{nameof(Seq)}}][這條位置更新的序號。]
 	#Rtn[true 表示確實有內容被放上去。]
 	""")]
-	bool ApplyPendingShow(i32 Seq){
+	bool ApplyPendingShow(TsfClientSession Session, i32 Seq){
 		TsfReply? Reply;
-		lock(PopupGate){
-			if(PendingReply is not null && Seq < PendingSeq){
+		lock(Session.Gate){
+			if(Session.PendingReply is not null && Seq < Session.PendingSeq){
 				// 內容比這條位置新：這條位置是上一顆鍵的，內容留給它自己的位置。
 				return false;
 			}
-			Reply = PendingReply;
-			PendingReply = null;
+			Reply = Session.PendingReply;
+			Session.PendingReply = null;
 		}
 		if(Reply is null){
 			return false;
@@ -366,27 +361,31 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 			Data = [.. Reply.Candidates.ConvertAll(One => (ICandidate)new Candidate{ Text = One.Text, Comment = One.Comment })],
 		};
 		// 位置與顯示在同一次呼叫裡完成（見 ICandidatePopup.ShowAt 的說明）。
-		Popup.ShowAt(Reply.Preedit, Page, Anchor.X, Anchor.Y, Anchor.Top);
+		Popup.ShowAt(Reply.Preedit, Page, Session.Anchor.X, Session.Anchor.Y, Session.Anchor.Top);
 		return true;
 	}
 
 	[Doc($$"""
-	是否還有內容在等位置；有待顯示時回傳它的序號。
+	這條連線是否還有內容在等位置；有待顯示時回傳它的序號。
+	#Prm[{{nameof(Session)}}][這條連線的狀態。]
 	#Prm[{{nameof(Seq)}}][待顯示內容的序號；沒有內容時為 0。]
 	#Rtn[true 表示有內容在等。]
 	""")]
-	bool HasPendingShow(out i32 Seq){
-		lock(PopupGate){
-			Seq = PendingSeq;
-			return PendingReply is not null;
+	bool HasPendingShow(TsfClientSession Session, out i32 Seq){
+		lock(Session.Gate){
+			Seq = Session.PendingSeq;
+			return Session.PendingReply is not null;
 		}
 	}
 
-	[Doc("丟掉待顯示的內容；沒有時無副作用。")]
-	void ClearPendingShow(){
-		lock(PopupGate){
-			PendingReply = null;
-			PendingSeq = 0;
+	[Doc($$"""
+	丟掉這條連線待顯示的內容；沒有時無副作用。
+	#Prm[{{nameof(Session)}}][這條連線的狀態。]
+	""")]
+	void ClearPendingShow(TsfClientSession Session){
+		lock(Session.Gate){
+			Session.PendingReply = null;
+			Session.PendingSeq = 0;
 		}
 	}
 

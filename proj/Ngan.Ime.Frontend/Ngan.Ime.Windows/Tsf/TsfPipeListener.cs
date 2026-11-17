@@ -31,8 +31,13 @@ internal sealed class TsfPipeListener{
 	[Doc("本安裝專屬的管道名稱；由服務端 exe 所在目錄算出，與同層外殼算出同一個名稱。")]
 	public str PipeName{get;}
 
-	[Doc("收到一行請求時呼叫：一行進、一行出。")]
-	Func<str, CT, Task<str?>>? Handle;
+	[Doc($$"""
+	收到一行請求時呼叫：一行進、一行出。
+	*多一個 {{nameof(TsfClientSession)}} 參數*：一條連線＝一個應用行程，
+	「待顯示內容、位置序號、插入點」都必須按連線分；先前這些是全服務端共用一份，
+	於是序號較小的行程（新開的應用）送的每一條位置都被當成過期丟掉，浮窗永遠不出現。
+	""")]
+	Func<str, TsfClientSession, CT, Task<str?>>? Handle;
 
 	[Doc("監聽迴圈的取消源；Start 時建立、Stop 時取消。")]
 	CancellationTokenSource? LoopCts;
@@ -44,9 +49,9 @@ internal sealed class TsfPipeListener{
 
 	[Doc($$"""
 	開始接受連線；重複呼叫無副作用。
-	#Prm[{{nameof(OnRequest)}}][收到請求時的處理器。]
+	#Prm[{{nameof(OnRequest)}}][收到請求時的處理器；每條連線帶自己的 {{nameof(TsfClientSession)}}。]
 	""")]
-	public void Start(Func<str, CT, Task<str?>> OnRequest){
+	public void Start(Func<str, TsfClientSession, CT, Task<str?>> OnRequest){
 		if(LoopCts is not null){
 			return;
 		}
@@ -94,11 +99,18 @@ internal sealed class TsfPipeListener{
 		}
 	}
 
-	[Doc("服務一條連線：逐行讀請求、交給處理器、回一行；連線關閉或取消才結束。")]
+	[Doc($$"""
+	服務一條連線：逐行讀請求、交給處理器、回一行；連線關閉或取消才結束。
+	*每條連線一份 {{nameof(TsfClientSession)}}*：對端行程 id 在連上時就讀出來，
+	之後這條連線的待顯示內容與位置序號都只影響自己。
+	""")]
 	async Task ServeAsy(NamedPipeServerStream Server, CT Ct){
 		await using(Server){
 			try{
-				AppLog.Trace($"[TsfPipe] 連線來源 pid={ReadClientProcessId(Server)}");
+				var ClientPid = ReadClientProcessId(Server);
+				var Session = new TsfClientSession(ClientPid);
+				// 連線建立記在 Info：排查「某些程式沒反應」時，第一件事就是確認它到底連上了沒有。
+				AppLog.Info($"[TsfPipe] 連線建立 pid={ClientPid}");
 				using var Reader = new StreamReader(Server, Encoding.UTF8, leaveOpen: true);
 				using var Writer = new StreamWriter(Server, new UTF8Encoding(false), leaveOpen: true){ AutoFlush = true };
 				// 一條連線可送多個請求：外殼連一次、之後每顆鍵復用。
@@ -111,7 +123,7 @@ internal sealed class TsfPipeListener{
 					if(Handler is null){
 						return;
 					}
-					var Reply = await Handler(Line, Ct);
+					var Reply = await Handler(Line, Session, Ct);
 					if(Reply is null){
 						// 單向請求（位置更新）：沒有回覆，也就沒有額外往返。
 						continue;

@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Ngan.Ime.Tsf.Ipc;
@@ -99,16 +100,24 @@ internal static unsafe partial class NativeTsf {
 			return true;
 		}
 		try {
-			// CurrentUserOnly：只有同一個使用者的行程能連上。少了它，同機任何行程都能
-			// 送出「按鍵」請求，而回應裏的 commit 會被本殼寫進前景應用的文件。
-			var client = new NamedPipeClientStream(".", GetPipeName(), PipeDirection.InOut, PipeOptions.CurrentUserOnly);
+			// *不帶 `PipeOptions.CurrentUserOnly`*。那不只是一個旗標：.NET 的客戶端會在
+			// **連線成功之後**再跑 `ValidateRemotePipeUser`，拿「管道擁有者」跟本行程令牌的
+			// `Owner` 比，不同就丟 `UnauthorizedAccessException`（`NamedPipeClientStream.Windows.cs`）。
+			// 2026-11-17 實測：管理員（提升後）主控台的外殼就是死在這裡——它連上了，
+			// 然後被自己判成「這條管道不是我的」，表現為「整個行程打不了字」，
+			// 日誌只有一句 `connect failed UnauthorizedAccessException`，看起來像權限被拒。
+			// Weasel 的客戶端只做 `CreateFile`（`WeaselIPC/PipeChannel.cpp` 的 `_TryConnect`），
+			// 沒有任何擁有者驗證；「只有同一個使用者能連」的限制留在服務端的 DACL（`TsfPipeListener`）。
+			var client = new NamedPipeClientStream(".", GetPipeName(), PipeDirection.InOut);
 			client.Connect(ConnectWaitMs);
 			Pipe = client;
 			PipeWriter = new StreamWriter(client, new UTF8Encoding(false)) { AutoFlush = true };
 			PipeReader = new StreamReader(client, Encoding.UTF8);
 			return true;
 		} catch (Exception Exception) {
-			LogWarn("connect failed " + Exception.GetType().Name);
+			// 帶上 Win32 錯誤碼：`UnauthorizedAccessException` 可能是 `CreateFile` 被 DACL 拒（5），
+			// 也可能是別的來源；只記例外型別分不出來，上一輪就是因此在這裡卡住。
+			LogWarn("connect failed " + Exception.GetType().Name + " win32=" + Marshal.GetLastWin32Error() + " pipe=" + GetPipeName());
 			Disconnect();
 			return false;
 		}

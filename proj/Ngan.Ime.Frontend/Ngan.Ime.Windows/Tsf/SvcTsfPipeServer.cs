@@ -193,17 +193,20 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		if(Req.Kind == ETsfReqKind.Position){
 			// 只移動浮窗，不碰引擎（Weasel 的 UpdateInputPosition 也只碰 UI）。
 			// 外殼在每次量到插入點時就推一條過來，浮窗因此即時跟隨光標。
+			// 與上次完全相同的位置不重複套用：Weasel 的 `MoveTo` 也有一條抖動抑制
+			// （`WeaselPanel.cpp:1135-1137`），免得同一顆鍵的第二條位置再搬一次。
+			var Moved = !Anchor.Has
+				|| Anchor.X != Req.X || Anchor.Y != Req.Y || Anchor.Top != Req.Top;
 			Anchor.Set(Req.X, Req.Y, Req.Top);
-			// 有待顯示的內容就一次做完「套內容 ＋ 定位 ＋ 顯示」；沒有就只換位置。
+			// 有待顯示的內容就一次做完「套內容 ＋ 定尺寸 ＋ 定位 ＋ 顯示」；沒有就只換位置。
 			// 拆成兩步會先畫在舊位置再搬，使用者就會看到跳一下。
 			var Showed = ApplyPendingShow();
-			if(!Showed){
+			if(!Showed && Moved){
 				Popup.MoveTo(Req.X, Req.Y, Req.Top);
 			}
-			AppLog.Info($"[Pos] x={Req.X} y={Req.Y} top={Req.Top} show={(Showed ? 1 : 0)}");
+			AppLog.Info($"[Pos] x={Req.X} y={Req.Y} top={Req.Top} show={(Showed ? 1 : 0)} moved={(Moved ? 1 : 0)}");
 			// 單向請求：不回一行，外殼也不必等。
 			return null;
-			return TsfReply.Empty().Format();
 		}
 		return await HandleKeyAsync(Req, Ct);
 	}
@@ -236,10 +239,11 @@ public sealed class SvcTsfPipeServer : ISvcTsfPipeServer{
 		}finally{
 			EngineLock.Release();
 		}
-		if(Req.X != 0 || Req.Y != 0){
-			// 按鍵請求順帶的座標也是量測結果，記下來給狀態提示與逾時兜底用
-			// （(0,0) 代表未知；請求沒有上緣欄位，用下緣代替）。
-			// 按鍵請求沒有上緣欄位：把下緣當上緣（高度 0），只用於狀態提示與逾時兜底。
+		if(!Anchor.Has && (Req.X != 0 || Req.Y != 0)){
+			// 按鍵請求順帶的座標也是量測結果，但它**沒有上緣欄**：只能把下緣當上緣（高度 0）。
+			// 這種退化值只當「從來沒收到位置更新」時的兜底；一旦有過真正的 `P`，
+			// 就不再用它覆寫——否則每顆鍵都會把上緣打成下緣，翻到上方時面板下緣
+			// 正好壓在文字行上（照 Weasel 的 CUAS 分支，零高矩形不用來定位）。
 			Anchor.Set(Req.X, Req.Y, Req.Y);
 		}
 		// 只有按下才動浮窗：擡起時引擎多半沒吃，但畫面不該跟著抖。

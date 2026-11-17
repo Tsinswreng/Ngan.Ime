@@ -45,12 +45,6 @@ public partial class ViewCandidatePopup : Window{
 	public partial void Refresh();
 
 	[Doc($$"""
-	與 Weasel 相同的 6px 間距：`WeaselPanel::MoveTo` 先做 `m_inputPos.OffsetRect(0, 6)`
-	（`WeaselUI/WeaselPanel.cpp:1129`），候選窗因此不會貼着、蓋着光標。
-	""")]
-	public const i32 AnchorGapPx = 6;
-
-	[Doc($$"""
 	一旦翻到插入點上方就固定在上方，避免視窗高度變動時來回跳（照 Weasel 的 `m_sticky`）。
 	""")]
 	public bool Sticky;
@@ -61,7 +55,12 @@ public partial class ViewCandidatePopup : Window{
 	""")]
 	public bool Reversed;
 
-	[Doc("套好內容後呼叫：排版、定位、顯示一次完成；順序照 Weasel（位置算好才顯示）。")]
+	[Doc($$"""
+	套好內容後呼叫：排版、定尺寸、定位、顯示一次完成；順序照 Weasel
+	（`Refresh` 裡 `DoLayout → _ResizeWindow → _RepositionWindow`，`WeaselUI/WeaselPanel.cpp:163-165`）。
+	#Prm[{{nameof(Anchor)}}][插入點下緣與左邊（螢幕物理像素）。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣（螢幕物理像素）。]
+	""")]
 	public partial void ShowAt(PixelPoint Anchor, i32 Top);
 
 	[Doc("只換位置（內容沒變）；不負責顯示。")]

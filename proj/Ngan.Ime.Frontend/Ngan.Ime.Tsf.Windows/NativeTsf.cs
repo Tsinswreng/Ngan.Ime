@@ -1374,7 +1374,9 @@ internal static unsafe partial class NativeTsf {
 		var hasCaret = GetCaretPos(ref caret);
 		if (!TsfCaretPolicy.TryAdopt(Rect.Left, Rect.Top, Rect.Right, Rect.Bottom,
 			fgLeft, fgTop, fgRight, fgBottom, hasForeground,
-			hasCaret, caret.X, caret.Y, out var x, out var y, out var rectTop)) {
+			hasCaret, caret.X, caret.Y, State.CaretValid, out var x, out var y, out var rectTop)) {
+			// 沒有採用時**仍然要送位置**（沿用上一次的錨點）：內容是另一條訊息送來的，
+			// 服務端在收到位置之前不顯示；這裡不送就等於這一顆鍵沒有候選窗。
 			return false;
 		}
 		State.CaretPointX = x;

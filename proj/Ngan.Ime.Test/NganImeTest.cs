@@ -56,5 +56,6 @@ public class NganImeTester : Tester{
 		this.AddTester<TestTsfCompositionPlanner>();
 		this.AddTester<TestTsfCaretPolicy>();
 		this.AddTester<TestVmCandidatePopup>();
+		this.AddTester<TestPopupPlacer>();
 	}
 }

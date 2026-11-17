@@ -23,8 +23,11 @@ public partial class ViewCandidatePopup{
 		CanResize = false;
 		// 無邊框：型別名要寫全，否則屬性名稱會遮蔽型別。
 		WindowDecorations = Avalonia.Controls.WindowDecorations.None;
-		// 寬高貼內容：候選多寬、組字多長，視窗就多大。
-		SizeToContent = SizeToContent.WidthAndHeight;
+		// *尺寸由我們自己定*，不交給 SizeToContent：
+		// 照 Weasel 的順序（`_ResizeWindow` 先定大小、`_RepositionWindow` 再拿真實大小算位置），
+		// 位置必須用「視窗真正會有多大」來算。交給 SizeToContent 的話，大小是在 Show 之後、
+		// 另一個版面流程裡才定案的，而位置卻在那之前就算完了——翻到上方時面板下緣就會壓進文字行。
+		SizeToContent = SizeToContent.Manual;
 		Background = UiCfg.Inst.PopupBgColor;
 		TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
 		MkContent();
@@ -141,14 +144,25 @@ public partial class ViewCandidatePopup{
 	}
 
 	[Doc($$"""
-	顯示並定位；順序照 Weasel：先把內容排好、算好位置，視窗最後才第一次出現。
+	顯示並定位；順序照 Weasel：先把內容排好、把視窗大小定案，算好位置，視窗最後才第一次出現。
 	#Prm[{{nameof(Anchor)}}][插入點下緣。]
 	#Prm[{{nameof(Top)}}][插入點矩形上緣。]
 	""")]
 	public partial void ShowAt(PixelPoint Anchor, i32 Top){
-		ApplyPlacement(Anchor, Top);
+		var Scaled = ApplyPlacement(Anchor, Top);
 		if(!IsVisible){
 			Show();
+			if(!Scaled){
+				// 平台窗口還沒建之前可能取不到螢幕縮放（`Screens` 取決於平台實現）。
+				// 這裡在同一則 UI 訊息裡補算一次：Show 之後才拿得到縮放，而畫面還沒渲染，
+				// 所以使用者看不到中間狀態，也不會多出一幀。
+				ApplyPlacement(Anchor, Top);
+			}
+			// 記一次「視窗真正的大小」：定位用的是我們設定的尺寸，這一條用來核對平台有沒有
+			// 額外加邊框或取整。只記日誌、不改行為，下次有數字可查。
+			AppLog.Info($"[Place] shown bounds={Bounds.Width:F1}x{Bounds.Height:F1}"
+				+ $" client={ClientSize.Width:F1}x{ClientSize.Height:F1}"
+				+ $" at=({Position.X},{Position.Y})");
 		}
 	}
 
@@ -158,53 +172,134 @@ public partial class ViewCandidatePopup{
 	}
 
 	[Doc($$"""
-	算位置並寫進 {{nameof(Position)}}；不顯示。
+	算位置、定尺寸、寫進 {{nameof(Position)}}；不負責顯示。
 
-	*照 Weasel `WeaselPanel::MoveTo` ＋ `_RepositionWindow`（`WeaselUI/WeaselPanel.cpp:1121-1223`）*：
-	+ 插入點下緣往下讓 6px（`OffsetRect(0, 6)`）；
-	+ x 夾在插入點所在螢幕的工作區內；
-	+ 下方放不下就翻到插入點**上緣之上**：`y = Top - 高度`
-		（Weasel：`m_inputPos.top - height - 6`，`m_inputPos.top` 是上緣 + 6）；
-	+ 翻上去時行序倒排（{{nameof(Reversed)}}，照 `m_istorepos`），第一候選貼着光標；
-	+ 翻過一次就固定上方（`m_sticky`）；y 不得高於工作區上緣。
+	*三段順序照 Weasel*（`WeaselPanel::Refresh` 的 `DoLayout → _ResizeWindow → _RepositionWindow`）：
 
-	*尺寸一定用 `DesiredSize`*：`Bounds` 是上一輪內容的尺寸，候選行數一變就是錯的。
+	1. 依內容排版，量出內容尺寸（Avalonia 給的是版面單位 DIP）；
+	2. 換成物理像素（乘螢幕縮放），用**這個**高度決定翻不翻、要不要倒排；
+	3. 把視窗大小定案（DIP），再用像素座標定位。
+
+	*為何一定要換單位*：Weasel 全程只在物理像素下算（`GetWindowRect`、`MonitorFromRect`、
+	`rcWork`）。我們的 `Screens.WorkingArea` 與 `Window.Position` 也是物理像素，
+	但 `DesiredSize`／`Bounds` 是 DIP；125% 縮放下直接混用，翻到上方時面板下緣會低
+	25% 的高度，正好壓在文字行上——這就是「算式對、畫面錯」的原因。
+
+	*為何不先 Show 再量*：`Bounds` 是上一輪內容的尺寸，候選行數一變就是錯的；
+	而且那會變成「先畫在舊位置、下一幀再搬」。
+	#Prm[{{nameof(Anchor)}}][插入點下緣與左邊（螢幕物理像素）。]
+	#Prm[{{nameof(Top)}}][插入點矩形上緣（螢幕物理像素）。]
+	#Rtn[true 表示螢幕縮放已取得（尺寸與位置都是像素座標）；false 表示用了 1.0 的兜底值。]
 	""")]
-	void ApplyPlacement(PixelPoint Anchor, i32 Top){
+	bool ApplyPlacement(PixelPoint Anchor, i32 Top){
+		// 1: 排版並量內容；這一步之後 DesiredSize 才是這次的內容尺寸。
 		MeasureContent();
-		var Width = (i32)Math.Ceiling(ContentSize.Width);
-		var Height = (i32)Math.Ceiling(ContentSize.Height);
-		var Screens = this.Screens;
-		var Screen = Screens?.ScreenFromPoint(Anchor) ?? Screens?.Primary;
-		var Work = Screen?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
-		var Below = Anchor.Y + AnchorGapPx;
-		var Flip = Below > Work.Bottom - Height || Sticky;
-		if(Flip != Reversed){
-			// 行序一換高度就變：先換、重量，再用新高度算 y。
-			Reversed = Flip;
+		var ContentWidth = ContentSize.Width;
+		var ContentHeight = ContentSize.Height;
+		// 2: 取螢幕縮放與工作區（兩者都是物理像素的來源）。
+		var Scaled = TryScalingAt(Anchor, out var Scale);
+		var Work = WorkAreaAt(Anchor);
+		var WidthPx = Px(ContentWidth, Scale);
+		var HeightPx = Px(ContentHeight, Scale);
+		// 3: 用真實像素高度決定翻不翻（翻上去時面板下緣貼着文字行上緣）。
+		var Placement = PopupPlacer.Compute(
+			new PopupAnchor{ X = Anchor.X, Y = Anchor.Y, Top = Top },
+			WidthPx, HeightPx, Work, Sticky);
+		// 4: 翻轉會把候選行倒過來；行序一換就重排，再重量一次尺寸（行數不變，尺寸理應相同，
+		//    但版面若因字寬不同而變，這裡拿到的才是這次真的要用的高度）。
+		if(Placement.Reversed != Reversed){
+			Reversed = Placement.Reversed;
 			Refresh();
 			MeasureContent();
-			Width = (i32)Math.Ceiling(ContentSize.Width);
-			Height = (i32)Math.Ceiling(ContentSize.Height);
+			ContentWidth = ContentSize.Width;
+			ContentHeight = ContentSize.Height;
+			WidthPx = Px(ContentWidth, Scale);
+			HeightPx = Px(ContentHeight, Scale);
+			Placement = PopupPlacer.Compute(
+				new PopupAnchor{ X = Anchor.X, Y = Anchor.Y, Top = Top },
+				WidthPx, HeightPx, Work, Sticky);
 		}
-		if(Flip){
+		if(Placement.Flip){
 			Sticky = true;
 		}
-		var X = Anchor.X;
-		var Y = Flip ? Top - Height : Anchor.Y + AnchorGapPx;
-		var MaxX = Work.Right - Width;
-		if(X > MaxX){
-			X = MaxX;
-		}
-		if(X < Work.X){
-			X = Work.X;
-		}
-		if(Y < Work.Y){
-			Y = Work.Y;
-		}
-		Position = new PixelPoint(X, Y);
-		AppLog.Info($"[Place] anchor=({Anchor.X},{Anchor.Y}) top={Top} w={Width} h={Height} work={Work.X},{Work.Y},{Work.Right},{Work.Bottom} flip={(Flip ? 1 : 0)} rev={(Reversed ? 1 : 0)} pos=({X},{Y})");
+		// 5: 先把視窗大小定案（Weasel 的 `_ResizeWindow`），再定位（`_RepositionWindow`）。
+		//    次序反過來的話，位置是拿「我以為的高度」算的，不是視窗真正的高度。
+		var WidthDip = Math.Ceiling(ContentWidth);
+		var HeightDip = Math.Ceiling(ContentHeight);
+		Width = WidthDip;
+		Height = HeightDip;
+		Position = new PixelPoint(Placement.X, Placement.Y);
+		AppLog.Info($"[Place] anchor=({Anchor.X},{Anchor.Y}) top={Top} scale={Scale:F2}"
+			+ $" dip={WidthDip:F0}x{HeightDip:F0} px={WidthPx}x{HeightPx}"
+			+ $" work={Work.X},{Work.Y},{Work.Right},{Work.Bottom}"
+			+ $" flip={(Placement.Flip ? 1 : 0)} rev={(Reversed ? 1 : 0)}"
+			+ $" pos=({Placement.X},{Placement.Y})");
+		return Scaled;
 	}
+
+	[Doc($$"""
+	把版面單位（DIP）換成物理像素。
+	#Prm[{{nameof(Dip)}}][版面單位。]
+	#Prm[{{nameof(Scale)}}][螢幕縮放。]
+	#Rtn[物理像素；無條件進位，寧可多留 1px 也不要少算而壓到字。]
+	""")]
+	static i32 Px(f64 Dip, f64 Scale){
+		return (i32)Math.Ceiling(Dip * Scale);
+	}
+
+	[Doc($$"""
+	插入點所在螢幕的縮放比例。
+	*為何不信 {{nameof(RenderScaling)}}*：它要在平台窗口建立之後才有值，而我們在第一次 Show 之前就要算位置。
+	`screens` 的 `Screen.Scaling` 對每個螢幕都成立，故優先取它；兩者都拿不到才回 1.0。
+	#Prm[{{nameof(Point)}}][插入點（螢幕物理像素）。]
+	#Prm[{{nameof(Scale)}}][取得的縮放；取不到時為 1.0。]
+	#Rtn[true 表示真的取到了。]
+	""")]
+	bool TryScalingAt(PixelPoint Point, out f64 Scale){
+		Scale = 1.0;
+		try{
+			var Screens = this.Screens;
+			var Screen = Screens?.ScreenFromPoint(Point) ?? Screens?.Primary;
+			if(Screen is not null && Screen.Scaling > 0){
+				Scale = Screen.Scaling;
+				return true;
+			}
+		}catch(Exception){
+			// 平台還沒就緒時這裡可能拋；下方的兜底比在這裡中斷顯示要好。
+		}
+		try{
+			if(RenderScaling > 0){
+				Scale = RenderScaling;
+				return true;
+			}
+		}catch(Exception){
+			// 同上：拿不到就回 1.0，並由 ShowAt 在 Show 之後補算一次。
+		}
+		return false;
+	}
+
+	[Doc($$"""
+	插入點所在螢幕的工作區（物理像素）。
+	取不到時退回 {{nameof(FallbackWork)}}，並記一則 Warn——寧可位置不完美，也不要讓浮窗消失。
+	#Prm[{{nameof(Point)}}][插入點（螢幕物理像素）。]
+	#Rtn[工作區。]
+	""")]
+	PixelRect WorkAreaAt(PixelPoint Point){
+		try{
+			var Screens = this.Screens;
+			var Screen = Screens?.ScreenFromPoint(Point) ?? Screens?.Primary;
+			if(Screen is not null){
+				return Screen.WorkingArea;
+			}
+		}catch(Exception){
+			// 見 TryScalingAt。
+		}
+		AppLog.Warn("[Place] 取不到螢幕工作區，暫用 1920x1080 兜底");
+		return FallbackWork;
+	}
+
+	[Doc("取不到工作區時的兜底；只影響貼邊與翻轉判斷，不影響「貼着插入點」這件事。")]
+	static readonly PixelRect FallbackWork = new(0, 0, 1920, 1080);
 
 	[Doc("量一次內容的尺寸：`Window.Measure` 受視窗系統影響，直接量子控件最可靠。")]
 	void MeasureContent(){

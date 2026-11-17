@@ -34,6 +34,7 @@ public static class TsfCaretPolicy{
 	#Prm[{{nameof(HasCaret)}}][是否取得 `GetCaretPos`（客戶區座標）。]
 	#Prm[{{nameof(CaretX)}}][caret 的客戶區 X。]
 	#Prm[{{nameof(CaretY)}}][caret 的客戶區 Y。]
+	#Prm[{{nameof(HasPrevious)}}][是否已經有上一次採用的插入點。]
 	#Prm[{{nameof(X)}}][採用的錨點 X（螢幕座標）。]
 	#Prm[{{nameof(Y)}}][採用的錨點 Y（螢幕座標，取矩形下緣）。]
 	#Prm[{{nameof(RectTop)}}][矩形的上緣（螢幕座標）；浮窗翻到上方時用它定位。]
@@ -42,7 +43,7 @@ public static class TsfCaretPolicy{
 	public static bool TryAdopt(
 		i32 Left, i32 Top, i32 Right, i32 Bottom,
 		i32 FgLeft, i32 FgTop, i32 FgRight, i32 FgBottom, bool HasForeground,
-		bool HasCaret, i32 CaretX, i32 CaretY,
+		bool HasCaret, i32 CaretX, i32 CaretY, bool HasPrevious,
 		out i32 X, out i32 Y, out i32 RectTop
 	){
 		X = 0;
@@ -50,6 +51,17 @@ public static class TsfCaretPolicy{
 		RectTop = 0;
 		// Weasel：`(rc.left != 0 || rc.top != 0)` 才算有效。
 		if(Left == 0 && Top == 0){
+			return false;
+		}
+		// *零高矩形不用*：`top == bottom` 代表控件只回了插入點位置、沒回文字行高度
+		// （Weasel 的 CUAS 分支，`WeaselTSF/Composition.cpp:228-240`：首次遇到就記下並
+		// **直接 return，不更新位置**）。用這種矩形定位，翻到上方時 `上緣 − 高度`
+		// 等於「下緣 − 高度」，面板下緣正好壓在文字行下緣；放下面時又只離文字行上緣 6px，
+		// 等於直接蓋在字上——順排倒排都遮，就是這個形狀。
+		// 已經有上一次的位置時就不採用、沿用舊的（照 Weasel）；完全沒有位置時只能採用，
+		// 否則整個候選窗永遠不會出現（這是我們與 Weasel 的差異：它的面板本來就會顯示，
+		// 只是不移動）。
+		if(Bottom - Top <= 0 && HasPrevious){
 			return false;
 		}
 		var l = Left;
